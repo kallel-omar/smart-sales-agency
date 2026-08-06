@@ -3,10 +3,13 @@ from uuid import uuid4
 
 import pytest
 
+from app.core.event_factory import create_business_event
+from app.core.event_payloads import LeadGeneratedPayload
+from app.core.event_types import EventType
+from app.core.events import Department
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.services import SalesDepartmentService
 from app.models import SalesStage
-
 
 
 @pytest.mark.asyncio
@@ -170,3 +173,96 @@ def test_sales_department_service_uses_sales_supervisor() -> None:
     service = SalesDepartmentService(context)
 
     assert service.supervisor is not None
+
+
+@pytest.mark.asyncio
+async def test_sales_department_service_handles_lead_generated_event(
+    monkeypatch,
+) -> None:
+    context = AgentContext(
+        settings=Mock(),
+        repository=Mock(),
+        llm=Mock(),
+    )
+
+    service = SalesDepartmentService(context)
+
+    lead_id = uuid4()
+
+    expected_result = {
+        "status": "awaiting_approval",
+        "qualified": True,
+    }
+
+    run_new_lead_workflow = AsyncMock(
+        return_value=expected_result
+    )
+
+    monkeypatch.setattr(
+        service,
+        "run_new_lead_workflow",
+        run_new_lead_workflow,
+    )
+
+    event = create_business_event(
+        workspace_id=uuid4(),
+        event_type=EventType.LEAD_GENERATED,
+        source_department=Department.PLATFORM,
+        destination_department=Department.SALES,
+        payload=LeadGeneratedPayload(
+            lead_id=str(lead_id),
+            source="api",
+        ),
+    )
+
+    result = await service.handle_event(event)
+
+    assert result == expected_result
+
+    run_new_lead_workflow.assert_awaited_once_with(
+        lead_id
+    )
+
+
+@pytest.mark.asyncio
+async def test_sales_department_service_rejects_unknown_event() -> None:
+    context = AgentContext(
+        settings=Mock(),
+        repository=Mock(),
+        llm=Mock(),
+    )
+
+    service = SalesDepartmentService(context)
+
+    event = Mock()
+    event.event_type = "order.created"
+    event.payload = {}
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported Sales Department event",
+    ):
+        await service.handle_event(event)
+
+
+@pytest.mark.asyncio
+async def test_sales_department_service_rejects_invalid_lead_id_event() -> None:
+    context = AgentContext(
+        settings=Mock(),
+        repository=Mock(),
+        llm=Mock(),
+    )
+
+    service = SalesDepartmentService(context)
+
+    event = Mock()
+    event.event_type = EventType.LEAD_GENERATED.value
+    event.payload = {
+        "lead_id": "not-a-valid-uuid",
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="invalid lead_id",
+    ):
+        await service.handle_event(event)
