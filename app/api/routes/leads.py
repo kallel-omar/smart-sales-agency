@@ -1,9 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
-from app.api.dependencies import SessionDep
+from app.api.dependencies import CurrentWorkspaceDep, SessionDep
 from app.models import Lead
 from app.schemas import LeadCreate, LeadRead
 from app.services.workspaces import (
@@ -49,14 +49,30 @@ def create_lead(
 
 
 @router.get("", response_model=list[LeadRead])
-def list_leads(session: SessionDep, tenant_id: str = Query(default="demo")) -> list[Lead]:
-    statement = select(Lead).where(Lead.tenant_id == tenant_id).order_by(Lead.created_at.desc())
+def list_leads(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> list[Lead]:
+    statement = (
+        select(Lead)
+        .where(Lead.tenant_id == workspace.slug)
+        .order_by(Lead.created_at.desc())
+    )
+
     return list(session.exec(statement).all())
 
-
 @router.get("/{lead_id}", response_model=LeadRead)
-def get_lead(lead_id: UUID, session: SessionDep) -> Lead:
+def get_lead(
+    lead_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> Lead:
     lead = session.get(Lead, lead_id)
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if not lead or lead.tenant_id != workspace.slug:
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found",
+        )
+
     return lead
