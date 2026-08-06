@@ -2,8 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.agents.base import AgentContext
-from app.agents.sales_agent import SalesConversationAgent
+from app.departments.sales.agents.base import AgentContext
+from app.departments.sales.agents.sales_agent import SalesConversationAgent
 from app.api.dependencies import CurrentWorkspaceDep, SessionDep, SettingsDep
 from app.models import ConversationMessage
 from app.schemas import ConversationMessageRead, InboundMessage, SalesReply

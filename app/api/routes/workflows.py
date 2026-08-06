@@ -2,13 +2,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
-from app.agents.base import AgentContext
+from  app.departments.sales.agents.base import AgentContext
 from app.api.dependencies import (
     CurrentWorkspaceDep,
     SessionDep,
     SettingsDep,
 )
-from app.graph.workflow import SalesWorkflow
+from app.departments.sales.workflows import NewLeadWorkflow
 from app.schemas import WorkflowResult
 from app.services.llm import build_llm
 from app.services.repository import NotFoundError, SalesRepository
@@ -51,7 +51,7 @@ async def run_lead_workflow(
         llm=build_llm(settings),
     )
 
-    workflow = SalesWorkflow(context)
+    workflow = NewLeadWorkflow(context)
 
     try:
         result = await workflow.run(lead_id)

@@ -1,12 +1,10 @@
-from dataclasses import dataclass
+"""
+Compatibility import for the previous Sales agent package.
 
-from app.config import Settings
-from app.services.llm import LLMClient
-from app.services.repository import SalesRepository
+New code should import AgentContext from:
+app.departments.sales.agents.base
+"""
 
+from app.departments.sales.agents.base import AgentContext
 
-@dataclass(slots=True)
-class AgentContext:
-    settings: Settings
-    repository: SalesRepository
-    llm: LLMClient
+__all__ = ["AgentContext"]

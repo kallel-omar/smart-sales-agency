@@ -1,15 +1,12 @@
-from typing import Any, TypedDict
-from uuid import UUID
+"""
+Compatibility import for the previous graph package.
 
+New code should import SalesWorkflowState from:
+app.departments.sales.workflows.state
+"""
 
-class SalesWorkflowState(TypedDict, total=False):
-    lead_id: UUID
-    lead: Any
-    research: dict[str, Any]
-    score: int
-    qualified: bool
-    qualification_reasons: list[str]
-    draft_message: str | None
-    approval_id: UUID | None
-    next_action: str
-    status: str
+from app.departments.sales.workflows.state import (
+    SalesWorkflowState,
+)
+
+__all__ = ["SalesWorkflowState"]
