@@ -61,7 +61,10 @@ async def draft_sales_reply(
         approval = repository.create_approval(
             lead_id=lead.id,
             channel=payload.channel,
-            payload={"recipient": lead.email or lead.phone or lead.full_name, "content": reply},
+            payload={"recipient": lead.email or lead.phone or lead.full_name,
+                      "content": reply,
+                      "stage": stage.value,
+                      },
         )
         approval_id = approval.id
     else:
