@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.core.event_types import EventType
+from app.core.events import BusinessEvent
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.sales_agent import SalesConversationAgent
 from app.departments.sales.supervisor import (
@@ -26,8 +28,8 @@ class SalesDepartmentService:
     """
     Application boundary for Sales Department operations.
 
-    API routes call this service instead of constructing workflows
-    or specialist agents directly.
+    API routes and business-event handlers call this service instead of
+    constructing workflows or specialist agents directly.
     """
 
     def __init__(self, context: AgentContext):
@@ -128,4 +130,38 @@ class SalesDepartmentService:
             detected_stage=stage,
             draft_reply=reply,
             approval_id=approval_id,
+        )
+
+    async def handle_event(
+        self,
+        event: BusinessEvent,
+    ) -> dict:
+        """
+        Handle a business event owned by the Sales Department.
+
+        External departments and platform services do not need to know
+        which internal Sales workflow will execute the event.
+        """
+
+        if event.event_type == EventType.LEAD_GENERATED.value:
+            lead_id_value = event.payload.get("lead_id")
+
+            if not lead_id_value:
+                raise ValueError(
+                    "lead.generated event requires payload.lead_id"
+                )
+
+            try:
+                lead_id = UUID(str(lead_id_value))
+            except ValueError as exc:
+                raise ValueError(
+                    "lead.generated event contains an invalid lead_id"
+                ) from exc
+
+            return await self.run_new_lead_workflow(
+                lead_id
+            )
+
+        raise ValueError(
+            f"Unsupported Sales Department event: {event.event_type}"
         )
