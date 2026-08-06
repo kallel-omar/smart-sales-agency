@@ -1,0 +1,11 @@
+{
+  "tenant_id": "demo",
+  "name": "AI Sales Assistant Starter",
+  "description": "Lead organization, approved reply drafts, conversation history, and follow-up tasks.",
+  "price": 99,
+  "minimum_price": 99,
+  "metadata_json": {
+    "billing": "monthly",
+    "channels": ["console-demo"]
+  }
+}

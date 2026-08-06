@@ -1,0 +1,10 @@
+{
+  "tenant_id": "demo",
+  "full_name": "Sarra Ben Ali",
+  "company_name": "Example Commerce",
+  "job_title": "Founder",
+  "email": "sarra@example.com",
+  "website": "https://example.com",
+  "source": "manual",
+  "notes": "The company receives customer questions on several social channels and needs faster follow-up."
+}

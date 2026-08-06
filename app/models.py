@@ -1,0 +1,110 @@
+from datetime import datetime, timezone
+from enum import StrEnum
+from typing import Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import Column, JSON, Text
+from sqlmodel import Field, SQLModel
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class LeadStatus(StrEnum):
+    NEW = "new"
+    RESEARCHED = "researched"
+    QUALIFIED = "qualified"
+    UNQUALIFIED = "unqualified"
+    CONTACTED = "contacted"
+    ENGAGED = "engaged"
+    PROPOSAL = "proposal"
+    NEGOTIATION = "negotiation"
+    WON = "won"
+    LOST = "lost"
+
+
+class SalesStage(StrEnum):
+    INTRODUCTION = "introduction"
+    DISCOVERY = "discovery"
+    QUALIFICATION = "qualification"
+    VALUE_PROPOSITION = "value_proposition"
+    OBJECTION_HANDLING = "objection_handling"
+    CLOSING = "closing"
+    FOLLOW_UP = "follow_up"
+
+
+class ApprovalStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXECUTED = "executed"
+
+
+class Lead(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    tenant_id: str = Field(default="demo", index=True, max_length=100)
+    full_name: str = Field(index=True, max_length=200)
+    company_name: str = Field(index=True, max_length=200)
+    job_title: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, index=True, max_length=320)
+    phone: str | None = Field(default=None, max_length=50)
+    website: str | None = Field(default=None, max_length=500)
+    source: str = Field(default="manual", max_length=100)
+    status: LeadStatus = Field(default=LeadStatus.NEW, index=True)
+    score: int = Field(default=0, ge=0, le=100)
+    notes: str | None = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class Product(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    tenant_id: str = Field(default="demo", index=True, max_length=100)
+    name: str = Field(index=True, max_length=200)
+    description: str = Field(sa_column=Column(Text))
+    price: float | None = Field(default=None, ge=0)
+    minimum_price: float | None = Field(default=None, ge=0)
+    active: bool = Field(default=True)
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+class LeadResearch(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    lead_id: UUID = Field(foreign_key="lead.id", index=True)
+    summary: str = Field(sa_column=Column(Text))
+    pain_points: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    opportunities: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    evidence: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ConversationMessage(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    lead_id: UUID = Field(foreign_key="lead.id", index=True)
+    direction: str = Field(max_length=20)  # inbound or outbound
+    channel: str = Field(default="console", max_length=50)
+    stage: SalesStage = Field(default=SalesStage.INTRODUCTION)
+    content: str = Field(sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ApprovalRequest(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    lead_id: UUID = Field(foreign_key="lead.id", index=True)
+    action_type: str = Field(default="send_message", max_length=100)
+    channel: str = Field(default="console", max_length=50)
+    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    status: ApprovalStatus = Field(default=ApprovalStatus.PENDING, index=True)
+    reviewer_note: str | None = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=utc_now)
+    decided_at: datetime | None = None
+
+
+class FollowUpTask(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    lead_id: UUID = Field(foreign_key="lead.id", index=True)
+    due_at: datetime = Field(index=True)
+    reason: str = Field(max_length=300)
+    status: str = Field(default="pending", max_length=30, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
