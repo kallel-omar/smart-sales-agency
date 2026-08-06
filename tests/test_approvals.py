@@ -1,4 +1,14 @@
 def test_approved_reply_preserves_sales_stage(client):
+    workspace_response = client.post(
+        "/api/workspaces",
+        json={
+            "slug": "demo",
+            "name": "Demo Company",
+        },
+    )
+
+    assert workspace_response.status_code == 201
+    
     product_response = client.post(
         "/api/products",
         json={
