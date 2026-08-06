@@ -77,3 +77,14 @@ class SalesReply(BaseModel):
     detected_stage: SalesStage
     draft_reply: str
     approval_id: UUID | None = None
+
+class ConversationMessageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    lead_id: UUID
+    direction: str
+    channel: str
+    stage: SalesStage
+    content: str
+    created_at: datetime
