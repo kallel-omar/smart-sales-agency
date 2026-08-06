@@ -8,7 +8,7 @@ from app.api.dependencies import (
     SessionDep,
     SettingsDep,
 )
-from app.departments.sales.workflows import NewLeadWorkflow
+from app.departments.sales.services import SalesDepartmentService
 from app.schemas import WorkflowResult
 from app.services.llm import build_llm
 from app.services.repository import NotFoundError, SalesRepository
@@ -51,10 +51,10 @@ async def run_lead_workflow(
         llm=build_llm(settings),
     )
 
-    workflow = NewLeadWorkflow(context)
-
+    sales_department = SalesDepartmentService(context)
     try:
-        result = await workflow.run(lead_id)
+        result = await sales_department.run_new_lead_workflow(lead_id)
+
     except NotFoundError as exc:
         raise HTTPException(
             status_code=404,
