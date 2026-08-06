@@ -5,6 +5,119 @@ import pytest
 
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.services import SalesDepartmentService
+from app.models import SalesStage
+
+
+
+@pytest.mark.asyncio
+async def test_sales_department_service_handles_inbound_message_with_approval(
+    monkeypatch,
+) -> None:
+    settings = Mock()
+    settings.require_human_approval = True
+
+    repository = Mock()
+
+    approval_id = uuid4()
+    approval = Mock()
+    approval.id = approval_id
+
+    repository.create_approval.return_value = approval
+
+    context = AgentContext(
+        settings=settings,
+        repository=repository,
+        llm=Mock(),
+    )
+
+    lead = Mock()
+    lead.id = uuid4()
+    lead.email = "customer@example.com"
+    lead.phone = None
+    lead.full_name = "Example Customer"
+
+    draft_reply = AsyncMock(
+        return_value=(
+            SalesStage.QUALIFICATION,
+            "The product costs 100.",
+        )
+    )
+
+    monkeypatch.setattr(
+        "app.departments.sales.services.department_service."
+        "SalesConversationAgent.draft_reply",
+        draft_reply,
+    )
+
+    service = SalesDepartmentService(context)
+
+    result = await service.draft_sales_reply(
+        lead=lead,
+        channel="web",
+        content="How much does it cost?",
+    )
+
+    assert result.detected_stage == SalesStage.QUALIFICATION
+    assert result.draft_reply == "The product costs 100."
+    assert result.approval_id == approval_id
+
+    assert repository.add_message.call_count == 1
+    repository.create_approval.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_sales_department_service_persists_outbound_when_approval_disabled(
+    monkeypatch,
+) -> None:
+    settings = Mock()
+    settings.require_human_approval = False
+
+    repository = Mock()
+
+    context = AgentContext(
+        settings=settings,
+        repository=repository,
+        llm=Mock(),
+    )
+
+    lead = Mock()
+    lead.id = uuid4()
+    lead.email = "customer@example.com"
+    lead.phone = None
+    lead.full_name = "Example Customer"
+
+    draft_reply = AsyncMock(
+        return_value=(
+            SalesStage.DISCOVERY,
+            "What problem would you like to solve?",
+        )
+    )
+
+    monkeypatch.setattr(
+        "app.departments.sales.services.department_service."
+        "SalesConversationAgent.draft_reply",
+        draft_reply,
+    )
+
+    service = SalesDepartmentService(context)
+
+    result = await service.draft_sales_reply(
+        lead=lead,
+        channel="web",
+        content="I need help with my sales process.",
+    )
+
+    assert result.detected_stage == SalesStage.DISCOVERY
+    assert result.approval_id is None
+
+    assert repository.add_message.call_count == 2
+    repository.create_approval.assert_not_called()
+
+    inbound_message = repository.add_message.call_args_list[0].args[0]
+    outbound_message = repository.add_message.call_args_list[1].args[0]
+
+    assert inbound_message.direction == "inbound"
+    assert outbound_message.direction == "outbound"
 
 
 @pytest.mark.asyncio
