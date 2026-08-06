@@ -42,12 +42,15 @@ def test_approved_reply_preserves_sales_stage(client):
     lead_id = lead_response.json()["id"]
 
     reply_response = client.post(
-        f"/api/conversations/{lead_id}/reply",
-        json={
-            "content": "What is the exact monthly price?",
-            "channel": "console",
-        },
-    )
+    f"/api/conversations/{lead_id}/reply",
+    headers={
+        "X-Workspace-Slug": "demo",
+    },
+    json={
+        "content": "What is the exact monthly price?",
+        "channel": "console",
+    },
+)
 
     assert reply_response.status_code == 200
 
@@ -74,8 +77,11 @@ def test_approved_reply_preserves_sales_stage(client):
     assert approval_data["payload"]["stage"] == "qualification"
 
     history_response = client.get(
-        f"/api/conversations/{lead_id}",
-    )
+    f"/api/conversations/{lead_id}",
+    headers={
+        "X-Workspace-Slug": "demo",
+    },
+)
 
     assert history_response.status_code == 200
 
