@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
-from app.api.dependencies import SessionDep
+from app.api.dependencies import CurrentWorkspaceDep, SessionDep
 from app.models import Product
 from app.schemas import ProductCreate
 from app.services.workspaces import (
@@ -45,8 +45,14 @@ def create_product(
 
     return product
 
-
 @router.get("", response_model=list[Product])
-def list_products(session: SessionDep, tenant_id: str = Query(default="demo")) -> list[Product]:
-    statement = select(Product).where(Product.tenant_id == tenant_id, Product.active.is_(True))
+def list_products(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> list[Product]:
+    statement = select(Product).where(
+        Product.tenant_id == workspace.slug,
+        Product.active.is_(True),
+    )
+
     return list(session.exec(statement).all())
