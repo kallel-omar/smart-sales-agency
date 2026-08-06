@@ -8,6 +8,7 @@ from app.api.routes import (
     leads_router,
     products_router,
     workflows_router,
+    workspaces_router,
 )
 from app.config import get_settings
 from app.db import create_db_and_tables
@@ -33,6 +34,7 @@ app.include_router(products_router, prefix="/api")
 app.include_router(workflows_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")
 app.include_router(approvals_router, prefix="/api")
+app.include_router(workspaces_router, prefix="/api")
 
 
 @app.get("/health", tags=["system"])
