@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, JSON, Text
+from sqlalchemy import Column, JSON, String , Text
 from sqlmodel import Field, SQLModel
 
 
@@ -40,6 +40,22 @@ class ApprovalStatus(StrEnum):
     REJECTED = "rejected"
     EXECUTED = "executed"
 
+class Workspace(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+
+    slug: str = Field(
+        sa_column=Column(
+            String(100),
+            unique=True,
+            index=True,
+            nullable=False,
+        )
+    )
+
+    name: str = Field(max_length=200)
+    active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 class Lead(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)

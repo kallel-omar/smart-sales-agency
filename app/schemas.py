@@ -88,3 +88,18 @@ class ConversationMessageRead(BaseModel):
     stage: SalesStage
     content: str
     created_at: datetime
+
+class WorkspaceCreate(BaseModel):
+    slug: str
+    name: str
+
+
+class WorkspaceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    slug: str
+    name: str
+    active: bool
+    created_at: datetime
+    updated_at: datetime
