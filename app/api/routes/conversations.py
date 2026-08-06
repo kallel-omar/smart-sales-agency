@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.agents.base import AgentContext
 from app.agents.sales_agent import SalesConversationAgent
-from app.api.dependencies import SessionDep, SettingsDep
+from app.api.dependencies import CurrentWorkspaceDep, SessionDep, SettingsDep
 from app.models import ConversationMessage
 from app.schemas import ConversationMessageRead, InboundMessage, SalesReply
 from app.services.llm import build_llm
@@ -18,22 +18,36 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 def get_conversation_history(
     lead_id: UUID,
     session: SessionDep,
+    workspace: CurrentWorkspaceDep,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[ConversationMessage]:
     repository = SalesRepository(session)
 
     try:
-        repository.get_lead(lead_id)
+        lead = repository.get_lead(lead_id)
     except NotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found",
+        ) from exc
 
-    return repository.conversation_history(lead_id, limit=limit)
+    if lead.tenant_id != workspace.slug:
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found",
+        )
+
+    return repository.conversation_history(
+        lead_id,
+        limit=limit,
+    )
 
 @router.post("/{lead_id}/reply", response_model=SalesReply)
 async def draft_sales_reply(
     lead_id: UUID,
     payload: InboundMessage,
     session: SessionDep,
+    workspace: CurrentWorkspaceDep,
     settings: SettingsDep,
 ) -> SalesReply:
     repository = SalesRepository(session)
@@ -41,6 +55,12 @@ async def draft_sales_reply(
         lead = repository.get_lead(lead_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    
+    if lead.tenant_id != workspace.slug:
+        raise HTTPException(
+            status_code=404,
+            detail="Lead not found",
+        )
 
     context = AgentContext(settings=settings, repository=repository, llm=build_llm(settings))
     agent = SalesConversationAgent(context)
