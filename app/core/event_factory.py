@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from app.core.event_payloads import EventPayload
+from app.core.event_types import EventType, validate_event_payload
 from app.core.events import (
     BusinessEvent,
     Department,
@@ -14,7 +16,7 @@ from app.core.events import (
 def create_business_event(
     *,
     workspace_id: UUID,
-    event_type: str,
+    event_type: EventType | str,
     source_department: Department,
     destination_department: Department,
     payload: EventPayload,
@@ -27,12 +29,18 @@ def create_business_event(
     """
     Build a BusinessEvent from a validated typed payload.
 
-    Optional tracing identifiers are only overridden when explicitly supplied.
+    The event-type registry ensures that every event uses the correct
+    payload model.
     """
 
-    event_data = {
+    normalized_event_type = validate_event_payload(
+        event_type,
+        payload,
+    )
+
+    event_data: dict[str, Any] = {
         "workspace_id": workspace_id,
-        "event_type": event_type,
+        "event_type": normalized_event_type.value,
         "source_department": source_department,
         "destination_department": destination_department,
         "priority": priority,
