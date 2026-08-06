@@ -6,16 +6,45 @@ from sqlmodel import select
 from app.api.dependencies import SessionDep
 from app.models import Lead
 from app.schemas import LeadCreate, LeadRead
+from app.services.workspaces import (
+    WorkspaceInactiveError,
+    WorkspaceNotFoundError,
+    require_active_workspace,
+)
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
 
 @router.post("", response_model=LeadRead, status_code=201)
-def create_lead(payload: LeadCreate, session: SessionDep) -> Lead:
-    lead = Lead(**payload.model_dump())
+def create_lead(
+    payload: LeadCreate,
+    session: SessionDep,
+) -> Lead:
+    try:
+        workspace = require_active_workspace(
+            session,
+            payload.tenant_id,
+        )
+    except WorkspaceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        ) from exc
+    except WorkspaceInactiveError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
+
+    lead_data = payload.model_dump()
+    lead_data["tenant_id"] = workspace.slug
+
+    lead = Lead(**lead_data)
+
     session.add(lead)
     session.commit()
     session.refresh(lead)
+
     return lead
 
 
