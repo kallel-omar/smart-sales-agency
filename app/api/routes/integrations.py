@@ -14,6 +14,7 @@ from app.schemas import (
     IntegrationAccountCredentialRead,
     IntegrationAccountProvision,
     IntegrationAccountRead,
+    IntegrationAccountSecretReferenceUpdate,
     SalesReply,
 )
 from app.services.inbound_integrations import InboundIntegrationService
@@ -119,6 +120,33 @@ def rotate_integration_account_credential(
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
     return account_credential_read(account, credential)
+
+
+@router.post(
+    "/accounts/{account_id}/secret-reference",
+    response_model=IntegrationAccountRead,
+)
+def update_integration_account_secret_reference(
+    account_id: UUID,
+    payload: IntegrationAccountSecretReferenceUpdate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> IntegrationAccountRead:
+    """Update an account's internal secret reference without resolving it."""
+    try:
+        account = IntegrationAccountService(session).update_secret_reference(
+            workspace,
+            account_id,
+            payload.secret_reference,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except SecretReferenceValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Secret reference is not allowed",
+        ) from exc
+    return account_read(account)
 
 
 @router.post("/inbound-events", response_model=SalesReply)

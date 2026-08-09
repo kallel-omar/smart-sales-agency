@@ -178,3 +178,60 @@ def test_signed_webhook_body_cannot_bypass_verification(
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid webhook authentication"
+
+
+def test_webhook_verification_uses_updated_secret_reference(
+    client,
+    integration_account_factory,
+    monkeypatch,
+    signed_webhook_request,
+):
+    old_reference = "INTEGRATION_SECRET_OLD_GENERIC_HMAC_TEST"
+    new_reference = "INTEGRATION_SECRET_NEW_GENERIC_HMAC_TEST"
+    old_secret = "old-generic-hmac-secret"
+    new_secret = "new-generic-hmac-secret"
+    monkeypatch.setenv(old_reference, old_secret)
+    monkeypatch.setenv(new_reference, new_secret)
+    create_workspace(client, "company-a")
+    integration_account_factory(
+        workspace_id(client, "company-a"),
+        "company-a-key",
+        secret_reference=old_reference,
+    )
+    lead_id = create_lead(client, "company-a")
+    account_id = client.get(
+        "/api/integrations/accounts",
+        headers={"X-Workspace-Slug": "company-a"},
+    ).json()[0]["id"]
+
+    update = client.post(
+        f"/api/integrations/accounts/{account_id}/secret-reference",
+        headers={"X-Workspace-Slug": "company-a"},
+        json={"secret_reference": new_reference},
+    )
+    assert update.status_code == 200
+    assert "secret_reference" not in update.json()
+
+    old_headers, old_body = signed_webhook_request(
+        "company-a-key",
+        inbound_payload(lead_id),
+        secret=old_secret,
+    )
+    old_secret_response = client.post(
+        "/api/integrations/inbound-events",
+        headers=old_headers,
+        content=old_body,
+    )
+    assert old_secret_response.status_code == 401
+
+    new_headers, new_body = signed_webhook_request(
+        "company-a-key",
+        inbound_payload(lead_id),
+        secret=new_secret,
+    )
+    new_secret_response = client.post(
+        "/api/integrations/inbound-events",
+        headers=new_headers,
+        content=new_body,
+    )
+    assert new_secret_response.status_code == 200

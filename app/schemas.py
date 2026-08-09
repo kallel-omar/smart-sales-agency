@@ -66,6 +66,14 @@ class IntegrationAccountProvision(BaseModel):
     secret_reference: str = Field(min_length=1, max_length=255)
 
 
+class IntegrationAccountSecretReferenceUpdate(BaseModel):
+    """Internal secret-backend reference update for an integration account."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    secret_reference: str = Field(min_length=1, max_length=255)
+
+
 class IntegrationAccountRead(BaseModel):
     """Safe integration-account representation that never exposes credential hashes."""
 

@@ -196,3 +196,48 @@ def test_rotation_immediately_invalidates_previous_credential_and_authenticates_
         content=body,
     )
     assert new_credential.status_code == 200
+
+
+def test_secret_reference_update_is_workspace_scoped_and_hidden_from_response(client):
+    create_workspace(client, "company-a")
+    create_workspace(client, "company-b")
+    company_a_account = provision_account(client, "company-a")
+    company_b_account = provision_account(client, "company-b")
+
+    updated = client.post(
+        f"/api/integrations/accounts/{company_a_account['id']}/secret-reference",
+        headers=workspace_headers("company-a"),
+        json={"secret_reference": "INTEGRATION_SECRET_COMPANY_A_ROTATED"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["id"] == company_a_account["id"]
+    assert "secret_reference" not in updated.json()
+    assert "INTEGRATION_SECRET_COMPANY_A_ROTATED" not in str(updated.json())
+
+    cross_workspace = client.post(
+        f"/api/integrations/accounts/{company_b_account['id']}/secret-reference",
+        headers=workspace_headers("company-a"),
+        json={"secret_reference": "INTEGRATION_SECRET_COMPANY_A_ROTATED"},
+    )
+    assert cross_workspace.status_code == 404
+    assert cross_workspace.json()["detail"] == "Integration account not found"
+
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        account = session.get(IntegrationAccount, UUID(company_a_account["id"]))
+        assert account is not None
+        assert account.secret_reference == "INTEGRATION_SECRET_COMPANY_A_ROTATED"
+
+
+def test_secret_reference_update_rejects_disallowed_reference(client):
+    create_workspace(client, "company-a")
+    account = provision_account(client, "company-a")
+
+    rejected = client.post(
+        f"/api/integrations/accounts/{account['id']}/secret-reference",
+        headers=workspace_headers("company-a"),
+        json={"secret_reference": "DATABASE_URL"},
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"] == "Secret reference is not allowed"

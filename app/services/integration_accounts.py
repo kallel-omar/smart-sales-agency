@@ -81,6 +81,21 @@ class IntegrationAccountService:
         self._save(account)
         return account, credential
 
+    def update_secret_reference(
+        self,
+        workspace: Workspace,
+        account_id: UUID,
+        secret_reference: str,
+    ) -> IntegrationAccount:
+        """Update a validated reference without resolving its value.
+
+        Inactive accounts are intentionally eligible: this changes future
+        verifier configuration only and does not reactivate the account.
+        """
+        account = self._get_for_workspace(workspace, account_id)
+        account.secret_reference = self.secret_reference_policy.validate(secret_reference)
+        return self._save(account)
+
     def _get_for_workspace(
         self,
         workspace: Workspace,
