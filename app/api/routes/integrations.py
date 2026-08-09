@@ -15,6 +15,7 @@ from app.models import (
     IntegrationAccountAuditAction,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
+    OutboundIntegrationAuditAction,
     OutboundIntegrationDeliveryAttempt,
     utc_now,
 )
@@ -26,11 +27,12 @@ from app.schemas import (
     IntegrationAccountProvision,
     IntegrationAccountRead,
     IntegrationAccountSecretReferenceUpdate,
+    OutboundActionExpirationCleanupRead,
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionDetailRead,
     OutboundIntegrationActionRead,
     OutboundIntegrationActionSummaryRead,
-    OutboundActionExpirationCleanupRead,
+    OutboundIntegrationAuditEventRead,
     OutboundIntegrationDeliveryAttemptRead,
     OutboundIntegrationDeliveryStatusRead,
     SalesReply,
@@ -47,6 +49,12 @@ from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
     IntegrationAccountService,
 )
+from app.services.outbound_action_audit import (
+    DEFAULT_OUTBOUND_AUDIT_EVENT_LIMIT,
+    MAX_OUTBOUND_AUDIT_EVENT_LIMIT,
+    OutboundAuditQueryValidationError,
+    OutboundIntegrationActionAuditService,
+)
 from app.services.outbound_action_query import (
     DEFAULT_OUTBOUND_ACTION_LIMIT,
     MAX_OUTBOUND_ACTION_LIMIT,
@@ -59,8 +67,8 @@ from app.services.outbound_delivery import (
     MAX_DELIVERY_ATTEMPT_LIMIT,
     OutboundDeliveryAttemptQueryValidationError,
     OutboundIntegrationActionAlreadyProcessedError,
-    OutboundIntegrationActionNotCancellableError,
     OutboundIntegrationActionExpiredError,
+    OutboundIntegrationActionNotCancellableError,
     OutboundIntegrationActionNotFoundError,
     OutboundIntegrationActionNotRetryableError,
     OutboundIntegrationActionRetryDeniedError,
@@ -111,6 +119,15 @@ DeliveryAttemptLimit = Annotated[
         ge=1,
         le=MAX_DELIVERY_ATTEMPT_LIMIT,
         description="Maximum number of safe delivery attempts to return.",
+    ),
+]
+
+OutboundAuditLimit = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_OUTBOUND_AUDIT_EVENT_LIMIT,
+        description="Maximum number of safe outbound audit events to return.",
     ),
 ]
 
@@ -214,6 +231,36 @@ def outbound_delivery_status_read(
         retry_denial_reason=view.retry_eligibility.denial_reason,
         next_retry_at=view.next_retry_at,
     )
+
+
+@router.get(
+    "/outbound-audit-events",
+    response_model=list[OutboundIntegrationAuditEventRead],
+)
+def list_outbound_integration_audit_events(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    action: OutboundIntegrationAuditAction | None = None,
+    integration_account_id: UUID | None = None,
+    outbound_integration_action_id: UUID | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    limit: OutboundAuditLimit = DEFAULT_OUTBOUND_AUDIT_EVENT_LIMIT,
+) -> list[OutboundIntegrationAuditEventRead]:
+    """List safe outbound lifecycle history from the current workspace only."""
+    try:
+        events = OutboundIntegrationActionAuditService(session).list_for_workspace(
+            workspace,
+            action=action,
+            integration_account_id=integration_account_id,
+            outbound_integration_action_id=outbound_integration_action_id,
+            created_after=created_after,
+            created_before=created_before,
+            limit=limit,
+        )
+    except OutboundAuditQueryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [OutboundIntegrationAuditEventRead.model_validate(event) for event in events]
 
 
 @router.post(
