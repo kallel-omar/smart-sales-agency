@@ -152,8 +152,22 @@ class AIInvocationUsageRead(BaseModel):
     total_tokens: int
     latency_ms: int
     estimated_cost: Decimal | None
+    pricing_known: bool
     status: AIInvocationStatus
     created_at: datetime
+
+
+class AIInvocationUsageSummaryRead(BaseModel):
+    """Safe workspace-only AI usage aggregate without prompt or credential data."""
+
+    invocation_count: int
+    successful_invocation_count: int
+    failed_invocation_count: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    known_estimated_spend: Decimal
+    unknown_pricing_invocation_count: int
 
 
 class IntegrationAccountProvision(BaseModel):

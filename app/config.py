@@ -5,6 +5,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.services.ai_model_tiers import AIModelTier, AIModelTierMapping
+from app.services.ai_model_pricing import AIModelPricing
 
 
 class Settings(BaseSettings):
@@ -22,6 +23,9 @@ class Settings(BaseSettings):
     # until a caller asks for a tier; the existing LLM settings remain the
     # backward-compatible transport configuration for current agent flows.
     ai_model_tier_mappings: dict[AIModelTier, AIModelTierMapping] = Field(default_factory=dict)
+    # Provider/model pricing entries use decimal currency units per one million
+    # tokens. They are deliberately independent of abstract capability tiers.
+    ai_model_pricing: list[AIModelPricing] = Field(default_factory=list)
     # Premium capability is opt-in policy. A request must also carry a valid,
     # explicit premium justification before the routing policy may select it.
     ai_model_routing_premium_enabled: bool = False
@@ -91,6 +95,9 @@ class Settings(BaseSettings):
     def validate_ai_model_tier_mappings(self) -> "Settings":
         if AIModelTier.NONE in self.ai_model_tier_mappings:
             raise ValueError("The none AI model tier must not have a provider/model mapping")
+        pricing_keys = [(entry.provider, entry.model) for entry in self.ai_model_pricing]
+        if len(pricing_keys) != len(set(pricing_keys)):
+            raise ValueError("AI model pricing entries must be unique by provider and model")
         return self
 
     model_config = SettingsConfigDict(

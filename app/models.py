@@ -196,6 +196,12 @@ class AIInvocationUsage(SQLModel, table=True):
     status: AIInvocationStatus = Field(index=True)
     created_at: datetime = Field(default_factory=utc_now, index=True)
 
+    @property
+    def pricing_known(self) -> bool:
+        """A null cost explicitly means no configured price was available."""
+
+        return self.estimated_cost is not None
+
 
 class OutboundIntegrationAction(SQLModel, table=True):
     """Provider-neutral outbound delivery intent and its safe outcome."""

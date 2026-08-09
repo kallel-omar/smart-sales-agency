@@ -55,6 +55,7 @@ def test_records_decimal_safe_usage_and_safe_workspace_read(client):
         "total_tokens": 20,
         "latency_ms": 44,
         "estimated_cost": "0.00125000",
+        "pricing_known": True,
         "status": "successful",
         "created_at": usage.created_at.isoformat().replace("+00:00", "Z"),
     }

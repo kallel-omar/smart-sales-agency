@@ -28,6 +28,7 @@ from app.schemas import (
     InboundIntegrationDuplicateRead,
     InboundIntegrationReplyRead,
     AIInvocationUsageRead,
+    AIInvocationUsageSummaryRead,
     IntegrationExecutionDeliveryAttemptRead,
     IntegrationExecutionInboundReceiptRead,
     IntegrationExecutionOutboundActionRead,
@@ -514,6 +515,17 @@ def get_integration_operational_summary(
         now=utc_now(),
     )
     return IntegrationOperationalSummaryRead(**summary.__dict__)
+
+
+@router.get("/ai-usage/summary", response_model=AIInvocationUsageSummaryRead)
+def get_workspace_ai_invocation_usage_summary(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> AIInvocationUsageSummaryRead:
+    """Read deterministic aggregate AI usage for the current workspace only."""
+
+    summary = AIInvocationUsageService(session).summarize_for_workspace(workspace)
+    return AIInvocationUsageSummaryRead(**summary.__dict__)
 
 
 @router.get("/ai-usage", response_model=list[AIInvocationUsageRead])
