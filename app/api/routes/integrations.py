@@ -75,6 +75,12 @@ from app.services.outbound_action_audit import (
     OutboundIntegrationActionAuditService,
 )
 from app.services.outbound_action_annotations import OutboundActionAnnotationService
+from app.services.outbound_action_archiving import (
+    OutboundActionArchivingService,
+    OutboundIntegrationActionAlreadyArchivedError,
+    OutboundIntegrationActionNotArchivableError,
+    OutboundIntegrationActionNotArchivedError,
+)
 from app.services.outbound_action_labels import (
     MAX_OUTBOUND_ACTION_LABELS,
     OutboundActionLabelNotFoundError,
@@ -261,6 +267,7 @@ def outbound_action_read(
         requires_approval=action.requires_approval,
         approval_request_id=action.approval_request_id,
         owner_reference=action.owner_reference,
+        archived_at=action.archived_at,
         status=action.status,
         priority=action.priority,
         provider_delivery_id=action.provider_delivery_id,
@@ -289,6 +296,7 @@ def outbound_action_summary_read(
         status=action.status,
         priority=action.priority,
         owner_reference=action.owner_reference,
+        archived_at=action.archived_at,
         provider_delivery_id=action.provider_delivery_id,
         delivered_at=action.delivered_at,
         failed_at=action.failed_at,
@@ -848,6 +856,53 @@ def update_outbound_action_owner_reference(
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
     except OutboundActionOwnerReferenceValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return outbound_action_detail_read(action, provider)
+
+
+@router.post(
+    "/outbound-actions/{action_id}/archive",
+    response_model=OutboundIntegrationActionDetailRead,
+)
+def archive_outbound_integration_action(
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundIntegrationActionDetailRead:
+    """Archive one terminal action without changing delivery state or history."""
+    try:
+        action = OutboundActionArchivingService(session).archive(workspace, action_id)
+        _, provider = OutboundIntegrationActionQueryService(session).get_for_workspace(
+            workspace, action_id
+        )
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except (
+        OutboundIntegrationActionNotArchivableError,
+        OutboundIntegrationActionAlreadyArchivedError,
+    ) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return outbound_action_detail_read(action, provider)
+
+
+@router.post(
+    "/outbound-actions/{action_id}/unarchive",
+    response_model=OutboundIntegrationActionDetailRead,
+)
+def unarchive_outbound_integration_action(
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundIntegrationActionDetailRead:
+    """Restore a previously archived action without changing its delivery state."""
+    try:
+        action = OutboundActionArchivingService(session).unarchive(workspace, action_id)
+        _, provider = OutboundIntegrationActionQueryService(session).get_for_workspace(
+            workspace, action_id
+        )
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except OutboundIntegrationActionNotArchivedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_detail_read(action, provider)
 
 

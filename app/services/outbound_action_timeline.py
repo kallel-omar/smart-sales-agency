@@ -42,6 +42,8 @@ class OutboundActionTimelineEvent(StrEnum):
     DELIVERY_RETRIED = "delivery_retried"
     ACTION_CANCELLED = "action_cancelled"
     ACTION_EXPIRED = "action_expired"
+    ACTION_ARCHIVED = "action_archived"
+    ACTION_UNARCHIVED = "action_unarchived"
     DELIVERY_ATTEMPT = "delivery_attempt"
     APPROVAL_REQUESTED = "approval_requested"
     APPROVAL_APPROVED = "approval_approved"
@@ -113,6 +115,18 @@ class OutboundActionTimelineService:
             OutboundActionTimelineEvent.ACTION_EXPIRED,
             "The outbound action expired.",
             OutboundIntegrationActionStatus.EXPIRED,
+        ),
+        OutboundIntegrationAuditAction.ARCHIVED: (
+            OutboundActionTimelineCategory.LIFECYCLE,
+            OutboundActionTimelineEvent.ACTION_ARCHIVED,
+            "The outbound action was archived.",
+            None,
+        ),
+        OutboundIntegrationAuditAction.UNARCHIVED: (
+            OutboundActionTimelineCategory.LIFECYCLE,
+            OutboundActionTimelineEvent.ACTION_UNARCHIVED,
+            "The outbound action was unarchived.",
+            None,
         ),
     }
 

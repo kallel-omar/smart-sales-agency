@@ -45,6 +45,10 @@ class OutboundIntegrationActionStateTransitionGuard:
     ) -> bool:
         return target in self._ALLOWED_TARGETS[source]
 
+    def is_terminal(self, action: OutboundIntegrationAction) -> bool:
+        """Use the lifecycle policy to determine whether delivery can no longer transition."""
+        return not self._ALLOWED_TARGETS[action.status]
+
     def require_transition(
         self,
         action: OutboundIntegrationAction,

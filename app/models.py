@@ -88,6 +88,8 @@ class OutboundIntegrationAuditAction(StrEnum):
     RETRIED = "retried"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
+    ARCHIVED = "archived"
+    UNARCHIVED = "unarchived"
 
 
 class Workspace(SQLModel, table=True):
@@ -176,6 +178,7 @@ class OutboundIntegrationAction(SQLModel, table=True):
     priority: OutboundActionPriority = Field(default=OutboundActionPriority.NORMAL, index=True)
     # Opaque future-operator reference. Identity validation is intentionally deferred.
     owner_reference: str | None = Field(default=None, max_length=200, index=True)
+    archived_at: datetime | None = Field(default=None, index=True)
     provider_delivery_id: str | None = Field(default=None, max_length=255)
     delivered_at: datetime | None = None
     failed_at: datetime | None = None

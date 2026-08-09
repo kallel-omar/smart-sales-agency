@@ -63,7 +63,10 @@ class OutboundIntegrationActionQueryService:
                 IntegrationAccount,
                 IntegrationAccount.id == OutboundIntegrationAction.integration_account_id,
             )
-            .where(OutboundIntegrationAction.workspace_id == workspace.id)
+            .where(
+                OutboundIntegrationAction.workspace_id == workspace.id,
+                OutboundIntegrationAction.archived_at.is_(None),
+            )
         )
         if action_status:
             statement = statement.where(OutboundIntegrationAction.status == action_status)
@@ -140,6 +143,7 @@ class OutboundIntegrationActionQueryService:
                 OutboundIntegrationAction.status.in_(("expired", "cancelled")),
                 OutboundIntegrationAction.expires_at.is_not(None),
                 OutboundIntegrationAction.expires_at < cutoff,
+                OutboundIntegrationAction.archived_at.is_(None),
             )
         )
         self.session.commit()

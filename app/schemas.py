@@ -163,6 +163,7 @@ class OutboundIntegrationActionRead(BaseModel):
     requires_approval: bool
     approval_request_id: UUID | None
     owner_reference: str | None
+    archived_at: datetime | None
     status: OutboundIntegrationActionStatus
     provider_delivery_id: str | None
     delivered_at: datetime | None
@@ -187,6 +188,7 @@ class OutboundIntegrationActionSummaryRead(BaseModel):
     status: OutboundIntegrationActionStatus
     priority: OutboundActionPriority
     owner_reference: str | None
+    archived_at: datetime | None
     provider_delivery_id: str | None
     delivered_at: datetime | None
     failed_at: datetime | None
