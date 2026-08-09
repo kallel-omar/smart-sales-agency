@@ -28,6 +28,7 @@ from app.schemas import (
     IntegrationAccountProvision,
     IntegrationAccountRead,
     IntegrationAccountSecretReferenceUpdate,
+    IntegrationOperationalSummaryRead,
     OutboundActionExpirationCleanupRead,
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionDetailRead,
@@ -51,6 +52,7 @@ from app.services.integration_accounts import (
     IntegrationAccountService,
 )
 from app.services.integration_health import IntegrationHealthService
+from app.services.integration_operational_summary import IntegrationOperationalSummaryService
 from app.services.outbound_action_audit import (
     DEFAULT_OUTBOUND_AUDIT_EVENT_LIMIT,
     MAX_OUTBOUND_AUDIT_EVENT_LIMIT,
@@ -298,6 +300,24 @@ def list_integration_accounts(
 ) -> list[IntegrationAccountRead]:
     accounts = IntegrationAccountService(session).list_for_workspace(workspace)
     return [account_read(account) for account in accounts]
+
+
+@router.get("/operational-summary", response_model=IntegrationOperationalSummaryRead)
+def get_integration_operational_summary(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    settings: SettingsDep,
+) -> IntegrationOperationalSummaryRead:
+    """Read safe workspace aggregates without provider calls or mutation."""
+    summary = IntegrationOperationalSummaryService(
+        session,
+        OutboundDeliveryRetryPolicy.from_settings(settings),
+    ).summarize(
+        workspace,
+        window_days=settings.integration_health_window_days,
+        now=utc_now(),
+    )
+    return IntegrationOperationalSummaryRead(**summary.__dict__)
 
 
 @router.get("/accounts/{account_id}/health", response_model=IntegrationAccountHealthRead)

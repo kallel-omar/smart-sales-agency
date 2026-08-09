@@ -255,6 +255,21 @@ class IntegrationAccountHealthRead(BaseModel):
     failed_action_count: int
 
 
+class IntegrationOperationalSummaryRead(BaseModel):
+    """Safe, workspace-level operational aggregate for integration accounts."""
+
+    active_integration_account_count: int
+    pending_outbound_action_count: int
+    delivered_outbound_action_count: int
+    failed_outbound_action_count: int
+    retryable_failed_action_count: int
+    cancelled_outbound_action_count: int
+    expired_outbound_action_count: int
+    most_recent_outbound_at: datetime | None
+    recent_delivered_count: int
+    recent_failed_count: int
+
+
 class WorkflowResult(BaseModel):
     lead_id: UUID
     status: str
