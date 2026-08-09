@@ -87,3 +87,52 @@ def test_archiving_requires_terminal_action_and_is_workspace_scoped(client):
     )
     assert timeline.status_code == 200
     assert "action_archived" not in [entry["event"] for entry in timeline.json()]
+
+
+def test_archived_action_listing_filters_and_summary_counts_are_workspace_scoped(client):
+    account_a, archived_action = _setup(client, "company-a")
+    account_b, other_workspace_action = _setup(client, "company-b")
+    deliver_url = (
+        f"/api/integrations/accounts/{account_a['id']}/outbound-actions/"
+        f"{archived_action['id']}/deliver"
+    )
+    assert client.post(deliver_url, headers=_headers("company-a")).status_code == 200
+    assert client.post(_archive_url(archived_action), headers=_headers("company-a")).status_code == 200
+
+    archived = client.get(
+        "/api/integrations/outbound-actions",
+        headers=_headers("company-a"),
+        params={"archived": True},
+    )
+    assert archived.status_code == 200
+    assert [item["id"] for item in archived.json()] == [archived_action["id"]]
+    assert archived.json()[0]["archived_at"] is not None
+
+    unarchived = client.get(
+        "/api/integrations/outbound-actions",
+        headers=_headers("company-a"),
+        params={"archived": False},
+    )
+    assert unarchived.status_code == 200
+    assert unarchived.json() == []
+
+    summary = client.get("/api/integrations/operational-summary", headers=_headers("company-a"))
+    assert summary.status_code == 200
+    assert summary.json()["archived_outbound_action_count"] == 1
+    assert summary.json()["unarchived_outbound_action_count"] == 0
+
+    other_summary = client.get(
+        "/api/integrations/operational-summary", headers=_headers("company-b")
+    )
+    assert other_summary.status_code == 200
+    assert other_summary.json()["archived_outbound_action_count"] == 0
+    assert other_summary.json()["unarchived_outbound_action_count"] == 1
+    assert other_workspace_action["id"]
+
+    delivery_status = client.get(
+        f"/api/integrations/accounts/{account_a['id']}/outbound-actions/"
+        f"{archived_action['id']}/delivery-status",
+        headers=_headers("company-a"),
+    )
+    assert delivery_status.status_code == 200
+    assert delivery_status.json()["archived_at"] is not None

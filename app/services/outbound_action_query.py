@@ -42,6 +42,7 @@ class OutboundIntegrationActionQueryService:
         label: str | None = None,
         owner_reference: str | None = None,
         unowned: bool | None = None,
+        archived: bool | None = None,
         provider: str | None = None,
         integration_account_id: UUID | None = None,
         created_after: datetime | None = None,
@@ -63,11 +64,12 @@ class OutboundIntegrationActionQueryService:
                 IntegrationAccount,
                 IntegrationAccount.id == OutboundIntegrationAction.integration_account_id,
             )
-            .where(
-                OutboundIntegrationAction.workspace_id == workspace.id,
-                OutboundIntegrationAction.archived_at.is_(None),
-            )
+            .where(OutboundIntegrationAction.workspace_id == workspace.id)
         )
+        if archived is True:
+            statement = statement.where(OutboundIntegrationAction.archived_at.is_not(None))
+        else:
+            statement = statement.where(OutboundIntegrationAction.archived_at.is_(None))
         if action_status:
             statement = statement.where(OutboundIntegrationAction.status == action_status)
         if priority:

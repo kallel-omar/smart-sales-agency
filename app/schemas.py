@@ -318,6 +318,7 @@ class OutboundIntegrationDeliveryStatusRead(BaseModel):
     external_target_id: str
     action_type: OutboundIntegrationActionType
     status: OutboundIntegrationActionStatus
+    archived_at: datetime | None
     created_at: datetime
     provider_delivery_id: str | None
     delivered_at: datetime | None
@@ -395,6 +396,8 @@ class IntegrationOperationalSummaryRead(BaseModel):
     priority_counts: dict[OutboundActionPriority, int]
     owned_outbound_action_count: int
     unowned_outbound_action_count: int
+    archived_outbound_action_count: int
+    unarchived_outbound_action_count: int
 
 
 class WorkflowResult(BaseModel):
