@@ -260,6 +260,16 @@ class OutboundApprovalStatusRead(BaseModel):
     approval_status: ApprovalStatus | None
 
 
+class OutboundDeliveryReadinessRead(BaseModel):
+    """Safe, read-only answer to whether an outbound action can run now."""
+
+    action_id: UUID
+    status: OutboundIntegrationActionStatus
+    ready: bool
+    blocking_reasons: list[str]
+    next_retry_at: datetime | None
+
+
 class OutboundActionExpirationCleanupRead(BaseModel):
     deleted_count: int
     cutoff: datetime

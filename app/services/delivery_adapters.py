@@ -278,6 +278,29 @@ class DeliveryAdapterRegistry:
             return None
         return capabilities
 
+    def validate_action(self, provider: str, action: OutboundIntegrationAction) -> DeliveryAdapterResult | None:
+        """Return a safe constraint failure before adapter I/O, if any."""
+        capabilities = self.capabilities_for(provider)
+        if capabilities is None:
+            return DeliveryAdapterResult.failure(
+                "adapter_capabilities_unavailable",
+                "Delivery adapter capabilities are unavailable",
+            )
+        if action.action_type not in capabilities.supported_action_types:
+            return DeliveryAdapterResult.failure(
+                "unsupported_action_type",
+                "Outbound action type is not supported by this delivery adapter",
+            )
+        if (
+            capabilities.max_content_length is not None
+            and len(action.content) > capabilities.max_content_length
+        ):
+            return DeliveryAdapterResult.failure(
+                "content_too_long",
+                "Outbound action content exceeds the delivery adapter limit",
+            )
+        return None
+
 
 class NoopDeliveryAdapter:
     """Safe development adapter that performs no external I/O."""

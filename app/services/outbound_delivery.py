@@ -115,7 +115,7 @@ class OutboundIntegrationDeliveryService:
             raise InactiveIntegrationAccountError("Integration account is inactive")
 
         action = self._get_action_for_account(workspace, account, action_id)
-        if self._is_expired(action):
+        if self.is_expired(action):
             action.status = OutboundIntegrationActionStatus.EXPIRED
             action.expired_at = utc_now()
             self.session.add(action)
@@ -126,7 +126,7 @@ class OutboundIntegrationDeliveryService:
             raise OutboundIntegrationActionAlreadyProcessedError(
                 "Outbound integration action has already reached a terminal state"
             )
-        if self._is_before_not_before(action):
+        if self.is_before_not_before(action):
             raise OutboundIntegrationActionNotReadyError(
                 "Outbound integration action is not available before its not-before time"
             )
@@ -273,26 +273,7 @@ class OutboundIntegrationDeliveryService:
         account: IntegrationAccount,
     ) -> DeliveryAdapterResult | None:
         """Return a safe failure before adapter I/O when constraints are unmet."""
-        capabilities = self.adapter_registry.capabilities_for(account.provider)
-        if capabilities is None:
-            return DeliveryAdapterResult.failure(
-                "adapter_capabilities_unavailable",
-                "Delivery adapter capabilities are unavailable",
-            )
-        if action.action_type not in capabilities.supported_action_types:
-            return DeliveryAdapterResult.failure(
-                "unsupported_action_type",
-                "Outbound action type is not supported by this delivery adapter",
-            )
-        if (
-            capabilities.max_content_length is not None
-            and len(action.content) > capabilities.max_content_length
-        ):
-            return DeliveryAdapterResult.failure(
-                "content_too_long",
-                "Outbound action content exceeds the delivery adapter limit",
-            )
-        return None
+        return self.adapter_registry.validate_action(account.provider, action)
 
     def _new_attempt(
         self,
@@ -311,7 +292,7 @@ class OutboundIntegrationDeliveryService:
         return attempt
 
     @staticmethod
-    def _is_before_not_before(action: OutboundIntegrationAction) -> bool:
+    def is_before_not_before(action: OutboundIntegrationAction) -> bool:
         if action.not_before is None:
             return False
         now = utc_now()
@@ -320,7 +301,7 @@ class OutboundIntegrationDeliveryService:
         return now < action.not_before
 
     @staticmethod
-    def _is_expired(action: OutboundIntegrationAction) -> bool:
+    def is_expired(action: OutboundIntegrationAction) -> bool:
         if action.expires_at is None:
             return False
         now = utc_now()
