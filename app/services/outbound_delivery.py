@@ -24,6 +24,10 @@ from app.services.delivery_adapters import (
 )
 from app.services.integration_accounts import IntegrationAccountService
 from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
+from app.services.outbound_action_state_transitions import (
+    OutboundIntegrationActionInvalidStateTransitionError,
+    OutboundIntegrationActionStateTransitionGuard,
+)
 from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
 from app.services.outbound_integrations import InactiveIntegrationAccountError
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
@@ -83,6 +87,7 @@ class OutboundIntegrationDeliveryService:
         self.retry_policy = retry_policy or OutboundDeliveryRetryPolicy(3)
         self.audit_service = OutboundIntegrationActionAuditService(session)
         self.approval_service = OutboundDeliveryApprovalService(session)
+        self.transition_guard = OutboundIntegrationActionStateTransitionGuard()
 
     @classmethod
     def from_settings(
@@ -115,17 +120,25 @@ class OutboundIntegrationDeliveryService:
             raise InactiveIntegrationAccountError("Integration account is inactive")
 
         action = self._get_action_for_account(workspace, account, action_id)
-        if self.is_expired(action):
+        if (
+            action.status == OutboundIntegrationActionStatus.PENDING
+            and self.is_expired(action)
+        ):
+            self.transition_guard.require_transition(
+                action, OutboundIntegrationActionStatus.EXPIRED
+            )
             action.status = OutboundIntegrationActionStatus.EXPIRED
             action.expired_at = utc_now()
             self.session.add(action)
             self.audit_service.record(action, OutboundIntegrationAuditAction.EXPIRED)
             self.session.commit()
             raise OutboundIntegrationActionExpiredError("Outbound integration action has expired")
-        if action.status != OutboundIntegrationActionStatus.PENDING:
+        try:
+            self.transition_guard.require_pending_delivery(action)
+        except OutboundIntegrationActionInvalidStateTransitionError as exc:
             raise OutboundIntegrationActionAlreadyProcessedError(
                 "Outbound integration action has already reached a terminal state"
-            )
+            ) from exc
         if self.is_before_not_before(action):
             raise OutboundIntegrationActionNotReadyError(
                 "Outbound integration action is not available before its not-before time"
@@ -147,10 +160,12 @@ class OutboundIntegrationDeliveryService:
             raise InactiveIntegrationAccountError("Integration account is inactive")
 
         action = self._get_action_for_account(workspace, account, action_id)
-        if action.status != OutboundIntegrationActionStatus.FAILED:
+        try:
+            self.transition_guard.require_retry_attempt(action)
+        except OutboundIntegrationActionInvalidStateTransitionError as exc:
             raise OutboundIntegrationActionNotRetryableError(
                 "Only failed outbound integration actions can be retried"
-            )
+            ) from exc
         eligibility = self.retry_policy.evaluate(
             attempt_count=self._attempt_count(action),
             failure_code=action.failure_code,
@@ -169,10 +184,14 @@ class OutboundIntegrationDeliveryService:
     ) -> tuple[OutboundIntegrationAction, IntegrationAccount]:
         account = self.account_service.get_for_workspace(workspace, account_id)
         action = self._get_action_for_account(workspace, account, action_id)
-        if action.status != OutboundIntegrationActionStatus.PENDING:
+        try:
+            self.transition_guard.require_transition(
+                action, OutboundIntegrationActionStatus.CANCELLED
+            )
+        except OutboundIntegrationActionInvalidStateTransitionError as exc:
             raise OutboundIntegrationActionNotCancellableError(
                 "Only pending outbound integration actions can be cancelled"
-            )
+            ) from exc
         action.status = OutboundIntegrationActionStatus.CANCELLED
         action.cancelled_at = utc_now()
         self.session.add(action)
@@ -326,6 +345,9 @@ class OutboundIntegrationDeliveryService:
     ) -> None:
         recorded_at = utc_now()
         if result.delivered:
+            self.transition_guard.require_transition(
+                action, OutboundIntegrationActionStatus.DELIVERED
+            )
             action.status = OutboundIntegrationActionStatus.DELIVERED
             action.provider_delivery_id = result.provider_delivery_id
             action.delivered_at = recorded_at
@@ -341,6 +363,9 @@ class OutboundIntegrationDeliveryService:
             attempt.failure_classification = None
             self.audit_service.record(action, OutboundIntegrationAuditAction.DELIVERED)
         else:
+            self.transition_guard.require_transition(
+                action, OutboundIntegrationActionStatus.FAILED
+            )
             action.status = OutboundIntegrationActionStatus.FAILED
             action.provider_delivery_id = None
             action.delivered_at = None

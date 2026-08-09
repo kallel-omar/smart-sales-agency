@@ -1,17 +1,20 @@
 """Deterministic, read-only readiness evaluation for outbound delivery."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlmodel import Session
 
 from app.models import OutboundIntegrationAction, OutboundIntegrationActionStatus, Workspace
-from app.services.delivery_adapters import DeliveryAdapterRegistry, default_delivery_adapter_registry
+from app.services.delivery_adapters import (
+    DeliveryAdapterRegistry,
+    default_delivery_adapter_registry,
+)
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
 from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
-from app.services.outbound_delivery_status import OutboundIntegrationDeliveryStatusService
 from app.services.outbound_delivery_readiness_reasons import OutboundDeliveryReadinessReasonCode
+from app.services.outbound_delivery_status import OutboundIntegrationDeliveryStatusService
 from app.services.outbound_retry_delay_policy import OutboundDeliveryRetryDelayPolicy
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 
@@ -156,5 +159,5 @@ class OutboundDeliveryReadinessService:
         if value is None:
             return None
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
