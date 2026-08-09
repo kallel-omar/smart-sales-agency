@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     outbound_delivery_non_retryable_failure_codes: str = ""
     outbound_delivery_non_retryable_failure_classes: str = ""
     outbound_delivery_retry_delay_strategy: Literal["fixed", "exponential"] = "fixed"
-    outbound_delivery_retry_delay_seconds: int = Field(default=60, ge=0, le=86_400)
+    outbound_delivery_retry_delay_seconds: int = Field(default=0, ge=0, le=86_400)
     outbound_delivery_retry_delay_max_seconds: int = Field(default=3_600, ge=0, le=86_400)
 
     @field_validator("outbound_delivery_non_retryable_failure_codes")

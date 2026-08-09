@@ -72,6 +72,7 @@ from app.services.outbound_integrations import (
     OutboundIntegrationActionIdempotencyConflictError,
     OutboundIntegrationService,
 )
+from app.services.outbound_retry_delay_policy import OutboundDeliveryRetryDelayPolicy
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 from app.services.repository import NotFoundError
 from app.services.secret_reference_policy import SecretReferenceValidationError
@@ -202,6 +203,7 @@ def outbound_delivery_status_read(
         attempt_count=view.attempt_count,
         retry_allowed=view.retry_eligibility.allowed,
         retry_denial_reason=view.retry_eligibility.denial_reason,
+        next_retry_at=view.next_retry_at,
     )
 
 
@@ -556,6 +558,7 @@ def get_outbound_integration_delivery_status(
         view = OutboundIntegrationDeliveryStatusService(
             session,
             retry_policy=OutboundDeliveryRetryPolicy.from_settings(settings),
+            retry_delay_policy=OutboundDeliveryRetryDelayPolicy.from_settings(settings),
         ).get_status_for_action(
             workspace,
             account_id,

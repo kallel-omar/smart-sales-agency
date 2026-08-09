@@ -212,6 +212,7 @@ class OutboundIntegrationDeliveryStatusRead(BaseModel):
     attempt_count: int
     retry_allowed: bool
     retry_denial_reason: str | None
+    next_retry_at: datetime | None
 
 
 class WorkflowResult(BaseModel):
