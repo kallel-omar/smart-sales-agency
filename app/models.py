@@ -114,6 +114,26 @@ class Workspace(SQLModel, table=True):
 
     name: str = Field(max_length=200)
     active: bool = Field(default=True)
+    # Optional server-owned AI usage policy. A null limit means that dimension
+    # is not constrained for this workspace. Usage itself remains in
+    # AIInvocationUsage; these are configuration values, not counters.
+    ai_invocation_limit: int | None = Field(default=None, ge=0)
+    ai_total_token_limit: int | None = Field(default=None, ge=0)
+    ai_estimated_spend_limit: Decimal | None = Field(
+        default=None,
+        sa_column=Column(Numeric(18, 8), nullable=True),
+    )
+    # JSON keeps policy configuration workspace-owned without coupling it to a
+    # provider. Values are validated by the deterministic limit policy before
+    # use; they are intentionally not exposed through public workspace reads.
+    ai_permitted_model_tiers: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
+    ai_model_tier_downgrade_mappings: dict[str, str] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False),
+    )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
