@@ -246,6 +246,17 @@ class OutboundActionTransitionValidationRead(BaseModel):
     current_state: OutboundIntegrationActionStatus
     requested_target: OutboundIntegrationActionStatus
     denial_reason: str | None
+    denial_reason_detail: "OutboundActionTransitionExplanationRead | None"
+
+
+class OutboundActionTransitionExplanationRead(BaseModel):
+    """Safe structured explanation for a denied state-transition preflight."""
+
+    code: str
+    message: str
+    delivered_at: datetime | None
+    cancelled_at: datetime | None
+    expired_at: datetime | None
 
 
 class OutboundIntegrationDeliveryStatusRead(BaseModel):

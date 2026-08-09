@@ -31,6 +31,7 @@ from app.schemas import (
     IntegrationOperationalSummaryRead,
     OutboundActionExpirationCleanupRead,
     OutboundActionStateHistoryEntryRead,
+    OutboundActionTransitionExplanationRead,
     OutboundActionTransitionValidationRead,
     OutboundApprovalStatusRead,
     OutboundIntegrationActionCreate,
@@ -850,7 +851,24 @@ def validate_outbound_action_transition(
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
     except OutboundIntegrationActionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
-    return OutboundActionTransitionValidationRead(**result.__dict__)
+    explanation = result.denial_reason_detail
+    return OutboundActionTransitionValidationRead(
+        allowed=result.allowed,
+        current_state=result.current_state,
+        requested_target=result.requested_target,
+        denial_reason=result.denial_reason,
+        denial_reason_detail=(
+            OutboundActionTransitionExplanationRead(
+                code=explanation.code,
+                message=explanation.message,
+                delivered_at=explanation.delivered_at,
+                cancelled_at=explanation.cancelled_at,
+                expired_at=explanation.expired_at,
+            )
+            if explanation is not None
+            else None
+        ),
+    )
 
 
 @router.get(

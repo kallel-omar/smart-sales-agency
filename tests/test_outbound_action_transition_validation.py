@@ -28,12 +28,20 @@ def test_transition_validation_reuses_guard_without_mutation_or_audit(client):
         "current_state": "pending",
         "requested_target": "cancelled",
         "denial_reason": None,
+        "denial_reason_detail": None,
     }
     assert denied.json() == {
         "allowed": False,
         "current_state": "pending",
         "requested_target": "pending",
         "denial_reason": "transition_noop",
+        "denial_reason_detail": {
+            "code": "transition_noop",
+            "message": "The requested state is already the action's current state.",
+            "delivered_at": None,
+            "cancelled_at": None,
+            "expired_at": None,
+        },
     }
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
