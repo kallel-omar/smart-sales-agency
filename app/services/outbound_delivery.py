@@ -20,6 +20,7 @@ from app.services.delivery_adapters import (
 )
 from app.services.integration_accounts import IntegrationAccountService
 from app.services.outbound_integrations import InactiveIntegrationAccountError
+from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 
 
 class OutboundIntegrationActionNotFoundError(LookupError):
@@ -34,6 +35,10 @@ class OutboundIntegrationActionNotRetryableError(ValueError):
     """Raised when an action is not a failed action eligible for explicit retry."""
 
 
+class OutboundIntegrationActionRetryDeniedError(OutboundIntegrationActionNotRetryableError):
+    """Raised when the retry policy safely denies a failed action."""
+
+
 class OutboundIntegrationDeliveryService:
     """Delivers one pending action and persists only its safe outcome."""
 
@@ -41,10 +46,12 @@ class OutboundIntegrationDeliveryService:
         self,
         session: Session,
         adapter_registry: DeliveryAdapterRegistry | None = None,
+        retry_policy: OutboundDeliveryRetryPolicy | None = None,
     ) -> None:
         self.session = session
         self.account_service = IntegrationAccountService(session)
         self.adapter_registry = adapter_registry or default_delivery_adapter_registry()
+        self.retry_policy = retry_policy or OutboundDeliveryRetryPolicy(3)
 
     def deliver_pending_action(
         self,
@@ -79,6 +86,14 @@ class OutboundIntegrationDeliveryService:
         if action.status != OutboundIntegrationActionStatus.FAILED:
             raise OutboundIntegrationActionNotRetryableError(
                 "Only failed outbound integration actions can be retried"
+            )
+        eligibility = self.retry_policy.evaluate(
+            attempt_count=self._attempt_count(action),
+            failure_code=action.failure_code,
+        )
+        if not eligibility.allowed:
+            raise OutboundIntegrationActionRetryDeniedError(
+                f"Outbound integration action retry is not eligible: {eligibility.denial_reason}"
             )
 
         return self._deliver_action(action, account)
@@ -153,21 +168,26 @@ class OutboundIntegrationDeliveryService:
         self,
         action: OutboundIntegrationAction,
     ) -> OutboundIntegrationDeliveryAttempt:
-        previous_attempt_number = self.session.exec(
-            select(func.max(OutboundIntegrationDeliveryAttempt.attempt_number)).where(
-                OutboundIntegrationDeliveryAttempt.outbound_integration_action_id == action.id
-            )
-        ).one()
+        previous_attempt_number = self._attempt_count(action)
         attempt = OutboundIntegrationDeliveryAttempt(
             workspace_id=action.workspace_id,
             integration_account_id=action.integration_account_id,
             outbound_integration_action_id=action.id,
-            attempt_number=(previous_attempt_number or 0) + 1,
+            attempt_number=previous_attempt_number + 1,
             status=OutboundIntegrationActionStatus.PENDING,
             started_at=utc_now(),
         )
         self.session.add(attempt)
         return attempt
+
+    def _attempt_count(self, action: OutboundIntegrationAction) -> int:
+        """Return the persisted attempt count without loading attempt history."""
+        attempt_count = self.session.exec(
+            select(func.max(OutboundIntegrationDeliveryAttempt.attempt_number)).where(
+                OutboundIntegrationDeliveryAttempt.outbound_integration_action_id == action.id
+            )
+        ).one()
+        return attempt_count or 0
 
     def _persist_outcome(
         self,

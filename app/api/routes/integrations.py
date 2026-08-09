@@ -46,6 +46,7 @@ from app.services.outbound_delivery import (
     OutboundIntegrationActionAlreadyProcessedError,
     OutboundIntegrationActionNotFoundError,
     OutboundIntegrationActionNotRetryableError,
+    OutboundIntegrationActionRetryDeniedError,
     OutboundIntegrationDeliveryService,
 )
 from app.services.outbound_integrations import (
@@ -53,6 +54,7 @@ from app.services.outbound_integrations import (
     OutboundIntegrationActionIdempotencyConflictError,
     OutboundIntegrationService,
 )
+from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 from app.services.repository import NotFoundError
 from app.services.secret_reference_policy import SecretReferenceValidationError
 
@@ -371,10 +373,14 @@ def retry_failed_outbound_integration_action(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    settings: SettingsDep,
 ) -> OutboundIntegrationActionRead:
     """Explicitly retry one failed action with the same persisted identity."""
     try:
-        action, account = OutboundIntegrationDeliveryService(session).retry_failed_action(
+        action, account = OutboundIntegrationDeliveryService(
+            session,
+            retry_policy=OutboundDeliveryRetryPolicy.from_settings(settings),
+        ).retry_failed_action(
             workspace,
             account_id,
             action_id,
@@ -384,6 +390,8 @@ def retry_failed_outbound_integration_action(
     except OutboundIntegrationActionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
     except InactiveIntegrationAccountError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OutboundIntegrationActionRetryDeniedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionNotRetryableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

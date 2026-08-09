@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +30,25 @@ class Settings(BaseSettings):
         ge=1,
         le=3_650,
     )
+
+    # Explicit outbound retries remain provider-neutral. Failure codes not in
+    # this list are retryable by default until the maximum is reached.
+    outbound_delivery_max_attempts: int = Field(default=3, ge=1, le=100)
+    outbound_delivery_non_retryable_failure_codes: str = ""
+
+    @field_validator("outbound_delivery_non_retryable_failure_codes")
+    @classmethod
+    def validate_outbound_delivery_non_retryable_failure_codes(cls, value: str) -> str:
+        codes = [code.strip().lower() for code in value.split(",") if code.strip()]
+        for code in codes:
+            if not code.replace("_", "").isalnum() or not code[0].isalpha() or len(code) > 100:
+                raise ValueError(
+                    "Outbound delivery non-retryable failure codes must use "
+                    "lowercase letters, numbers, or underscores"
+                )
+        if len(codes) != len(set(codes)):
+            raise ValueError("Outbound delivery non-retryable failure codes must be unique")
+        return ",".join(codes)
 
     model_config = SettingsConfigDict(
         env_file=".env",

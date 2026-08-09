@@ -251,6 +251,13 @@ explicitly invoke `POST /api/integrations/audit-events/retention-cleanup` for
 the active workspace; it deletes only events strictly older than the calculated
 cutoff and returns safe deletion statistics.
 
+Outbound delivery retries remain explicit through
+`POST /api/integrations/accounts/{account_id}/outbound-actions/{action_id}/retry`.
+`OUTBOUND_DELIVERY_MAX_ATTEMPTS` bounds all delivery attempts for an action,
+including the original delivery. `OUTBOUND_DELIVERY_NON_RETRYABLE_FAILURE_CODES`
+is an optional comma-separated provider-neutral deny list; any other safe
+failure code remains retryable by default. A denied retry creates no new attempt.
+
 /health
 
 Service health and active LLM mode
