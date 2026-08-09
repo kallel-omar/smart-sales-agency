@@ -147,6 +147,11 @@ class OutboundIntegrationActionRead(BaseModel):
     content: str
     correlation_id: str | None
     status: OutboundIntegrationActionStatus
+    provider_delivery_id: str | None
+    delivered_at: datetime | None
+    failed_at: datetime | None
+    failure_code: str | None
+    failure_message: str | None
     created_at: datetime
 
 

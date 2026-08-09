@@ -55,6 +55,8 @@ class OutboundIntegrationActionType(StrEnum):
 
 class OutboundIntegrationActionStatus(StrEnum):
     PENDING = "pending"
+    DELIVERED = "delivered"
+    FAILED = "failed"
 
 
 class Workspace(SQLModel, table=True):
@@ -107,7 +109,7 @@ class IntegrationAccountAuditEvent(SQLModel, table=True):
 
 
 class OutboundIntegrationAction(SQLModel, table=True):
-    """Provider-neutral outbound delivery intent awaiting a future adapter."""
+    """Provider-neutral outbound delivery intent and its safe outcome."""
 
     __table_args__ = (
         UniqueConstraint(
@@ -134,6 +136,11 @@ class OutboundIntegrationAction(SQLModel, table=True):
         default=OutboundIntegrationActionStatus.PENDING,
         index=True,
     )
+    provider_delivery_id: str | None = Field(default=None, max_length=255)
+    delivered_at: datetime | None = None
+    failed_at: datetime | None = None
+    failure_code: str | None = Field(default=None, max_length=100)
+    failure_message: str | None = Field(default=None, max_length=500)
     created_at: datetime = Field(default_factory=utc_now)
 
 class Lead(SQLModel, table=True):

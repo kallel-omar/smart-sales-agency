@@ -40,6 +40,11 @@ from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
     IntegrationAccountService,
 )
+from app.services.outbound_delivery import (
+    OutboundIntegrationActionAlreadyProcessedError,
+    OutboundIntegrationActionNotFoundError,
+    OutboundIntegrationDeliveryService,
+)
 from app.services.outbound_integrations import (
     InactiveIntegrationAccountError,
     OutboundIntegrationActionIdempotencyConflictError,
@@ -88,6 +93,11 @@ def outbound_action_read(
         content=action.content,
         correlation_id=action.correlation_id,
         status=action.status,
+        provider_delivery_id=action.provider_delivery_id,
+        delivered_at=action.delivered_at,
+        failed_at=action.failed_at,
+        failure_code=action.failure_code,
+        failure_message=action.failure_message,
         created_at=action.created_at,
     )
 
@@ -311,6 +321,34 @@ def create_outbound_integration_action(
     except InactiveIntegrationAccountError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionIdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return outbound_action_read(action, account)
+
+
+@router.post(
+    "/accounts/{account_id}/outbound-actions/{action_id}/deliver",
+    response_model=OutboundIntegrationActionRead,
+)
+def deliver_outbound_integration_action(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundIntegrationActionRead:
+    """Explicitly process one pending action through a neutral adapter."""
+    try:
+        action, account = OutboundIntegrationDeliveryService(session).deliver_pending_action(
+            workspace,
+            account_id,
+            action_id,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except InactiveIntegrationAccountError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OutboundIntegrationActionAlreadyProcessedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_read(action, account)
 
