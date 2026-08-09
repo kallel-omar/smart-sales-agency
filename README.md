@@ -266,6 +266,41 @@ A denied retry creates no new attempt.
 delay values provide deterministic next-retry timing for read models. They do
 not schedule, queue, or automatically invoke delivery.
 
+Generic outbound webhook adapter (including self-hosted n8n)
+
+Set an integration account provider to `generic_webhook` and configure the
+runtime-only `OUTBOUND_WEBHOOK_URL`. The database keeps the account identity and
+secret reference only; it never stores the endpoint, signing secret, or a
+workflow-specific configuration. Connect and read limits are configured through
+`OUTBOUND_WEBHOOK_CONNECT_TIMEOUT_SECONDS` and
+`OUTBOUND_WEBHOOK_READ_TIMEOUT_SECONDS`.
+
+For every explicit delivery, FastAPI sends this generic JSON request:
+
+```json
+{
+  "action_id": "uuid",
+  "action_type": "send_message",
+  "external_target_id": "provider-neutral-recipient",
+  "content": "approved outbound content"
+}
+```
+
+With `OUTBOUND_WEBHOOK_SIGNING_ENABLED=false`, requests explicitly include
+`X-Webhook-Signing: none`. With signing enabled, the account's existing
+`INTEGRATION_SECRET_*` reference is resolved only at request time and FastAPI
+sends `X-Webhook-Signing: hmac-sha256`, `X-Webhook-Timestamp`, and
+`X-Webhook-Signature`. The signature is HMAC-SHA-256 of
+`timestamp + "." + raw_request_bytes`; a receiving workflow should verify it
+before using the request. Signing values and secret references never appear in
+API responses, audit events, or delivery status views.
+
+self-hosted n8n can be one compatible webhook consumer: use a Webhook trigger,
+optionally verify the HMAC headers, then translate this generic action into a
+provider-specific delivery. n8n does not own tenants, retry policy, audit
+history, action state, or authorization. FastAPI remains the source of truth,
+and any other HTTP consumer can replace n8n without changing the domain model.
+
 /health
 
 Service health and active LLM mode
