@@ -14,6 +14,7 @@ from app.models import (
     IntegrationAccount,
     IntegrationAccountAuditAction,
     OutboundIntegrationAction,
+    OutboundIntegrationActionStatus,
     OutboundIntegrationDeliveryAttempt,
     utc_now,
 )
@@ -27,6 +28,7 @@ from app.schemas import (
     IntegrationAccountSecretReferenceUpdate,
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionRead,
+    OutboundIntegrationActionSummaryRead,
     OutboundIntegrationDeliveryAttemptRead,
     OutboundIntegrationDeliveryStatusRead,
     SalesReply,
@@ -42,6 +44,12 @@ from app.services.integration_account_audit import (
 from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
     IntegrationAccountService,
+)
+from app.services.outbound_action_query import (
+    DEFAULT_OUTBOUND_ACTION_LIMIT,
+    MAX_OUTBOUND_ACTION_LIMIT,
+    OutboundActionQueryValidationError,
+    OutboundIntegrationActionQueryService,
 )
 from app.services.outbound_delivery import (
     OutboundIntegrationActionAlreadyProcessedError,
@@ -72,6 +80,20 @@ AuditLimit = Annotated[
         le=MAX_AUDIT_EVENT_LIMIT,
         description="Maximum number of safe audit events to return.",
     ),
+]
+
+OutboundActionLimit = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_OUTBOUND_ACTION_LIMIT,
+        description="Maximum number of safe outbound action summaries to return.",
+    ),
+]
+
+OutboundActionStatusFilter = Annotated[
+    OutboundIntegrationActionStatus | None,
+    Query(alias="status"),
 ]
 
 
@@ -108,6 +130,25 @@ def outbound_action_read(
         failed_at=action.failed_at,
         failure_code=action.failure_code,
         failure_message=action.failure_message,
+        created_at=action.created_at,
+    )
+
+
+def outbound_action_summary_read(
+    action: OutboundIntegrationAction,
+    provider: str,
+) -> OutboundIntegrationActionSummaryRead:
+    return OutboundIntegrationActionSummaryRead(
+        id=action.id,
+        integration_account_id=action.integration_account_id,
+        provider=provider,
+        external_target_id=action.external_target_id,
+        action_type=action.action_type,
+        status=action.status,
+        provider_delivery_id=action.provider_delivery_id,
+        delivered_at=action.delivered_at,
+        failed_at=action.failed_at,
+        failure_code=action.failure_code,
         created_at=action.created_at,
     )
 
@@ -361,6 +402,36 @@ def create_outbound_integration_action(
     except OutboundIntegrationActionIdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_read(action, account)
+
+
+@router.get(
+    "/outbound-actions",
+    response_model=list[OutboundIntegrationActionSummaryRead],
+)
+def list_outbound_integration_actions(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    action_status: OutboundActionStatusFilter = None,
+    provider: str | None = Query(default=None, min_length=1, max_length=100),
+    integration_account_id: UUID | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    limit: OutboundActionLimit = DEFAULT_OUTBOUND_ACTION_LIMIT,
+) -> list[OutboundIntegrationActionSummaryRead]:
+    """List safe outbound action summaries from the current workspace only."""
+    try:
+        rows = OutboundIntegrationActionQueryService(session).list_for_workspace(
+            workspace,
+            action_status=action_status,
+            provider=provider,
+            integration_account_id=integration_account_id,
+            created_after=created_after,
+            created_before=created_before,
+            limit=limit,
+        )
+    except OutboundActionQueryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [outbound_action_summary_read(action, provider_name) for action, provider_name in rows]
 
 
 @router.post(

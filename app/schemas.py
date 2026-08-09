@@ -155,6 +155,22 @@ class OutboundIntegrationActionRead(BaseModel):
     created_at: datetime
 
 
+class OutboundIntegrationActionSummaryRead(BaseModel):
+    """Safe operational list representation with no outbound content or secrets."""
+
+    id: UUID
+    integration_account_id: UUID
+    provider: str
+    external_target_id: str
+    action_type: OutboundIntegrationActionType
+    status: OutboundIntegrationActionStatus
+    provider_delivery_id: str | None
+    delivered_at: datetime | None
+    failed_at: datetime | None
+    failure_code: str | None
+    created_at: datetime
+
+
 class OutboundIntegrationDeliveryAttemptRead(BaseModel):
     """Safe outbound delivery-attempt history with no request or secret data."""
 
