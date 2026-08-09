@@ -19,11 +19,6 @@ class Settings(BaseSettings):
     require_human_approval: bool = True
     default_channel: Literal["console", "whatsapp", "email"] = "console"
 
-    # Development-only mapping from an integration key to a workspace slug.
-    # A persisted integration-account mapping with provider verification will
-    # replace this when external integrations are introduced.
-    integration_dev_contexts: dict[str, str] = Field(default_factory=dict)
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

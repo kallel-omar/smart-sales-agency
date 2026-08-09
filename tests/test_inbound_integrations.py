@@ -1,3 +1,6 @@
+from uuid import UUID
+
+
 def create_workspace(client, slug: str, name: str) -> None:
     response = client.post(
         "/api/workspaces",
@@ -32,13 +35,18 @@ def inbound_event_payload(lead_id: str) -> dict[str, str]:
     }
 
 
-def test_valid_inbound_integration_event_creates_sales_reply(client):
+def workspace_id(client, slug: str) -> UUID:
+    return UUID(client.get(f"/api/workspaces/{slug}").json()["id"])
+
+
+def test_valid_inbound_integration_event_creates_sales_reply(client, integration_account_factory):
     create_workspace(client, "company-a", "Company A")
+    integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
     lead_id = create_lead(client, "company-a")
 
     response = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": "company-a-development-key"},
+        headers={"X-Integration-Key": "company-a-key"},
         json=inbound_event_payload(lead_id),
     )
 
@@ -57,8 +65,9 @@ def test_valid_inbound_integration_event_creates_sales_reply(client):
     assert history.json()[0]["channel"] == "website_chat"
 
 
-def test_invalid_inbound_integration_event_is_rejected(client):
+def test_invalid_inbound_integration_event_is_rejected(client, integration_account_factory):
     create_workspace(client, "company-a", "Company A")
+    integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
     lead_id = create_lead(client, "company-a")
 
     payload = inbound_event_payload(lead_id)
@@ -66,7 +75,7 @@ def test_invalid_inbound_integration_event_is_rejected(client):
 
     response = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": "company-a-development-key"},
+        headers={"X-Integration-Key": "company-a-key"},
         json=payload,
     )
 
@@ -87,14 +96,24 @@ def test_unknown_integration_context_is_rejected(client):
     assert response.json()["detail"] == "Invalid integration context"
 
 
-def test_integration_event_cannot_access_another_workspace_lead(client):
+def test_inactive_integration_context_is_rejected(client, integration_account_factory):
+    create_workspace(client, "company-a", "Company A")
+    integration_account_factory(workspace_id(client, "company-a"), "inactive-key", active=False)
+    lead_id = create_lead(client, "company-a")
+    response = client.post("/api/integrations/inbound-events", headers={"X-Integration-Key": "inactive-key"}, json=inbound_event_payload(lead_id))
+    assert response.status_code == 401
+
+
+def test_integration_event_cannot_access_another_workspace_lead(client, integration_account_factory):
     create_workspace(client, "company-a", "Company A")
     create_workspace(client, "company-b", "Company B")
+    integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
+    integration_account_factory(workspace_id(client, "company-b"), "company-b-key")
     company_b_lead_id = create_lead(client, "company-b")
 
     response = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": "company-a-development-key"},
+        headers={"X-Integration-Key": "company-a-key"},
         json=inbound_event_payload(company_b_lead_id),
     )
 

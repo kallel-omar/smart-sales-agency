@@ -57,6 +57,21 @@ class Workspace(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
+
+class IntegrationAccount(SQLModel, table=True):
+    """A provider-neutral, workspace-owned inbound integration identity."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    provider: str = Field(max_length=100, index=True)
+    external_account_id: str | None = Field(default=None, max_length=255)
+    credential_hash: str = Field(
+        sa_column=Column(String(64), unique=True, index=True, nullable=False)
+    )
+    active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
 class Lead(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     tenant_id: str = Field(default="demo", index=True, max_length=100)

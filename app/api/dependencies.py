@@ -11,7 +11,7 @@ from app.services.workspaces import (
     WorkspaceInactiveError,
     WorkspaceNotFoundError,
     require_active_workspace,
-    resolve_development_integration_workspace,
+    resolve_integration_workspace,
 )
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -63,15 +63,10 @@ CurrentWorkspaceDep = Annotated[
 
 def get_current_integration_workspace(
     session: SessionDep,
-    settings: SettingsDep,
     integration_key: IntegrationKeyHeader,
 ) -> Workspace:
     try:
-        return resolve_development_integration_workspace(
-            session,
-            settings,
-            integration_key,
-        )
+        return resolve_integration_workspace(session, integration_key)
     except InvalidIntegrationContextError as exc:
         raise HTTPException(
             status_code=401,

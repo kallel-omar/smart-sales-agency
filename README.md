@@ -220,8 +220,9 @@ List, approve, and reject pending actions
 
 Receive provider-neutral inbound events through a replaceable integration boundary
 
-In development and tests, `X-Integration-Key` is resolved through
-`INTEGRATION_DEV_CONTEXTS`; the event body never establishes a workspace.
+`X-Integration-Key` is resolved server-side against an active, persisted
+integration account that belongs to one workspace. Only a one-way credential
+hash is stored; the event body never establishes a workspace.
 Production integration-account mapping and verification will replace this
 temporary mechanism.
 

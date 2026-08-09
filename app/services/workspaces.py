@@ -1,7 +1,8 @@
 from sqlmodel import Session, select
 
-from app.config import Settings
-from app.models import Workspace
+from hashlib import sha256
+
+from app.models import IntegrationAccount, Workspace
 
 
 class WorkspaceNotFoundError(LookupError):
@@ -41,32 +42,23 @@ def require_active_workspace(
     return workspace
 
 
-def resolve_development_integration_workspace(
+def resolve_integration_workspace(
     session: Session,
-    settings: Settings,
     integration_key: str,
 ) -> Workspace:
-    """
-    Resolve a development integration key to an active workspace.
-
-    This deliberately does not accept a workspace identifier from the inbound
-    request. A future integration-account resolver can replace this function
-    while keeping the API boundary and domain service unchanged.
-    """
-
-    if settings.environment not in {"development", "test"}:
-        raise InvalidIntegrationContextError(
-            "Development integration contexts are not enabled"
+    """Resolve an inbound credential to its active, persisted workspace."""
+    credential_hash = sha256(integration_key.encode()).hexdigest()
+    account = session.exec(
+        select(IntegrationAccount).where(
+            IntegrationAccount.credential_hash == credential_hash,
+            IntegrationAccount.active.is_(True),
         )
-
-    workspace_slug = settings.integration_dev_contexts.get(integration_key)
-
-    if not workspace_slug:
+    ).first()
+    if not account:
         raise InvalidIntegrationContextError("Integration context is not recognized")
-
-    try:
-        return require_active_workspace(session, workspace_slug)
-    except (WorkspaceNotFoundError, WorkspaceInactiveError) as exc:
+    workspace = session.get(Workspace, account.workspace_id)
+    if not workspace or not workspace.active:
         raise InvalidIntegrationContextError(
             "Integration context is not recognized"
-        ) from exc
+        )
+    return workspace
