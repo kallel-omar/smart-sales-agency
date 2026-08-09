@@ -229,11 +229,13 @@ class OutboundIntegrationDeliveryService:
             action.failed_at = None
             action.failure_code = None
             action.failure_message = None
+            action.failure_classification = None
             attempt.status = OutboundIntegrationActionStatus.DELIVERED
             attempt.provider_delivery_id = result.provider_delivery_id
             attempt.completed_at = recorded_at
             attempt.failure_code = None
             attempt.failure_message = None
+            attempt.failure_classification = None
         else:
             action.status = OutboundIntegrationActionStatus.FAILED
             action.provider_delivery_id = None
@@ -241,10 +243,12 @@ class OutboundIntegrationDeliveryService:
             action.failed_at = recorded_at
             action.failure_code = result.failure_code or "delivery_failed"
             action.failure_message = result.failure_message or "Delivery failed"
+            action.failure_classification = result.failure_classification
             attempt.status = OutboundIntegrationActionStatus.FAILED
             attempt.provider_delivery_id = None
             attempt.completed_at = recorded_at
             attempt.failure_code = action.failure_code
             attempt.failure_message = action.failure_message
+            attempt.failure_classification = action.failure_classification
         self.session.add(action)
         self.session.add(attempt)

@@ -59,6 +59,15 @@ class OutboundIntegrationActionStatus(StrEnum):
     FAILED = "failed"
 
 
+class OutboundDeliveryFailureClassification(StrEnum):
+    TEMPORARY = "temporary"
+    PERMANENT = "permanent"
+    AUTHENTICATION = "authentication"
+    RATE_LIMIT = "rate_limit"
+    VALIDATION = "validation"
+    UNKNOWN = "unknown"
+
+
 class Workspace(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
 
@@ -141,6 +150,10 @@ class OutboundIntegrationAction(SQLModel, table=True):
     failed_at: datetime | None = None
     failure_code: str | None = Field(default=None, max_length=100)
     failure_message: str | None = Field(default=None, max_length=500)
+    failure_classification: OutboundDeliveryFailureClassification | None = Field(
+        default=None,
+        index=True,
+    )
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -172,6 +185,10 @@ class OutboundIntegrationDeliveryAttempt(SQLModel, table=True):
     completed_at: datetime | None = None
     failure_code: str | None = Field(default=None, max_length=100)
     failure_message: str | None = Field(default=None, max_length=500)
+    failure_classification: OutboundDeliveryFailureClassification | None = Field(
+        default=None,
+        index=True,
+    )
 
 
 class Lead(SQLModel, table=True):
