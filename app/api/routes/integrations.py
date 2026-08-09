@@ -38,6 +38,7 @@ from app.schemas import (
     OutboundIntegrationAuditEventRead,
     OutboundIntegrationDeliveryAttemptRead,
     OutboundIntegrationDeliveryStatusRead,
+    OutboundDeliveryReadinessRead,
     SalesReply,
 )
 from app.services.inbound_integrations import InboundIntegrationService
@@ -92,6 +93,7 @@ from app.services.outbound_delivery_approvals import (
     OutboundDeliveryApprovalRejectedError,
     OutboundDeliveryApprovalRequiredError,
 )
+from app.services.outbound_delivery_readiness import OutboundDeliveryReadinessService
 from app.services.outbound_integrations import (
     InactiveIntegrationAccountError,
     OutboundIntegrationActionIdempotencyConflictError,
@@ -713,6 +715,43 @@ def retry_failed_outbound_integration_action(
     except OutboundIntegrationActionNotRetryableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_read(action, account)
+
+
+@router.get(
+    "/accounts/{account_id}/outbound-actions/{action_id}/delivery-readiness",
+    response_model=OutboundDeliveryReadinessRead,
+)
+def get_outbound_delivery_readiness(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    settings: SettingsDep,
+) -> OutboundDeliveryReadinessRead:
+    """Read readiness only; this endpoint never executes a delivery operation."""
+    try:
+        delivery_service = OutboundIntegrationDeliveryService.from_settings(
+            session,
+            settings,
+            retry_policy=OutboundDeliveryRetryPolicy.from_settings(settings),
+        )
+        view = OutboundDeliveryReadinessService(
+            session,
+            retry_policy=OutboundDeliveryRetryPolicy.from_settings(settings),
+            retry_delay_policy=OutboundDeliveryRetryDelayPolicy.from_settings(settings),
+            adapter_registry=delivery_service.adapter_registry,
+        ).evaluate(workspace, account_id, action_id)
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return OutboundDeliveryReadinessRead(
+        action_id=view.action_id,
+        status=view.status,
+        ready=view.ready,
+        blocking_reasons=list(view.blocking_reasons),
+        next_retry_at=view.next_retry_at,
+    )
 
 
 @router.get(
