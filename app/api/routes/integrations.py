@@ -15,6 +15,7 @@ from app.models import (
     IntegrationAccountAuditAction,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
+    OutboundActionPriority,
     OutboundIntegrationAuditAction,
     OutboundIntegrationDeliveryAttempt,
     OutboundActionAnnotation,
@@ -33,6 +34,7 @@ from app.schemas import (
     OutboundActionExpirationCleanupRead,
     OutboundActionAnnotationCreate,
     OutboundActionAnnotationRead,
+    OutboundActionPriorityUpdate,
     OutboundActionStateHistoryEntryRead,
     OutboundActionTimelineEntryRead,
     OutboundActionTransitionExplanationRead,
@@ -239,6 +241,7 @@ def outbound_action_read(
         requires_approval=action.requires_approval,
         approval_request_id=action.approval_request_id,
         status=action.status,
+        priority=action.priority,
         provider_delivery_id=action.provider_delivery_id,
         delivered_at=action.delivered_at,
         failed_at=action.failed_at,
@@ -263,6 +266,7 @@ def outbound_action_summary_read(
         external_target_id=action.external_target_id,
         action_type=action.action_type,
         status=action.status,
+        priority=action.priority,
         provider_delivery_id=action.provider_delivery_id,
         delivered_at=action.delivered_at,
         failed_at=action.failed_at,
@@ -702,6 +706,16 @@ def list_outbound_action_annotations(action_id: UUID, session: SessionDep, works
     except OutboundIntegrationActionQueryNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
     return [outbound_action_annotation_read(row) for row in rows]
+
+
+@router.put("/outbound-actions/{action_id}/priority", response_model=OutboundIntegrationActionDetailRead)
+def update_outbound_action_priority(action_id: UUID, payload: OutboundActionPriorityUpdate, session: SessionDep, workspace: CurrentWorkspaceDep) -> OutboundIntegrationActionDetailRead:
+    try:
+        action = OutboundIntegrationActionQueryService(session).set_priority(workspace, action_id, payload.priority)
+        _, provider = OutboundIntegrationActionQueryService(session).get_for_workspace(workspace, action_id)
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return outbound_action_detail_read(action, provider)
 
 
 @router.post(

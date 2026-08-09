@@ -62,6 +62,13 @@ class OutboundIntegrationActionStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class OutboundActionPriority(StrEnum):
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
 class OutboundDeliveryFailureClassification(StrEnum):
     TEMPORARY = "temporary"
     PERMANENT = "permanent"
@@ -166,6 +173,7 @@ class OutboundIntegrationAction(SQLModel, table=True):
         default=OutboundIntegrationActionStatus.PENDING,
         index=True,
     )
+    priority: OutboundActionPriority = Field(default=OutboundActionPriority.NORMAL, index=True)
     provider_delivery_id: str | None = Field(default=None, max_length=255)
     delivered_at: datetime | None = None
     failed_at: datetime | None = None

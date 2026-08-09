@@ -9,6 +9,7 @@ from app.models import (
     IntegrationAccountAuditAction,
     LeadStatus,
     OutboundIntegrationActionStatus,
+    OutboundActionPriority,
     OutboundIntegrationActionType,
     OutboundIntegrationAuditAction,
     SalesStage,
@@ -183,6 +184,7 @@ class OutboundIntegrationActionSummaryRead(BaseModel):
     external_target_id: str
     action_type: OutboundIntegrationActionType
     status: OutboundIntegrationActionStatus
+    priority: OutboundActionPriority
     provider_delivery_id: str | None
     delivered_at: datetime | None
     failed_at: datetime | None
@@ -204,6 +206,11 @@ class OutboundActionAnnotationRead(BaseModel):
     outbound_integration_action_id: UUID
     text: str
     created_at: datetime
+
+
+class OutboundActionPriorityUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    priority: OutboundActionPriority
 
 
 class OutboundIntegrationActionDetailRead(OutboundIntegrationActionSummaryRead):

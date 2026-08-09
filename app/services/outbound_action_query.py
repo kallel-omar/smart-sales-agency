@@ -10,6 +10,7 @@ from app.models import (
     IntegrationAccount,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
+    OutboundActionPriority,
     Workspace,
 )
 
@@ -98,6 +99,14 @@ class OutboundIntegrationActionQueryService:
                 "Outbound integration action not found"
             )
         return row
+
+    def set_priority(self, workspace: Workspace, action_id: UUID, priority: OutboundActionPriority) -> OutboundIntegrationAction:
+        action, _ = self.get_for_workspace(workspace, action_id)
+        action.priority = priority
+        self.session.add(action)
+        self.session.commit()
+        self.session.refresh(action)
+        return action
 
     def cleanup_expired_for_workspace(self, workspace: Workspace, cutoff: datetime) -> int:
         result = self.session.execute(
