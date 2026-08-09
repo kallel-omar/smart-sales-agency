@@ -557,10 +557,11 @@ def deliver_outbound_integration_action(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    settings: SettingsDep,
 ) -> OutboundIntegrationActionRead:
     """Explicitly process one pending action through a neutral adapter."""
     try:
-        action, account = OutboundIntegrationDeliveryService(session).deliver_pending_action(
+        action, account = OutboundIntegrationDeliveryService.from_settings(session, settings).deliver_pending_action(
             workspace,
             account_id,
             action_id,
@@ -611,8 +612,9 @@ def retry_failed_outbound_integration_action(
 ) -> OutboundIntegrationActionRead:
     """Explicitly retry one failed action with the same persisted identity."""
     try:
-        action, account = OutboundIntegrationDeliveryService(
+        action, account = OutboundIntegrationDeliveryService.from_settings(
             session,
+            settings,
             retry_policy=OutboundDeliveryRetryPolicy.from_settings(settings),
         ).retry_failed_action(
             workspace,

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     outbound_delivery_retry_delay_strategy: Literal["fixed", "exponential"] = "fixed"
     outbound_delivery_retry_delay_seconds: int = Field(default=0, ge=0, le=86_400)
     outbound_delivery_retry_delay_max_seconds: int = Field(default=3_600, ge=0, le=86_400)
+    outbound_webhook_url: str = ""
+    outbound_webhook_connect_timeout_seconds: float = Field(default=5, gt=0, le=60)
+    outbound_webhook_read_timeout_seconds: float = Field(default=15, gt=0, le=120)
 
     @field_validator("outbound_delivery_non_retryable_failure_codes")
     @classmethod

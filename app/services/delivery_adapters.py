@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
+import httpx
+
 from app.models import (
     IntegrationAccount,
     OutboundDeliveryFailureClassification,
@@ -92,6 +94,100 @@ class DeliveryAdapter(Protocol):
     ) -> DeliveryAdapterResult: ...
 
 
+@dataclass(frozen=True)
+class WebhookHttpResponse:
+    status_code: int
+    headers: dict[str, str]
+
+
+class WebhookHttpTransport(Protocol):
+    def post(
+        self,
+        url: str,
+        *,
+        content: bytes,
+        headers: dict[str, str],
+        timeout: httpx.Timeout,
+    ) -> WebhookHttpResponse: ...
+
+
+class HttpxWebhookHttpTransport:
+    """Small HTTP boundary that keeps the generic adapter easy to test."""
+
+    def post(self, url: str, *, content: bytes, headers: dict[str, str], timeout: httpx.Timeout) -> WebhookHttpResponse:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(url, content=content, headers=headers)
+        return WebhookHttpResponse(status_code=response.status_code, headers=dict(response.headers))
+
+
+class GenericWebhookDeliveryAdapter:
+    """Generic outbound HTTP delivery without provider or workflow semantics."""
+
+    capabilities = DEFAULT_DELIVERY_ADAPTER_CAPABILITIES
+
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        connect_timeout_seconds: float = 5,
+        read_timeout_seconds: float = 15,
+        transport: WebhookHttpTransport | None = None,
+    ) -> None:
+        self.endpoint = endpoint.strip()
+        self.timeout = httpx.Timeout(
+            connect=connect_timeout_seconds,
+            read=read_timeout_seconds,
+            write=read_timeout_seconds,
+            pool=connect_timeout_seconds,
+        )
+        self.transport = transport or HttpxWebhookHttpTransport()
+
+    def deliver(
+        self, action: OutboundIntegrationAction, account: IntegrationAccount
+    ) -> DeliveryAdapterResult:
+        del account
+        if not self.endpoint:
+            return DeliveryAdapterResult.failure(
+                "webhook_configuration_missing",
+                "Generic webhook endpoint is not configured",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        body = self._serialize_action(action)
+        try:
+            response = self.transport.post(
+                self.endpoint,
+                content=body,
+                headers={"Content-Type": "application/json"},
+                timeout=self.timeout,
+            )
+        except httpx.HTTPError:
+            return DeliveryAdapterResult.failure(
+                "webhook_network_error",
+                "Generic webhook delivery failed",
+                OutboundDeliveryFailureClassification.TEMPORARY,
+            )
+        if 200 <= response.status_code < 300:
+            return DeliveryAdapterResult.success(response.headers.get("x-delivery-id"))
+        return DeliveryAdapterResult.failure(
+            "webhook_delivery_failed",
+            "Generic webhook delivery was not accepted",
+        )
+
+    @staticmethod
+    def _serialize_action(action: OutboundIntegrationAction) -> bytes:
+        import json
+
+        return json.dumps(
+            {
+                "action_id": str(action.id),
+                "action_type": action.action_type.value,
+                "external_target_id": action.external_target_id,
+                "content": action.content,
+            },
+            separators=(",", ":"),
+        ).encode()
+
+
 class DeliveryAdapterRegistry:
     """Explicit mapping from a persisted provider name to an adapter."""
 
@@ -126,6 +222,11 @@ class NoopDeliveryAdapter:
         return DeliveryAdapterResult.success(provider_delivery_id=f"noop-{action.id}")
 
 
-def default_delivery_adapter_registry() -> DeliveryAdapterRegistry:
+def default_delivery_adapter_registry(
+    generic_webhook_adapter: DeliveryAdapter | None = None,
+) -> DeliveryAdapterRegistry:
     """Return the intentionally minimal adapter set available in this task."""
-    return DeliveryAdapterRegistry({"generic_hmac": NoopDeliveryAdapter()})
+    adapters: dict[str, DeliveryAdapter] = {"generic_hmac": NoopDeliveryAdapter()}
+    if generic_webhook_adapter is not None:
+        adapters["generic_webhook"] = generic_webhook_adapter
+    return DeliveryAdapterRegistry(adapters)

@@ -1,6 +1,7 @@
 """Explicit orchestration for provider-neutral outbound action delivery."""
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import func
@@ -18,12 +19,16 @@ from app.models import (
 from app.services.delivery_adapters import (
     DeliveryAdapterRegistry,
     DeliveryAdapterResult,
+    GenericWebhookDeliveryAdapter,
     default_delivery_adapter_registry,
 )
 from app.services.integration_accounts import IntegrationAccountService
 from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
 from app.services.outbound_integrations import InactiveIntegrationAccountError
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
+
+if TYPE_CHECKING:
+    from app.config import Settings
 
 
 class OutboundIntegrationActionNotFoundError(LookupError):
@@ -72,6 +77,25 @@ class OutboundIntegrationDeliveryService:
         self.adapter_registry = adapter_registry or default_delivery_adapter_registry()
         self.retry_policy = retry_policy or OutboundDeliveryRetryPolicy(3)
         self.audit_service = OutboundIntegrationActionAuditService(session)
+
+    @classmethod
+    def from_settings(
+        cls,
+        session: Session,
+        settings: "Settings",
+        *,
+        retry_policy: OutboundDeliveryRetryPolicy | None = None,
+    ) -> "OutboundIntegrationDeliveryService":
+        webhook_adapter = GenericWebhookDeliveryAdapter(
+            settings.outbound_webhook_url,
+            connect_timeout_seconds=settings.outbound_webhook_connect_timeout_seconds,
+            read_timeout_seconds=settings.outbound_webhook_read_timeout_seconds,
+        )
+        return cls(
+            session,
+            adapter_registry=default_delivery_adapter_registry(webhook_adapter),
+            retry_policy=retry_policy,
+        )
 
     def deliver_pending_action(
         self,
