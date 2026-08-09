@@ -9,6 +9,7 @@ from app.api.dependencies import (
     SessionDep,
     SettingsDep,
     VerifiedIntegrationContextDep,
+    WorkspaceReadinessDep,
 )
 from app.models import (
     IntegrationAccount,
@@ -34,6 +35,7 @@ from app.schemas import (
     IntegrationAccountAuditRetentionCleanupRead,
     IntegrationAccountCredentialRead,
     IntegrationAccountHealthRead,
+    IntegrationRuntimeReadinessRead,
     IntegrationAccountProvision,
     IntegrationAccountRead,
     IntegrationAccountSecretReferenceUpdate,
@@ -76,6 +78,7 @@ from app.services.integration_accounts import (
     IntegrationAccountService,
 )
 from app.services.integration_health import IntegrationHealthService
+from app.services.integration_runtime_readiness import IntegrationRuntimeReadinessService
 from app.services.integration_operational_summary import IntegrationOperationalSummaryService
 from app.services.integration_execution_trace import (
     IntegrationExecutionTraceNotFoundError,
@@ -538,6 +541,40 @@ def get_integration_account_health(
         recent_failed_count=view.recent_failed_count,
         pending_action_count=view.pending_action_count,
         failed_action_count=view.failed_action_count,
+    )
+
+
+@router.get(
+    "/accounts/{account_id}/health/runtime-readiness",
+    response_model=IntegrationRuntimeReadinessRead,
+)
+def get_integration_runtime_readiness(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: WorkspaceReadinessDep,
+    settings: SettingsDep,
+) -> IntegrationRuntimeReadinessRead:
+    """Read configuration readiness only; never contacts an external provider."""
+    try:
+        delivery_service = OutboundIntegrationDeliveryService.from_settings(session, settings)
+        view = IntegrationRuntimeReadinessService(
+            session,
+            settings,
+            delivery_service.adapter_registry,
+        ).evaluate(workspace, account_id)
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    return IntegrationRuntimeReadinessRead(
+        id=view.account.id,
+        provider=view.account.provider,
+        status="ready" if view.configuration_ready else "blocked",
+        configuration_ready=view.configuration_ready,
+        external_provider_availability_checked=False,
+        blocking_reasons=[str(blocker.code) for blocker in view.blockers],
+        blocking_reason_details=[
+            {"code": str(blocker.code), "message": blocker.message}
+            for blocker in view.blockers
+        ],
     )
 
 

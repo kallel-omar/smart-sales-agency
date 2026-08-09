@@ -15,6 +15,7 @@ from app.services.workspaces import (
     InvalidIntegrationContextError,
     WorkspaceInactiveError,
     WorkspaceNotFoundError,
+    get_workspace_by_slug,
     require_active_workspace,
     resolve_integration_account,
     resolve_integration_workspace_for_account,
@@ -68,6 +69,23 @@ def get_current_workspace(
 CurrentWorkspaceDep = Annotated[
     Workspace,
     Depends(get_current_workspace),
+]
+
+
+def get_workspace_for_readiness(
+    session: SessionDep,
+    workspace_slug: WorkspaceSlugHeader,
+) -> Workspace:
+    """Resolve a workspace for a configuration read, including inactive ones."""
+    try:
+        return get_workspace_by_slug(session, workspace_slug)
+    except WorkspaceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+WorkspaceReadinessDep = Annotated[
+    Workspace,
+    Depends(get_workspace_for_readiness),
 ]
 
 

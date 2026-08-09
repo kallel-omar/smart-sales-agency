@@ -450,6 +450,25 @@ class IntegrationAccountHealthRead(BaseModel):
     failed_action_count: int
 
 
+class IntegrationRuntimeReadinessBlockerRead(BaseModel):
+    """Safe explanation for one deterministic configuration blocker."""
+
+    code: str
+    message: str
+
+
+class IntegrationRuntimeReadinessRead(BaseModel):
+    """Configuration-only readiness; external availability is never probed."""
+
+    id: UUID
+    provider: str
+    status: str
+    configuration_ready: bool
+    external_provider_availability_checked: bool = False
+    blocking_reasons: list[str]
+    blocking_reason_details: list[IntegrationRuntimeReadinessBlockerRead]
+
+
 class IntegrationOperationalSummaryRead(BaseModel):
     """Safe, workspace-level operational aggregate for integration accounts."""
 

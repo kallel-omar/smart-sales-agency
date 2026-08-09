@@ -30,6 +30,20 @@ def require_active_workspace(
     session: Session,
     slug: str,
 ) -> Workspace:
+    workspace = get_workspace_by_slug(session, slug)
+    if not workspace.active:
+        raise WorkspaceInactiveError(
+            f"Workspace '{workspace.slug}' is inactive"
+        )
+
+    return workspace
+
+
+def get_workspace_by_slug(
+    session: Session,
+    slug: str,
+) -> Workspace:
+    """Resolve a workspace without applying an operation-specific active gate."""
     normalized_slug = slug.strip().lower()
 
     workspace = session.exec(
@@ -42,12 +56,6 @@ def require_active_workspace(
         raise WorkspaceNotFoundError(
             f"Workspace '{normalized_slug}' was not found"
         )
-
-    if not workspace.active:
-        raise WorkspaceInactiveError(
-            f"Workspace '{normalized_slug}' is inactive"
-        )
-
     return workspace
 
 
