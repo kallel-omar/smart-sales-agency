@@ -24,6 +24,7 @@ from app.schemas import (
     IntegrationAccountAuditEventRead,
     IntegrationAccountAuditRetentionCleanupRead,
     IntegrationAccountCredentialRead,
+    IntegrationAccountHealthRead,
     IntegrationAccountProvision,
     IntegrationAccountRead,
     IntegrationAccountSecretReferenceUpdate,
@@ -49,6 +50,7 @@ from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
     IntegrationAccountService,
 )
+from app.services.integration_health import IntegrationHealthService
 from app.services.outbound_action_audit import (
     DEFAULT_OUTBOUND_AUDIT_EVENT_LIMIT,
     MAX_OUTBOUND_AUDIT_EVENT_LIMIT,
@@ -296,6 +298,36 @@ def list_integration_accounts(
 ) -> list[IntegrationAccountRead]:
     accounts = IntegrationAccountService(session).list_for_workspace(workspace)
     return [account_read(account) for account in accounts]
+
+
+@router.get("/accounts/{account_id}/health", response_model=IntegrationAccountHealthRead)
+def get_integration_account_health(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    settings: SettingsDep,
+) -> IntegrationAccountHealthRead:
+    """Read persisted operational health without contacting an external provider."""
+    try:
+        view = IntegrationHealthService(session).get_for_account(
+            workspace,
+            account_id,
+            window_days=settings.integration_health_window_days,
+            now=utc_now(),
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    return IntegrationAccountHealthRead(
+        id=view.account.id,
+        provider=view.account.provider,
+        active=view.account.active,
+        health=view.health,
+        most_recent_outbound_at=view.most_recent_outbound_at,
+        recent_delivered_count=view.recent_delivered_count,
+        recent_failed_count=view.recent_failed_count,
+        pending_action_count=view.pending_action_count,
+        failed_action_count=view.failed_action_count,
+    )
 
 
 @router.get(

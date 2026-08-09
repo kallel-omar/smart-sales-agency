@@ -7,10 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.models import (
     ApprovalStatus,
     IntegrationAccountAuditAction,
-    OutboundIntegrationAuditAction,
     LeadStatus,
     OutboundIntegrationActionStatus,
     OutboundIntegrationActionType,
+    OutboundIntegrationAuditAction,
     SalesStage,
 )
 
@@ -239,6 +239,20 @@ class OutboundIntegrationDeliveryStatusRead(BaseModel):
 class OutboundActionExpirationCleanupRead(BaseModel):
     deleted_count: int
     cutoff: datetime
+
+
+class IntegrationAccountHealthRead(BaseModel):
+    """Safe persisted-state health summary for one integration account."""
+
+    id: UUID
+    provider: str
+    active: bool
+    health: str
+    most_recent_outbound_at: datetime | None
+    recent_delivered_count: int
+    recent_failed_count: int
+    pending_action_count: int
+    failed_action_count: int
 
 
 class WorkflowResult(BaseModel):
