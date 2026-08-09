@@ -17,6 +17,7 @@ from app.models import (
     OutboundIntegrationActionStatus,
     OutboundIntegrationAuditAction,
     OutboundIntegrationDeliveryAttempt,
+    OutboundActionAnnotation,
     utc_now,
 )
 from app.schemas import (
@@ -30,6 +31,8 @@ from app.schemas import (
     IntegrationAccountSecretReferenceUpdate,
     IntegrationOperationalSummaryRead,
     OutboundActionExpirationCleanupRead,
+    OutboundActionAnnotationCreate,
+    OutboundActionAnnotationRead,
     OutboundActionStateHistoryEntryRead,
     OutboundActionTimelineEntryRead,
     OutboundActionTransitionExplanationRead,
@@ -65,6 +68,7 @@ from app.services.outbound_action_audit import (
     OutboundAuditQueryValidationError,
     OutboundIntegrationActionAuditService,
 )
+from app.services.outbound_action_annotations import OutboundActionAnnotationService
 from app.services.outbound_action_query import (
     DEFAULT_OUTBOUND_ACTION_LIMIT,
     MAX_OUTBOUND_ACTION_LIMIT,
@@ -267,6 +271,13 @@ def outbound_action_summary_read(
         expired_at=action.expired_at,
         failure_code=action.failure_code,
         created_at=action.created_at,
+    )
+
+
+def outbound_action_annotation_read(annotation: OutboundActionAnnotation) -> OutboundActionAnnotationRead:
+    return OutboundActionAnnotationRead(
+        id=annotation.id, outbound_integration_action_id=annotation.outbound_integration_action_id,
+        text=annotation.text, created_at=annotation.created_at
     )
 
 
@@ -672,6 +683,15 @@ def get_outbound_integration_action_detail(
     except OutboundIntegrationActionQueryNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
     return outbound_action_detail_read(action, provider)
+
+
+@router.post("/outbound-actions/{action_id}/annotations", response_model=OutboundActionAnnotationRead, status_code=status.HTTP_201_CREATED)
+def create_outbound_action_annotation(action_id: UUID, payload: OutboundActionAnnotationCreate, session: SessionDep, workspace: CurrentWorkspaceDep) -> OutboundActionAnnotationRead:
+    try:
+        annotation = OutboundActionAnnotationService(session).create(workspace, action_id, payload.text)
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return outbound_action_annotation_read(annotation)
 
 
 @router.post(

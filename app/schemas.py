@@ -194,6 +194,18 @@ class OutboundIntegrationActionSummaryRead(BaseModel):
     created_at: datetime
 
 
+class OutboundActionAnnotationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class OutboundActionAnnotationRead(BaseModel):
+    id: UUID
+    outbound_integration_action_id: UUID
+    text: str
+    created_at: datetime
+
+
 class OutboundIntegrationActionDetailRead(OutboundIntegrationActionSummaryRead):
     """Safe single-action operational view with no outbound request content."""
 

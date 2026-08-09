@@ -195,6 +195,18 @@ class OutboundIntegrationAuditEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class OutboundActionAnnotation(SQLModel, table=True):
+    """Safe operator-authored note; never participates in delivery state."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    outbound_integration_action_id: UUID = Field(
+        foreign_key="outboundintegrationaction.id", index=True
+    )
+    text: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class OutboundIntegrationDeliveryAttempt(SQLModel, table=True):
     """Safe, workspace-scoped history of explicit outbound delivery attempts."""
 
