@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from app.config import Settings
+from app.models import OutboundIntegrationActionStatus
 
 _FAILURE_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 
@@ -72,6 +73,33 @@ class OutboundDeliveryRetryPolicy:
                 denial_reason="failure_code_not_retryable",
             )
         return OutboundDeliveryRetryEligibility(allowed=True)
+
+    def evaluate_action(
+        self,
+        *,
+        action_status: OutboundIntegrationActionStatus,
+        attempt_count: int,
+        failure_code: str | None,
+    ) -> OutboundDeliveryRetryEligibility:
+        """Evaluate retry eligibility for an action without changing its state.
+
+        Only failed actions enter the attempt/failure-code policy. Pending actions
+        have not failed, and delivered actions are terminal by design.
+        """
+        if action_status == OutboundIntegrationActionStatus.DELIVERED:
+            return OutboundDeliveryRetryEligibility(
+                allowed=False,
+                denial_reason="action_delivered",
+            )
+        if action_status != OutboundIntegrationActionStatus.FAILED:
+            return OutboundDeliveryRetryEligibility(
+                allowed=False,
+                denial_reason="action_not_failed",
+            )
+        return self.evaluate(
+            attempt_count=attempt_count,
+            failure_code=failure_code,
+        )
 
     @staticmethod
     def _normalize_failure_code(value: str) -> str:

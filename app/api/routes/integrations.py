@@ -28,6 +28,7 @@ from app.schemas import (
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionRead,
     OutboundIntegrationDeliveryAttemptRead,
+    OutboundIntegrationDeliveryStatusRead,
     SalesReply,
 )
 from app.services.inbound_integrations import InboundIntegrationService
@@ -48,6 +49,10 @@ from app.services.outbound_delivery import (
     OutboundIntegrationActionNotRetryableError,
     OutboundIntegrationActionRetryDeniedError,
     OutboundIntegrationDeliveryService,
+)
+from app.services.outbound_delivery_status import (
+    OutboundIntegrationDeliveryStatusService,
+    OutboundIntegrationDeliveryStatusView,
 )
 from app.services.outbound_integrations import (
     InactiveIntegrationAccountError,
@@ -111,6 +116,28 @@ def outbound_delivery_attempt_read(
     attempt: OutboundIntegrationDeliveryAttempt,
 ) -> OutboundIntegrationDeliveryAttemptRead:
     return OutboundIntegrationDeliveryAttemptRead.model_validate(attempt)
+
+
+def outbound_delivery_status_read(
+    view: OutboundIntegrationDeliveryStatusView,
+) -> OutboundIntegrationDeliveryStatusRead:
+    action = view.action
+    return OutboundIntegrationDeliveryStatusRead(
+        id=action.id,
+        provider=view.account.provider,
+        external_target_id=action.external_target_id,
+        action_type=action.action_type,
+        status=action.status,
+        created_at=action.created_at,
+        provider_delivery_id=action.provider_delivery_id,
+        delivered_at=action.delivered_at,
+        failed_at=action.failed_at,
+        failure_code=action.failure_code,
+        failure_message=action.failure_message,
+        attempt_count=view.attempt_count,
+        retry_allowed=view.retry_eligibility.allowed,
+        retry_denial_reason=view.retry_eligibility.denial_reason,
+    )
 
 
 @router.post(
@@ -396,6 +423,34 @@ def retry_failed_outbound_integration_action(
     except OutboundIntegrationActionNotRetryableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_read(action, account)
+
+
+@router.get(
+    "/accounts/{account_id}/outbound-actions/{action_id}/delivery-status",
+    response_model=OutboundIntegrationDeliveryStatusRead,
+)
+def get_outbound_integration_delivery_status(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    settings: SettingsDep,
+) -> OutboundIntegrationDeliveryStatusRead:
+    """Return one safe status summary without delivering or retrying the action."""
+    try:
+        view = OutboundIntegrationDeliveryStatusService(
+            session,
+            retry_policy=OutboundDeliveryRetryPolicy.from_settings(settings),
+        ).get_status_for_action(
+            workspace,
+            account_id,
+            action_id,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return outbound_delivery_status_read(view)
 
 
 @router.get(

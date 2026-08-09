@@ -173,6 +173,25 @@ class OutboundIntegrationDeliveryAttemptRead(BaseModel):
     failure_message: str | None
 
 
+class OutboundIntegrationDeliveryStatusRead(BaseModel):
+    """Safe read-only summary of an outbound action and retry eligibility."""
+
+    id: UUID
+    provider: str
+    external_target_id: str
+    action_type: OutboundIntegrationActionType
+    status: OutboundIntegrationActionStatus
+    created_at: datetime
+    provider_delivery_id: str | None
+    delivered_at: datetime | None
+    failed_at: datetime | None
+    failure_code: str | None
+    failure_message: str | None
+    attempt_count: int
+    retry_allowed: bool
+    retry_denial_reason: str | None
+
+
 class WorkflowResult(BaseModel):
     lead_id: UUID
     status: str
