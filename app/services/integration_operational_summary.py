@@ -30,6 +30,8 @@ class IntegrationOperationalSummary:
     recent_delivered_count: int
     recent_failed_count: int
     priority_counts: dict[OutboundActionPriority, int]
+    owned_outbound_action_count: int
+    unowned_outbound_action_count: int
 
 
 class IntegrationOperationalSummaryService:
@@ -66,6 +68,8 @@ class IntegrationOperationalSummaryService:
                         OutboundIntegrationAction.priority == OutboundActionPriority.NORMAL,
                         OutboundIntegrationAction.priority == OutboundActionPriority.HIGH,
                         OutboundIntegrationAction.priority == OutboundActionPriority.URGENT,
+                        OutboundIntegrationAction.owner_reference.is_not(None),
+                        OutboundIntegrationAction.owner_reference.is_(None),
                     )
                 ],
             ).where(OutboundIntegrationAction.workspace_id == workspace.id)
@@ -119,4 +123,6 @@ class IntegrationOperationalSummaryService:
                 OutboundActionPriority.HIGH: values[9],
                 OutboundActionPriority.URGENT: values[10],
             },
+            owned_outbound_action_count=values[11],
+            unowned_outbound_action_count=values[12],
         )

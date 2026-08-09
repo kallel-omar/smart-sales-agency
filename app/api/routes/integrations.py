@@ -665,6 +665,11 @@ def list_outbound_integration_actions(
     action_status: OutboundActionStatusFilter = None,
     priority: OutboundActionPriorityFilter = None,
     label: str | None = Query(default=None, min_length=1, max_length=64),
+    owner_reference: str | None = Query(default=None, min_length=1, max_length=200),
+    unowned: bool | None = Query(
+        default=None,
+        description="Filter actions by whether their opaque owner reference is absent.",
+    ),
     provider: str | None = Query(default=None, min_length=1, max_length=100),
     integration_account_id: UUID | None = None,
     created_after: datetime | None = None,
@@ -676,11 +681,18 @@ def list_outbound_integration_actions(
         normalized_label = (
             OutboundActionLabelService.normalize(label) if label is not None else None
         )
+        normalized_owner_reference = (
+            OutboundActionOwnershipService.normalize(owner_reference)
+            if owner_reference is not None
+            else None
+        )
         rows = OutboundIntegrationActionQueryService(session).list_for_workspace(
             workspace,
             action_status=action_status,
             priority=priority,
             label=normalized_label,
+            owner_reference=normalized_owner_reference,
+            unowned=unowned,
             provider=provider,
             integration_account_id=integration_account_id,
             created_after=created_after,
@@ -690,6 +702,8 @@ def list_outbound_integration_actions(
     except OutboundActionQueryValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except OutboundActionLabelValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OutboundActionOwnerReferenceValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [outbound_action_summary_read(action, provider_name) for action, provider_name in rows]
 

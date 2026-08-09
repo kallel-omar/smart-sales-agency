@@ -391,6 +391,8 @@ class IntegrationOperationalSummaryRead(BaseModel):
     recent_delivered_count: int
     recent_failed_count: int
     priority_counts: dict[OutboundActionPriority, int]
+    owned_outbound_action_count: int
+    unowned_outbound_action_count: int
 
 
 class WorkflowResult(BaseModel):

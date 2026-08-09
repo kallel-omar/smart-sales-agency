@@ -99,3 +99,46 @@ def test_outbound_action_owner_reference_validates_and_is_workspace_scoped(clien
     rows = client.get("/api/integrations/outbound-actions", headers=_headers("company-a"))
     assert rows.status_code == 200
     assert rows.json()[0]["owner_reference"] is None
+
+
+def test_outbound_action_listing_filters_exact_owner_or_unowned_with_workspace_isolation(client):
+    _workspace(client, "company-a")
+    _workspace(client, "company-b")
+    owned = _action(client, "company-a", "owned")
+    unowned = _action(client, "company-a", "unowned")
+    other_workspace = _action(client, "company-b", "other-workspace")
+
+    assert client.put(
+        f"/api/integrations/outbound-actions/{owned['id']}/owner-reference",
+        headers=_headers("company-a"),
+        json={"owner_reference": "operator:42"},
+    ).status_code == 200
+    assert client.put(
+        f"/api/integrations/outbound-actions/{other_workspace['id']}/owner-reference",
+        headers=_headers("company-b"),
+        json={"owner_reference": "operator:42"},
+    ).status_code == 200
+
+    exact = client.get(
+        "/api/integrations/outbound-actions",
+        headers=_headers("company-a"),
+        params={"owner_reference": "operator:42"},
+    )
+    assert exact.status_code == 200
+    assert [item["id"] for item in exact.json()] == [owned["id"]]
+
+    missing_owner = client.get(
+        "/api/integrations/outbound-actions",
+        headers=_headers("company-a"),
+        params={"unowned": True},
+    )
+    assert missing_owner.status_code == 200
+    assert [item["id"] for item in missing_owner.json()] == [unowned["id"]]
+
+    conflict = client.get(
+        "/api/integrations/outbound-actions",
+        headers=_headers("company-a"),
+        params={"owner_reference": "operator:42", "unowned": True},
+    )
+    assert conflict.status_code == 422
+    assert conflict.json()["detail"] == "owner_reference and unowned cannot be combined"

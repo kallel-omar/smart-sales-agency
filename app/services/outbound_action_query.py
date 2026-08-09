@@ -40,6 +40,8 @@ class OutboundIntegrationActionQueryService:
         action_status: OutboundIntegrationActionStatus | None = None,
         priority: OutboundActionPriority | None = None,
         label: str | None = None,
+        owner_reference: str | None = None,
+        unowned: bool | None = None,
         provider: str | None = None,
         integration_account_id: UUID | None = None,
         created_after: datetime | None = None,
@@ -49,6 +51,10 @@ class OutboundIntegrationActionQueryService:
         if created_after and created_before and created_after > created_before:
             raise OutboundActionQueryValidationError(
                 "created_after must be earlier than or equal to created_before"
+            )
+        if owner_reference is not None and unowned is not None:
+            raise OutboundActionQueryValidationError(
+                "owner_reference and unowned cannot be combined"
             )
 
         statement = (
@@ -69,6 +75,14 @@ class OutboundIntegrationActionQueryService:
                 (OutboundActionLabel.outbound_integration_action_id == OutboundIntegrationAction.id)
                 & (OutboundActionLabel.workspace_id == workspace.id),
             ).where(OutboundActionLabel.label == label)
+        if owner_reference is not None:
+            statement = statement.where(
+                OutboundIntegrationAction.owner_reference == owner_reference
+            )
+        if unowned is True:
+            statement = statement.where(OutboundIntegrationAction.owner_reference.is_(None))
+        elif unowned is False:
+            statement = statement.where(OutboundIntegrationAction.owner_reference.is_not(None))
         if provider:
             statement = statement.where(
                 IntegrationAccount.provider == provider.strip()

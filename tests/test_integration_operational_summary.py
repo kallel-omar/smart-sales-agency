@@ -45,6 +45,8 @@ def test_operational_summary_aggregates_only_current_workspace_and_is_read_only(
         "high": 0,
         "urgent": 0,
     }
+    assert summary["owned_outbound_action_count"] == 0
+    assert summary["unowned_outbound_action_count"] == 3
     assert summary["most_recent_outbound_at"] is not None
     for sensitive in ("content", "payload", "secret_reference", "credential_hash"):
         assert sensitive not in summary
@@ -69,6 +71,8 @@ def test_operational_summary_is_workspace_scoped(client):
         "high": 0,
         "urgent": 0,
     }
+    assert summary.json()["owned_outbound_action_count"] == 0
+    assert summary.json()["unowned_outbound_action_count"] == 0
 
 
 def test_operational_summary_counts_each_priority_within_the_current_workspace(client):
@@ -95,3 +99,29 @@ def test_operational_summary_counts_each_priority_within_the_current_workspace(c
         "high": 1,
         "urgent": 0,
     }
+
+
+def test_operational_summary_counts_owned_and_unowned_actions_within_current_workspace(client):
+    assert client.post("/api/workspaces", json={"slug": "company-a", "name": "Company A"}).status_code == 201
+    assert client.post("/api/workspaces", json={"slug": "company-b", "name": "Company B"}).status_code == 201
+    account_a = _account(client, "company-a", "generic_hmac")
+    account_b = _account(client, "company-b", "generic_hmac")
+    owned = _action(client, "company-a", account_a["id"], "owned")
+    _action(client, "company-a", account_a["id"], "unowned")
+    other_workspace = _action(client, "company-b", account_b["id"], "other-workspace")
+
+    assert client.put(
+        f"/api/integrations/outbound-actions/{owned['id']}/owner-reference",
+        headers=_headers("company-a"),
+        json={"owner_reference": "operator:42"},
+    ).status_code == 200
+    assert client.put(
+        f"/api/integrations/outbound-actions/{other_workspace['id']}/owner-reference",
+        headers=_headers("company-b"),
+        json={"owner_reference": "operator:99"},
+    ).status_code == 200
+
+    summary = client.get("/api/integrations/operational-summary", headers=_headers("company-a"))
+    assert summary.status_code == 200
+    assert summary.json()["owned_outbound_action_count"] == 1
+    assert summary.json()["unowned_outbound_action_count"] == 1
