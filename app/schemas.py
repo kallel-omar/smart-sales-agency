@@ -54,6 +54,35 @@ class InboundIntegrationEvent(BaseModel):
     external_event_id: str | None = Field(default=None, max_length=200)
 
 
+class IntegrationAccountProvision(BaseModel):
+    """Provider-neutral account data needed to provision inbound access."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(min_length=1, max_length=100)
+    external_account_id: str | None = Field(default=None, max_length=255)
+
+
+class IntegrationAccountRead(BaseModel):
+    """Safe integration-account representation that never exposes credential hashes."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    provider: str
+    external_account_id: str | None
+    active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class IntegrationAccountCredentialRead(IntegrationAccountRead):
+    """Returned only when an inbound credential is first issued or rotated."""
+
+    inbound_credential: str
+
+
 class WorkflowResult(BaseModel):
     lead_id: UUID
     status: str

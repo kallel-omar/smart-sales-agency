@@ -1,15 +1,116 @@
-from fastapi import APIRouter, HTTPException
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, status
 
 from app.api.dependencies import (
     CurrentIntegrationWorkspaceDep,
+    CurrentWorkspaceDep,
     SessionDep,
     SettingsDep,
 )
-from app.schemas import InboundIntegrationEvent, SalesReply
+from app.models import IntegrationAccount
+from app.schemas import (
+    InboundIntegrationEvent,
+    IntegrationAccountCredentialRead,
+    IntegrationAccountProvision,
+    IntegrationAccountRead,
+    SalesReply,
+)
 from app.services.inbound_integrations import InboundIntegrationService
+from app.services.integration_accounts import (
+    IntegrationAccountNotFoundError,
+    IntegrationAccountService,
+)
 from app.services.repository import NotFoundError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
+
+
+def account_read(account: IntegrationAccount) -> IntegrationAccountRead:
+    return IntegrationAccountRead.model_validate(account)
+
+
+def account_credential_read(
+    account: IntegrationAccount,
+    credential: str,
+) -> IntegrationAccountCredentialRead:
+    return IntegrationAccountCredentialRead(
+        **account_read(account).model_dump(),
+        inbound_credential=credential,
+    )
+
+
+@router.post(
+    "/accounts",
+    response_model=IntegrationAccountCredentialRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def provision_integration_account(
+    payload: IntegrationAccountProvision,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> IntegrationAccountCredentialRead:
+    """Provision a workspace-owned account and return its credential once."""
+    account, credential = IntegrationAccountService(session).provision(
+        workspace,
+        payload.provider,
+        payload.external_account_id,
+    )
+    return account_credential_read(account, credential)
+
+
+@router.get("/accounts", response_model=list[IntegrationAccountRead])
+def list_integration_accounts(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> list[IntegrationAccountRead]:
+    accounts = IntegrationAccountService(session).list_for_workspace(workspace)
+    return [account_read(account) for account in accounts]
+
+
+@router.post("/accounts/{account_id}/deactivate", response_model=IntegrationAccountRead)
+def deactivate_integration_account(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> IntegrationAccountRead:
+    try:
+        account = IntegrationAccountService(session).deactivate(workspace, account_id)
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    return account_read(account)
+
+
+@router.post("/accounts/{account_id}/reactivate", response_model=IntegrationAccountRead)
+def reactivate_integration_account(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> IntegrationAccountRead:
+    try:
+        account = IntegrationAccountService(session).reactivate(workspace, account_id)
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    return account_read(account)
+
+
+@router.post(
+    "/accounts/{account_id}/credential/rotate",
+    response_model=IntegrationAccountCredentialRead,
+)
+def rotate_integration_account_credential(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> IntegrationAccountCredentialRead:
+    try:
+        account, credential = IntegrationAccountService(session).rotate_credential(
+            workspace,
+            account_id,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    return account_credential_read(account, credential)
 
 
 @router.post("/inbound-events", response_model=SalesReply)
