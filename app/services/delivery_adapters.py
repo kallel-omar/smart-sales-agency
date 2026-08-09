@@ -7,6 +7,7 @@ from app.models import (
     IntegrationAccount,
     OutboundDeliveryFailureClassification,
     OutboundIntegrationAction,
+    OutboundIntegrationActionType,
 )
 
 _GENERIC_FAILURE_CLASSIFICATIONS = {
@@ -18,6 +19,25 @@ _GENERIC_FAILURE_CLASSIFICATIONS = {
     "temporary_failure": OutboundDeliveryFailureClassification.TEMPORARY,
     "permanent_failure": OutboundDeliveryFailureClassification.PERMANENT,
 }
+
+
+@dataclass(frozen=True)
+class DeliveryAdapterCapabilities:
+    """Safe, deterministic constraints declared by a delivery adapter."""
+
+    supported_action_types: frozenset[OutboundIntegrationActionType]
+    max_content_length: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.supported_action_types:
+            raise ValueError("Delivery adapter must support at least one action type")
+        if self.max_content_length is not None and self.max_content_length < 1:
+            raise ValueError("Delivery adapter maximum content length must be at least 1")
+
+
+DEFAULT_DELIVERY_ADAPTER_CAPABILITIES = DeliveryAdapterCapabilities(
+    supported_action_types=frozenset(OutboundIntegrationActionType),
+)
 
 
 @dataclass(frozen=True)
@@ -78,9 +98,21 @@ class DeliveryAdapterRegistry:
     def get(self, provider: str) -> DeliveryAdapter | None:
         return self._adapters.get(provider)
 
+    def capabilities_for(self, provider: str) -> DeliveryAdapterCapabilities | None:
+        """Return a safe declaration, with a compatible generic legacy default."""
+        adapter = self.get(provider)
+        if adapter is None:
+            return None
+        capabilities = getattr(adapter, "capabilities", DEFAULT_DELIVERY_ADAPTER_CAPABILITIES)
+        if not isinstance(capabilities, DeliveryAdapterCapabilities):
+            return None
+        return capabilities
+
 
 class NoopDeliveryAdapter:
     """Safe development adapter that performs no external I/O."""
+
+    capabilities = DEFAULT_DELIVERY_ADAPTER_CAPABILITIES
 
     def deliver(
         self,
