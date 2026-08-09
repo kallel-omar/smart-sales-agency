@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     outbound_webhook_url: str = ""
     outbound_webhook_connect_timeout_seconds: float = Field(default=5, gt=0, le=60)
     outbound_webhook_read_timeout_seconds: float = Field(default=15, gt=0, le=120)
+    outbound_webhook_signing_enabled: bool = False
 
     @field_validator("outbound_delivery_non_retryable_failure_codes")
     @classmethod

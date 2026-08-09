@@ -1,6 +1,10 @@
 """Provider-neutral contracts for outbound delivery adapters."""
 
+import hmac
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Protocol
 
 import httpx
@@ -11,6 +15,7 @@ from app.models import (
     OutboundIntegrationAction,
     OutboundIntegrationActionType,
 )
+from app.services.secret_resolver import EnvironmentSecretResolver, SecretResolver
 
 _GENERIC_FAILURE_CLASSIFICATIONS = {
     "adapter_execution_failed": OutboundDeliveryFailureClassification.TEMPORARY,
@@ -132,6 +137,9 @@ class GenericWebhookDeliveryAdapter:
         connect_timeout_seconds: float = 5,
         read_timeout_seconds: float = 15,
         transport: WebhookHttpTransport | None = None,
+        signing_enabled: bool = False,
+        secret_resolver: SecretResolver | None = None,
+        timestamp_provider: Callable[[], int] | None = None,
     ) -> None:
         self.endpoint = endpoint.strip()
         self.timeout = httpx.Timeout(
@@ -141,11 +149,13 @@ class GenericWebhookDeliveryAdapter:
             pool=connect_timeout_seconds,
         )
         self.transport = transport or HttpxWebhookHttpTransport()
+        self.signing_enabled = signing_enabled
+        self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
+        self.timestamp_provider = timestamp_provider or (lambda: int(time.time()))
 
     def deliver(
         self, action: OutboundIntegrationAction, account: IntegrationAccount
     ) -> DeliveryAdapterResult:
-        del account
         if not self.endpoint:
             return DeliveryAdapterResult.failure(
                 "webhook_configuration_missing",
@@ -153,11 +163,14 @@ class GenericWebhookDeliveryAdapter:
                 OutboundDeliveryFailureClassification.VALIDATION,
             )
         body = self._serialize_action(action)
+        headers, signing_failure = self._headers(body, account)
+        if signing_failure is not None:
+            return signing_failure
         try:
             response = self.transport.post(
                 self.endpoint,
                 content=body,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
                 timeout=self.timeout,
             )
         except httpx.HTTPError:
@@ -172,6 +185,33 @@ class GenericWebhookDeliveryAdapter:
             "webhook_delivery_failed",
             "Generic webhook delivery was not accepted",
         )
+
+    def _headers(
+        self, body: bytes, account: IntegrationAccount
+    ) -> tuple[dict[str, str], DeliveryAdapterResult | None]:
+        headers = {"Content-Type": "application/json"}
+        if not self.signing_enabled:
+            headers["X-Webhook-Signing"] = "none"
+            return headers, None
+        secret = self.secret_resolver.resolve(account.secret_reference)
+        if not secret:
+            return headers, DeliveryAdapterResult.failure(
+                "webhook_signing_secret_unavailable",
+                "Generic webhook signing secret is unavailable",
+                OutboundDeliveryFailureClassification.AUTHENTICATION,
+            )
+        timestamp = str(self.timestamp_provider())
+        signature = hmac.new(
+            secret.encode(), timestamp.encode() + b"." + body, sha256
+        ).hexdigest()
+        headers.update(
+            {
+                "X-Webhook-Signing": "hmac-sha256",
+                "X-Webhook-Timestamp": timestamp,
+                "X-Webhook-Signature": signature,
+            }
+        )
+        return headers, None
 
     @staticmethod
     def _serialize_action(action: OutboundIntegrationAction) -> bytes:

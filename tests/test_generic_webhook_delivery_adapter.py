@@ -1,4 +1,6 @@
+import hmac
 import json
+from hashlib import sha256
 
 import httpx
 
@@ -40,7 +42,7 @@ def test_generic_webhook_adapter_posts_safe_serialized_action():
     assert result.provider_delivery_id == "accepted-1"
     request = transport.calls[0]
     assert request["url"] == "https://example.test/deliver"
-    assert request["headers"] == {"Content-Type": "application/json"}
+    assert request["headers"] == {"Content-Type": "application/json", "X-Webhook-Signing": "none"}
     assert json.loads(request["content"]) == {
         "action_id": str(action.id),
         "action_type": "send_message",
@@ -61,3 +63,47 @@ def test_generic_webhook_adapter_handles_missing_configuration_and_network_failu
     result = network.deliver(_action(), IntegrationAccount(provider="generic_webhook"))
     assert result.failure_code == "webhook_network_error"
     assert result.failure_classification.value == "temporary"
+
+
+def test_generic_webhook_adapter_signs_raw_serialized_bytes_when_configured():
+    transport = RecordingTransport(WebhookHttpResponse(200, {}))
+    adapter = GenericWebhookDeliveryAdapter(
+        "https://example.test/deliver",
+        transport=transport,
+        signing_enabled=True,
+        secret_resolver=StaticSecretResolver("signing-secret"),
+        timestamp_provider=lambda: 1_700_000_000,
+    )
+    adapter.deliver(_action(), IntegrationAccount(provider="generic_webhook", secret_reference="INTEGRATION_SECRET_TEST"))
+
+    headers = transport.calls[0]["headers"]
+    assert headers["X-Webhook-Signing"] == "hmac-sha256"
+    assert headers["X-Webhook-Timestamp"] == "1700000000"
+    assert headers["X-Webhook-Signature"] == hmac.new(
+        b"signing-secret",
+        b"1700000000." + transport.calls[0]["content"],
+        sha256,
+    ).hexdigest()
+    assert "signing-secret" not in str(headers)
+
+
+def test_signing_enabled_without_a_resolved_secret_fails_before_network_io():
+    transport = RecordingTransport(WebhookHttpResponse(200, {}))
+    adapter = GenericWebhookDeliveryAdapter(
+        "https://example.test/deliver",
+        transport=transport,
+        signing_enabled=True,
+        secret_resolver=StaticSecretResolver(None),
+    )
+    result = adapter.deliver(_action(), IntegrationAccount(provider="generic_webhook"))
+    assert result.failure_code == "webhook_signing_secret_unavailable"
+    assert transport.calls == []
+
+
+class StaticSecretResolver:
+    def __init__(self, value: str | None) -> None:
+        self.value = value
+
+    def resolve(self, reference: str | None) -> str | None:
+        del reference
+        return self.value

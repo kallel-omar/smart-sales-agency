@@ -90,6 +90,7 @@ class OutboundIntegrationDeliveryService:
             settings.outbound_webhook_url,
             connect_timeout_seconds=settings.outbound_webhook_connect_timeout_seconds,
             read_timeout_seconds=settings.outbound_webhook_read_timeout_seconds,
+            signing_enabled=settings.outbound_webhook_signing_enabled,
         )
         return cls(
             session,
