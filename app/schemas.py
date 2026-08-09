@@ -268,6 +268,17 @@ class OutboundDeliveryReadinessRead(BaseModel):
     ready: bool
     blocking_reasons: list[str]
     next_retry_at: datetime | None
+    blocking_reason_details: list["OutboundDeliveryReadinessExplanationRead"]
+
+
+class OutboundDeliveryReadinessExplanationRead(BaseModel):
+    """Safe structured explanation for one readiness blocking reason."""
+
+    code: str
+    message: str
+    not_before: datetime | None
+    expires_at: datetime | None
+    next_retry_at: datetime | None
 
 
 class OutboundActionExpirationCleanupRead(BaseModel):

@@ -21,6 +21,18 @@ def test_readiness_api_returns_safe_result_without_mutation(client):
     assert response.json()["status"] == "pending"
     assert response.json()["ready"] is False
     assert "approval_pending" in response.json()["blocking_reasons"]
+    approval_detail = next(
+        detail
+        for detail in response.json()["blocking_reason_details"]
+        if detail["code"] == "approval_pending"
+    )
+    assert approval_detail == {
+        "code": "approval_pending",
+        "message": "The required delivery approval is still pending.",
+        "not_before": None,
+        "expires_at": None,
+        "next_retry_at": None,
+    }
     for field in ("content", "payload", "idempotency_key", "credential_hash", "secret_reference"):
         assert field not in response.json()
 

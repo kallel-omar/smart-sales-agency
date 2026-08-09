@@ -751,6 +751,16 @@ def get_outbound_delivery_readiness(
         ready=view.ready,
         blocking_reasons=list(view.blocking_reasons),
         next_retry_at=view.next_retry_at,
+        blocking_reason_details=[
+            {
+                "code": detail.code,
+                "message": detail.message,
+                "not_before": detail.not_before,
+                "expires_at": detail.expires_at,
+                "next_retry_at": detail.next_retry_at,
+            }
+            for detail in view.blocking_reason_details
+        ],
     )
 
 
