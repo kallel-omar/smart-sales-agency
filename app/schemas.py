@@ -111,6 +111,13 @@ class IntegrationAccountAuditEventRead(BaseModel):
     created_at: datetime
 
 
+class IntegrationAccountAuditRetentionCleanupRead(BaseModel):
+    """Safe response for explicitly removing expired audit history."""
+
+    deleted_count: int
+    cutoff: datetime
+
+
 class WorkflowResult(BaseModel):
     lead_id: UUID
     status: str

@@ -10,10 +10,11 @@ from app.api.dependencies import (
     SettingsDep,
     VerifiedIntegrationContextDep,
 )
-from app.models import IntegrationAccount, IntegrationAccountAuditAction
+from app.models import IntegrationAccount, IntegrationAccountAuditAction, utc_now
 from app.schemas import (
     InboundIntegrationEvent,
     IntegrationAccountAuditEventRead,
+    IntegrationAccountAuditRetentionCleanupRead,
     IntegrationAccountCredentialRead,
     IntegrationAccountProvision,
     IntegrationAccountRead,
@@ -25,6 +26,7 @@ from app.services.integration_account_audit import (
     DEFAULT_AUDIT_EVENT_LIMIT,
     MAX_AUDIT_EVENT_LIMIT,
     AuditQueryValidationError,
+    IntegrationAccountAuditRetentionPolicy,
     IntegrationAccountAuditService,
 )
 from app.services.integration_accounts import (
@@ -153,6 +155,30 @@ def list_workspace_integration_account_audit_events(
     except AuditQueryValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [IntegrationAccountAuditEventRead.model_validate(event) for event in events]
+
+
+@router.post(
+    "/audit-events/retention-cleanup",
+    response_model=IntegrationAccountAuditRetentionCleanupRead,
+)
+def cleanup_workspace_integration_account_audit_events(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    settings: SettingsDep,
+) -> IntegrationAccountAuditRetentionCleanupRead:
+    """Explicitly remove expired audit events for the current workspace only."""
+    policy = IntegrationAccountAuditRetentionPolicy(
+        settings.integration_account_audit_retention_days
+    )
+    result = IntegrationAccountAuditService(session).cleanup_for_workspace(
+        workspace,
+        policy,
+        now=utc_now(),
+    )
+    return IntegrationAccountAuditRetentionCleanupRead(
+        deleted_count=result.deleted_count,
+        cutoff=result.cutoff,
+    )
 
 
 @router.post("/accounts/{account_id}/deactivate", response_model=IntegrationAccountRead)

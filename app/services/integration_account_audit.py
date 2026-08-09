@@ -1,6 +1,8 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import delete
 from sqlmodel import Session, select
 
 from app.models import (
@@ -12,6 +14,15 @@ from app.models import (
 
 DEFAULT_AUDIT_EVENT_LIMIT = 50
 MAX_AUDIT_EVENT_LIMIT = 100
+DEFAULT_AUDIT_RETENTION_CLEANUP_BATCH_SIZE = 100
+
+
+@dataclass(frozen=True)
+class AuditRetentionCleanupResult:
+    """Safe summary of one explicit audit-retention cleanup operation."""
+
+    deleted_count: int
+    cutoff: datetime
 
 
 class AuditQueryValidationError(ValueError):
@@ -88,6 +99,55 @@ class IntegrationAccountAuditService:
             created_after=created_after,
             created_before=created_before,
             limit=limit,
+        )
+
+    def cleanup_for_workspace(
+        self,
+        workspace: Workspace,
+        retention_policy: IntegrationAccountAuditRetentionPolicy,
+        *,
+        now: datetime,
+        batch_size: int = DEFAULT_AUDIT_RETENTION_CLEANUP_BATCH_SIZE,
+    ) -> AuditRetentionCleanupResult:
+        """Explicitly delete this workspace's audit events older than retention.
+
+        Events created exactly at the cutoff are retained. Each delete is
+        selected and applied in a bounded batch, keeping the operation safe for
+        large audit histories without affecting integration accounts.
+        """
+        if batch_size < 1:
+            raise ValueError("Cleanup batch size must be at least 1")
+
+        cutoff = retention_policy.cutoff(now)
+        deleted_count = 0
+
+        while True:
+            event_ids = list(
+                self.session.exec(
+                    select(IntegrationAccountAuditEvent.id)
+                    .where(
+                        IntegrationAccountAuditEvent.workspace_id == workspace.id,
+                        IntegrationAccountAuditEvent.created_at < cutoff,
+                    )
+                    .order_by(IntegrationAccountAuditEvent.created_at.asc())
+                    .limit(batch_size)
+                ).all()
+            )
+            if not event_ids:
+                break
+
+            result = self.session.exec(
+                delete(IntegrationAccountAuditEvent).where(
+                    IntegrationAccountAuditEvent.workspace_id == workspace.id,
+                    IntegrationAccountAuditEvent.id.in_(event_ids),
+                )
+            )
+            self.session.commit()
+            deleted_count += result.rowcount or 0
+
+        return AuditRetentionCleanupResult(
+            deleted_count=deleted_count,
+            cutoff=cutoff,
         )
 
     def _list(

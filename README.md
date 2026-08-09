@@ -246,8 +246,10 @@ a deterministic ID tie-breaker; neither endpoint returns credentials, hashes,
 secret references, secret values, or metadata.
 
 `INTEGRATION_ACCOUNT_AUDIT_RETENTION_DAYS` defines the provider-neutral audit
-retention age for a future scheduled cleanup job. Read requests do not delete
-records, and this project does not yet run automatic cleanup.
+retention age. Read and lifecycle requests never delete records. Operators may
+explicitly invoke `POST /api/integrations/audit-events/retention-cleanup` for
+the active workspace; it deletes only events strictly older than the calculated
+cutoff and returns safe deletion statistics.
 
 /health
 
