@@ -31,6 +31,7 @@ from app.schemas import (
     IntegrationOperationalSummaryRead,
     OutboundActionExpirationCleanupRead,
     OutboundActionStateHistoryEntryRead,
+    OutboundActionTransitionValidationRead,
     OutboundApprovalStatusRead,
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionDetailRead,
@@ -73,6 +74,9 @@ from app.services.outbound_action_state_history import (
     DEFAULT_OUTBOUND_STATE_HISTORY_LIMIT,
     MAX_OUTBOUND_STATE_HISTORY_LIMIT,
     OutboundActionStateHistoryService,
+)
+from app.services.outbound_action_transition_validation import (
+    OutboundActionTransitionValidationService,
 )
 from app.services.outbound_delivery import (
     DEFAULT_DELIVERY_ATTEMPT_LIMIT,
@@ -824,6 +828,29 @@ def list_outbound_action_state_history(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [OutboundActionStateHistoryEntryRead(**entry.__dict__) for entry in entries]
+
+
+@router.get(
+    "/accounts/{account_id}/outbound-actions/{action_id}/transition-validation",
+    response_model=OutboundActionTransitionValidationRead,
+)
+def validate_outbound_action_transition(
+    account_id: UUID,
+    action_id: UUID,
+    target: OutboundIntegrationActionStatus,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundActionTransitionValidationRead:
+    """Validate a proposed state change without mutating or auditing the action."""
+    try:
+        result = OutboundActionTransitionValidationService(session).validate(
+            workspace, account_id, action_id, target
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return OutboundActionTransitionValidationRead(**result.__dict__)
 
 
 @router.get(

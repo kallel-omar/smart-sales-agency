@@ -239,6 +239,15 @@ class OutboundActionStateHistoryEntryRead(BaseModel):
     created_at: datetime
 
 
+class OutboundActionTransitionValidationRead(BaseModel):
+    """Safe, read-only preflight result for a requested state transition."""
+
+    allowed: bool
+    current_state: OutboundIntegrationActionStatus
+    requested_target: OutboundIntegrationActionStatus
+    denial_reason: str | None
+
+
 class OutboundIntegrationDeliveryStatusRead(BaseModel):
     """Safe read-only summary of an outbound action and retry eligibility."""
 
