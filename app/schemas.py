@@ -155,6 +155,24 @@ class OutboundIntegrationActionRead(BaseModel):
     created_at: datetime
 
 
+class OutboundIntegrationDeliveryAttemptRead(BaseModel):
+    """Safe outbound delivery-attempt history with no request or secret data."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    integration_account_id: UUID
+    outbound_integration_action_id: UUID
+    attempt_number: int
+    status: OutboundIntegrationActionStatus
+    provider_delivery_id: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    failure_code: str | None
+    failure_message: str | None
+
+
 class WorkflowResult(BaseModel):
     lead_id: UUID
     status: str

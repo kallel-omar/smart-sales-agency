@@ -143,6 +143,37 @@ class OutboundIntegrationAction(SQLModel, table=True):
     failure_message: str | None = Field(default=None, max_length=500)
     created_at: datetime = Field(default_factory=utc_now)
 
+
+class OutboundIntegrationDeliveryAttempt(SQLModel, table=True):
+    """Safe, workspace-scoped history of explicit outbound delivery attempts."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "outbound_integration_action_id",
+            "attempt_number",
+            name="uq_outbound_delivery_attempt_number",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id",
+        index=True,
+    )
+    outbound_integration_action_id: UUID = Field(
+        foreign_key="outboundintegrationaction.id",
+        index=True,
+    )
+    attempt_number: int = Field(ge=1)
+    status: OutboundIntegrationActionStatus = Field(index=True)
+    provider_delivery_id: str | None = Field(default=None, max_length=255)
+    started_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
+    failure_code: str | None = Field(default=None, max_length=100)
+    failure_message: str | None = Field(default=None, max_length=500)
+
+
 class Lead(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     tenant_id: str = Field(default="demo", index=True, max_length=100)

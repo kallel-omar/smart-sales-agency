@@ -14,6 +14,7 @@ from app.models import (
     IntegrationAccount,
     IntegrationAccountAuditAction,
     OutboundIntegrationAction,
+    OutboundIntegrationDeliveryAttempt,
     utc_now,
 )
 from app.schemas import (
@@ -26,6 +27,7 @@ from app.schemas import (
     IntegrationAccountSecretReferenceUpdate,
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionRead,
+    OutboundIntegrationDeliveryAttemptRead,
     SalesReply,
 )
 from app.services.inbound_integrations import InboundIntegrationService
@@ -43,6 +45,7 @@ from app.services.integration_accounts import (
 from app.services.outbound_delivery import (
     OutboundIntegrationActionAlreadyProcessedError,
     OutboundIntegrationActionNotFoundError,
+    OutboundIntegrationActionNotRetryableError,
     OutboundIntegrationDeliveryService,
 )
 from app.services.outbound_integrations import (
@@ -100,6 +103,12 @@ def outbound_action_read(
         failure_message=action.failure_message,
         created_at=action.created_at,
     )
+
+
+def outbound_delivery_attempt_read(
+    attempt: OutboundIntegrationDeliveryAttempt,
+) -> OutboundIntegrationDeliveryAttemptRead:
+    return OutboundIntegrationDeliveryAttemptRead.model_validate(attempt)
 
 
 @router.post(
@@ -351,6 +360,58 @@ def deliver_outbound_integration_action(
     except OutboundIntegrationActionAlreadyProcessedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_read(action, account)
+
+
+@router.post(
+    "/accounts/{account_id}/outbound-actions/{action_id}/retry",
+    response_model=OutboundIntegrationActionRead,
+)
+def retry_failed_outbound_integration_action(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundIntegrationActionRead:
+    """Explicitly retry one failed action with the same persisted identity."""
+    try:
+        action, account = OutboundIntegrationDeliveryService(session).retry_failed_action(
+            workspace,
+            account_id,
+            action_id,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except InactiveIntegrationAccountError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OutboundIntegrationActionNotRetryableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return outbound_action_read(action, account)
+
+
+@router.get(
+    "/accounts/{account_id}/outbound-actions/{action_id}/delivery-attempts",
+    response_model=list[OutboundIntegrationDeliveryAttemptRead],
+)
+def list_outbound_integration_delivery_attempts(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> list[OutboundIntegrationDeliveryAttemptRead]:
+    """Return safe, ordered delivery-attempt history for one scoped action."""
+    try:
+        attempts = OutboundIntegrationDeliveryService(session).list_attempts_for_action(
+            workspace,
+            account_id,
+            action_id,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return [outbound_delivery_attempt_read(attempt) for attempt in attempts]
 
 
 @router.post("/inbound-events", response_model=SalesReply)
