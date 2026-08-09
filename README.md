@@ -237,6 +237,18 @@ underscores. This prevents account input from pointing the environment resolver
 at unrelated process configuration. Provisioning validates and stores only the
 reference; it never reads or returns the referenced secret value.
 
+`GET /api/integrations/audit-events` returns safe lifecycle history for all
+integration accounts in the requesting workspace. It accepts optional `action`,
+`created_after`, `created_before`, and a bounded `limit` (1–100, default 50).
+`GET /api/integrations/accounts/{account_id}/audit-events` supports the same
+filters for one workspace-owned account. Results are ordered newest first with
+a deterministic ID tie-breaker; neither endpoint returns credentials, hashes,
+secret references, secret values, or metadata.
+
+`INTEGRATION_ACCOUNT_AUDIT_RETENTION_DAYS` defines the provider-neutral audit
+retention age for a future scheduled cleanup job. Read requests do not delete
+records, and this project does not yet run automatic cleanup.
+
 /health
 
 Service health and active LLM mode

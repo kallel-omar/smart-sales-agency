@@ -1,6 +1,8 @@
+from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.dependencies import (
     CurrentWorkspaceDep,
@@ -8,7 +10,7 @@ from app.api.dependencies import (
     SettingsDep,
     VerifiedIntegrationContextDep,
 )
-from app.models import IntegrationAccount
+from app.models import IntegrationAccount, IntegrationAccountAuditAction
 from app.schemas import (
     InboundIntegrationEvent,
     IntegrationAccountAuditEventRead,
@@ -19,7 +21,12 @@ from app.schemas import (
     SalesReply,
 )
 from app.services.inbound_integrations import InboundIntegrationService
-from app.services.integration_account_audit import IntegrationAccountAuditService
+from app.services.integration_account_audit import (
+    DEFAULT_AUDIT_EVENT_LIMIT,
+    MAX_AUDIT_EVENT_LIMIT,
+    AuditQueryValidationError,
+    IntegrationAccountAuditService,
+)
 from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
     IntegrationAccountService,
@@ -28,6 +35,15 @@ from app.services.repository import NotFoundError
 from app.services.secret_reference_policy import SecretReferenceValidationError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
+
+AuditLimit = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_AUDIT_EVENT_LIMIT,
+        description="Maximum number of safe audit events to return.",
+    ),
+]
 
 
 def account_read(account: IntegrationAccount) -> IntegrationAccountRead:
@@ -87,6 +103,10 @@ def list_integration_account_audit_events(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    action: IntegrationAccountAuditAction | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    limit: AuditLimit = DEFAULT_AUDIT_EVENT_LIMIT,
 ) -> list[IntegrationAccountAuditEventRead]:
     """Return safe lifecycle history for an account in the current workspace."""
     account_service = IntegrationAccountService(session)
@@ -95,7 +115,43 @@ def list_integration_account_audit_events(
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
 
-    events = IntegrationAccountAuditService(session).list_for_account(workspace, account_id)
+    try:
+        events = IntegrationAccountAuditService(session).list_for_account(
+            workspace,
+            account_id,
+            action=action,
+            created_after=created_after,
+            created_before=created_before,
+            limit=limit,
+        )
+    except AuditQueryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [IntegrationAccountAuditEventRead.model_validate(event) for event in events]
+
+
+@router.get(
+    "/audit-events",
+    response_model=list[IntegrationAccountAuditEventRead],
+)
+def list_workspace_integration_account_audit_events(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    action: IntegrationAccountAuditAction | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    limit: AuditLimit = DEFAULT_AUDIT_EVENT_LIMIT,
+) -> list[IntegrationAccountAuditEventRead]:
+    """Return safe lifecycle history for all accounts in the current workspace."""
+    try:
+        events = IntegrationAccountAuditService(session).list_for_workspace(
+            workspace,
+            action=action,
+            created_after=created_after,
+            created_before=created_before,
+            limit=limit,
+        )
+    except AuditQueryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [IntegrationAccountAuditEventRead.model_validate(event) for event in events]
 
 

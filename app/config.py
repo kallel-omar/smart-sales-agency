@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # configured secret backend. The first backend reads environment variables.
     webhook_max_age_seconds: int = Field(default=300, gt=0, le=3_600)
 
+    # Foundation for future scheduled audit cleanup. Read requests never delete
+    # audit records; a future maintenance job must apply this policy explicitly.
+    integration_account_audit_retention_days: int = Field(
+        default=90,
+        ge=1,
+        le=3_650,
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
