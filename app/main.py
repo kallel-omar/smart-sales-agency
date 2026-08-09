@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.api.routes import (
     approvals_router,
     conversations_router,
+    integrations_router,
     leads_router,
     products_router,
     workflows_router,
@@ -33,6 +34,7 @@ app.include_router(leads_router, prefix="/api")
 app.include_router(products_router, prefix="/api")
 app.include_router(workflows_router, prefix="/api")
 app.include_router(conversations_router, prefix="/api")
+app.include_router(integrations_router, prefix="/api")
 app.include_router(approvals_router, prefix="/api")
 app.include_router(workspaces_router, prefix="/api")
 

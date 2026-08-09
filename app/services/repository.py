@@ -99,8 +99,17 @@ class SalesRepository:
         self.session.refresh(approval)
         return approval
 
-    def list_approvals(self, status: ApprovalStatus | None = None) -> list[ApprovalRequest]:
-        statement = select(ApprovalRequest).order_by(ApprovalRequest.created_at.desc())
+    def list_approvals(
+        self,
+        tenant_id: str,
+        status: ApprovalStatus | None = None,
+    ) -> list[ApprovalRequest]:
+        statement = (
+            select(ApprovalRequest)
+            .join(Lead, ApprovalRequest.lead_id == Lead.id)
+            .where(Lead.tenant_id == tenant_id)
+            .order_by(ApprovalRequest.created_at.desc())
+        )
         if status is not None:
             statement = statement.where(ApprovalRequest.status == status)
         return list(self.session.exec(statement).all())

@@ -43,6 +43,17 @@ class InboundMessage(BaseModel):
     channel: str = "console"
 
 
+class InboundIntegrationEvent(BaseModel):
+    """Provider-neutral inbound event accepted at the integration boundary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lead_id: UUID
+    channel: str = Field(min_length=1, max_length=50)
+    content: str = Field(min_length=1, max_length=10_000)
+    external_event_id: str | None = Field(default=None, max_length=200)
+
+
 class WorkflowResult(BaseModel):
     lead_id: UUID
     status: str

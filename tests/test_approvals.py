@@ -64,6 +64,9 @@ def test_approved_reply_preserves_sales_stage(client):
 
     approval_response = client.post(
         f"/api/approvals/{approval_id}/approve",
+        headers={
+            "X-Workspace-Slug": "demo",
+        },
         json={
             "reviewer_note": "Approved by automated test",
         },

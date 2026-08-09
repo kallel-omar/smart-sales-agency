@@ -216,6 +216,15 @@ Retrieve history and process inbound sales messages
 
 List, approve, and reject pending actions
 
+/api/integrations/inbound-events
+
+Receive provider-neutral inbound events through a replaceable integration boundary
+
+In development and tests, `X-Integration-Key` is resolved through
+`INTEGRATION_DEV_CONTEXTS`; the event body never establishes a workspace.
+Production integration-account mapping and verification will replace this
+temporary mechanism.
+
 /health
 
 Service health and active LLM mode

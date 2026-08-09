@@ -4,6 +4,7 @@ from enum import StrEnum
 
 from app.core.event_payloads import (
     EventPayload,
+    InboundSalesMessagePayload,
     LeadGeneratedPayload,
     LeadQualifiedPayload,
 )
@@ -14,6 +15,7 @@ class EventType(StrEnum):
 
     LEAD_GENERATED = "lead.generated"
     LEAD_QUALIFIED = "lead.qualified"
+    SALES_INBOUND_MESSAGE = "sales.inbound_message"
 
 
 class UnsupportedEventTypeError(ValueError):
@@ -27,6 +29,7 @@ class EventPayloadMismatchError(TypeError):
 EVENT_PAYLOAD_TYPES: dict[EventType, type[EventPayload]] = {
     EventType.LEAD_GENERATED: LeadGeneratedPayload,
     EventType.LEAD_QUALIFIED: LeadQualifiedPayload,
+    EventType.SALES_INBOUND_MESSAGE: InboundSalesMessagePayload,
 }
 
 

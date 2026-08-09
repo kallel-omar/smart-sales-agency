@@ -51,3 +51,12 @@ class LeadQualifiedPayload(EventPayload):
         min_length=1,
         max_length=1000,
     )
+
+
+class InboundSalesMessagePayload(EventPayload):
+    """Normalized inbound customer message for the Sales Department."""
+
+    lead_id: str = Field(min_length=1, max_length=100)
+    channel: str = Field(min_length=1, max_length=50)
+    content: str = Field(min_length=1, max_length=10_000)
+    external_event_id: str | None = Field(default=None, max_length=200)

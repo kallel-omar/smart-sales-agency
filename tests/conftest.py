@@ -30,6 +30,10 @@ def client() -> Generator[TestClient, None, None]:
             database_url="sqlite://",
             llm_mode="demo",
             require_human_approval=True,
+            integration_dev_contexts={
+                "company-a-development-key": "company-a",
+                "company-b-development-key": "company-b",
+            },
         )
 
     app.dependency_overrides[get_session] = get_test_session

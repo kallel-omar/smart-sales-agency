@@ -2,21 +2,50 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlmodel import select
 
-from app.api.dependencies import SessionDep
+from app.api.dependencies import CurrentWorkspaceDep, SessionDep
 from app.channels.console import ConsoleChannel
-from app.models import ApprovalRequest, ApprovalStatus, ConversationMessage, SalesStage
+from app.models import ApprovalRequest, ApprovalStatus, ConversationMessage, Lead, SalesStage
 from app.schemas import ApprovalDecision, ApprovalRead
 from app.services.repository import SalesRepository
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 
+def get_workspace_approval(
+    approval_id: UUID,
+    session: SessionDep,
+    workspace_slug: str,
+) -> ApprovalRequest:
+    approval = session.exec(
+        select(ApprovalRequest)
+        .join(Lead, ApprovalRequest.lead_id == Lead.id)
+        .where(
+            ApprovalRequest.id == approval_id,
+            Lead.tenant_id == workspace_slug,
+        )
+    ).first()
+
+    if not approval:
+        raise HTTPException(
+            status_code=404,
+            detail="Approval request not found",
+        )
+
+    return approval
+
+
 @router.get("", response_model=list[ApprovalRead])
 def list_approvals(
-    session: SessionDep, status: ApprovalStatus | None = Query(default=None)
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    status: ApprovalStatus | None = Query(default=None),
 ) -> list[ApprovalRequest]:
-    return SalesRepository(session).list_approvals(status)
+    return SalesRepository(session).list_approvals(
+        workspace.slug,
+        status,
+    )
 
 
 @router.post("/{approval_id}/approve", response_model=ApprovalRead)
@@ -24,14 +53,13 @@ async def approve_action(
     approval_id: UUID,
     payload: ApprovalDecision,
     session: SessionDep,
+    workspace: CurrentWorkspaceDep,
 ) -> ApprovalRequest:
-    approval = session.get(ApprovalRequest, approval_id)
-
-    if not approval:
-        raise HTTPException(
-            status_code=404,
-            detail="Approval request not found",
-        )
+    approval = get_workspace_approval(
+        approval_id,
+        session,
+        workspace.slug,
+    )
 
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(
@@ -91,11 +119,16 @@ async def approve_action(
 
 @router.post("/{approval_id}/reject", response_model=ApprovalRead)
 def reject_action(
-    approval_id: UUID, payload: ApprovalDecision, session: SessionDep
+    approval_id: UUID,
+    payload: ApprovalDecision,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
 ) -> ApprovalRequest:
-    approval = session.get(ApprovalRequest, approval_id)
-    if not approval:
-        raise HTTPException(status_code=404, detail="Approval request not found")
+    approval = get_workspace_approval(
+        approval_id,
+        session,
+        workspace.slug,
+    )
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(status_code=409, detail="Approval request is already decided")
 

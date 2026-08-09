@@ -135,7 +135,7 @@ class SalesDepartmentService:
     async def handle_event(
         self,
         event: BusinessEvent,
-    ) -> dict:
+    ) -> dict | SalesReplyResult:
         """
         Handle a business event owned by the Sales Department.
 
@@ -160,6 +160,29 @@ class SalesDepartmentService:
 
             return await self.run_new_lead_workflow(
                 lead_id
+            )
+
+        if event.event_type == EventType.SALES_INBOUND_MESSAGE.value:
+            lead_id_value = event.payload.get("lead_id")
+
+            if not lead_id_value:
+                raise ValueError(
+                    "sales.inbound_message event requires payload.lead_id"
+                )
+
+            try:
+                lead_id = UUID(str(lead_id_value))
+            except ValueError as exc:
+                raise ValueError(
+                    "sales.inbound_message event contains an invalid lead_id"
+                ) from exc
+
+            lead = self.context.repository.get_lead(lead_id)
+
+            return await self.draft_sales_reply(
+                lead=lead,
+                channel=str(event.payload["channel"]),
+                content=str(event.payload["content"]),
             )
 
         raise ValueError(
