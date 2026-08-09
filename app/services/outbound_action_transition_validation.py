@@ -11,6 +11,10 @@ from app.services.outbound_action_state_transitions import (
     OutboundIntegrationActionInvalidStateTransitionError,
     OutboundIntegrationActionStateTransitionGuard,
 )
+from app.services.outbound_action_transition_reasons import (
+    OutboundActionTransitionReasonCode,
+    transition_denial_reason,
+)
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
 
 
@@ -21,7 +25,7 @@ class OutboundActionTransitionValidation:
     allowed: bool
     current_state: OutboundIntegrationActionStatus
     requested_target: OutboundIntegrationActionStatus
-    denial_reason: str | None
+    denial_reason: OutboundActionTransitionReasonCode | None
 
 
 class OutboundActionTransitionValidationService:
@@ -48,7 +52,7 @@ class OutboundActionTransitionValidationService:
                 allowed=False,
                 current_state=action.status,
                 requested_target=requested_target,
-                denial_reason="invalid_state_transition",
+                denial_reason=transition_denial_reason(action.status, requested_target),
             )
         return OutboundActionTransitionValidation(
             allowed=True,

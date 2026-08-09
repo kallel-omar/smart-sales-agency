@@ -33,7 +33,7 @@ def test_transition_validation_reuses_guard_without_mutation_or_audit(client):
         "allowed": False,
         "current_state": "pending",
         "requested_target": "pending",
-        "denial_reason": "invalid_state_transition",
+        "denial_reason": "transition_noop",
     }
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
