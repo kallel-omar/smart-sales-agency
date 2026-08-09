@@ -30,6 +30,7 @@ from app.schemas import (
     OutboundIntegrationActionDetailRead,
     OutboundIntegrationActionRead,
     OutboundIntegrationActionSummaryRead,
+    OutboundActionExpirationCleanupRead,
     OutboundIntegrationDeliveryAttemptRead,
     OutboundIntegrationDeliveryStatusRead,
     SalesReply,
@@ -467,6 +468,17 @@ def list_outbound_integration_actions(
     except OutboundActionQueryValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [outbound_action_summary_read(action, provider_name) for action, provider_name in rows]
+
+
+@router.post("/outbound-actions/expiration-cleanup", response_model=OutboundActionExpirationCleanupRead)
+def cleanup_expired_outbound_actions(
+    session: SessionDep, workspace: CurrentWorkspaceDep
+) -> OutboundActionExpirationCleanupRead:
+    cutoff = utc_now()
+    deleted_count = OutboundIntegrationActionQueryService(session).cleanup_expired_for_workspace(
+        workspace, cutoff
+    )
+    return OutboundActionExpirationCleanupRead(deleted_count=deleted_count, cutoff=cutoff)
 
 
 @router.get(

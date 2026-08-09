@@ -222,6 +222,11 @@ class OutboundIntegrationDeliveryStatusRead(BaseModel):
     next_retry_at: datetime | None
 
 
+class OutboundActionExpirationCleanupRead(BaseModel):
+    deleted_count: int
+    cutoff: datetime
+
+
 class WorkflowResult(BaseModel):
     lead_id: UUID
     status: str

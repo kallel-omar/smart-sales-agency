@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlmodel import Session, select
+from sqlalchemy import delete
 
 from app.models import (
     IntegrationAccount,
@@ -97,3 +98,15 @@ class OutboundIntegrationActionQueryService:
                 "Outbound integration action not found"
             )
         return row
+
+    def cleanup_expired_for_workspace(self, workspace: Workspace, cutoff: datetime) -> int:
+        result = self.session.execute(
+            delete(OutboundIntegrationAction).where(
+                OutboundIntegrationAction.workspace_id == workspace.id,
+                OutboundIntegrationAction.status.in_(("expired", "cancelled")),
+                OutboundIntegrationAction.expires_at.is_not(None),
+                OutboundIntegrationAction.expires_at < cutoff,
+            )
+        )
+        self.session.commit()
+        return result.rowcount or 0
