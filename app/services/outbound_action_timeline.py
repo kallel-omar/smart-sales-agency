@@ -138,35 +138,19 @@ class OutboundActionTimelineService:
         self._validate_query(created_after, created_before, limit)
         account = self.account_service.get_for_workspace(workspace, account_id)
         action = self.delivery_service._get_action_for_account(workspace, account, action_id)
-        entries = self._audit_entries(
-            workspace,
-            account.id,
-            action.id,
-            created_after=created_after,
-            created_before=created_before,
-        )
-        entries.extend(
-            self._attempt_entries(
-                workspace,
-                account.id,
-                action.id,
-                created_after=created_after,
-                created_before=created_before,
-            )
-        )
-        entries.extend(
-            self._approval_entries(
-                workspace,
-                action,
-                created_after=created_after,
-                created_before=created_before,
-            )
-        )
+        entries = self._audit_entries(workspace, account.id, action.id)
+        entries.extend(self._attempt_entries(workspace, account.id, action.id))
+        entries.extend(self._approval_entries(workspace, action))
         entries = [
             item
             for item in entries
             if (category is None or item.entry.category == category)
             and (event is None or item.entry.event == event)
+            and self._in_time_range(
+                item.entry.created_at,
+                created_after,
+                created_before,
+            )
         ]
         entries.sort(
             key=lambda item: (
@@ -182,16 +166,11 @@ class OutboundActionTimelineService:
         workspace: Workspace,
         account_id: UUID,
         action_id: UUID,
-        *,
-        created_after: datetime | None,
-        created_before: datetime | None,
     ) -> list[_TimelineEntryWithSortKey]:
         events = self.audit_service.list_for_workspace(
             workspace,
             integration_account_id=account_id,
             outbound_integration_action_id=action_id,
-            created_after=created_after,
-            created_before=created_before,
             limit=MAX_OUTBOUND_ACTION_TIMELINE_LIMIT,
         )
         return [
@@ -214,16 +193,11 @@ class OutboundActionTimelineService:
         workspace: Workspace,
         account_id: UUID,
         action_id: UUID,
-        *,
-        created_after: datetime | None,
-        created_before: datetime | None,
     ) -> list[_TimelineEntryWithSortKey]:
         attempts = self.delivery_service.list_attempts_for_action(
             workspace,
             account_id,
             action_id,
-            started_after=created_after,
-            started_before=created_before,
             limit=MAX_OUTBOUND_ACTION_TIMELINE_LIMIT,
         )
         return [
@@ -246,9 +220,6 @@ class OutboundActionTimelineService:
         self,
         workspace: Workspace,
         action,
-        *,
-        created_after: datetime | None,
-        created_before: datetime | None,
     ) -> list[_TimelineEntryWithSortKey]:
         approval = self.approval_service.get_for_action(workspace, action)
         if approval is None:
@@ -268,11 +239,7 @@ class OutboundActionTimelineService:
         decision = self._approval_decision_entry(approval)
         if decision is not None:
             entries.append(decision)
-        return [
-            entry
-            for entry in entries
-            if self._in_time_range(entry.entry.created_at, created_after, created_before)
-        ]
+        return entries
 
     def _approval_decision_entry(self, approval) -> _TimelineEntryWithSortKey | None:
         decision_details = {
@@ -317,7 +284,8 @@ class OutboundActionTimelineService:
         if (
             created_after is not None
             and created_before is not None
-            and created_after > created_before
+            and OutboundActionTimelineService._as_utc(created_after)
+            > OutboundActionTimelineService._as_utc(created_before)
         ):
             raise ValueError("created_after must not be later than created_before")
 

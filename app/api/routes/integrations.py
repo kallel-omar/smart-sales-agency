@@ -80,6 +80,8 @@ from app.services.outbound_action_state_history import (
 from app.services.outbound_action_timeline import (
     DEFAULT_OUTBOUND_ACTION_TIMELINE_LIMIT,
     MAX_OUTBOUND_ACTION_TIMELINE_LIMIT,
+    OutboundActionTimelineCategory,
+    OutboundActionTimelineEvent,
     OutboundActionTimelineService,
 )
 from app.services.outbound_action_transition_validation import (
@@ -189,6 +191,16 @@ OutboundActionTimelineLimit = Annotated[
         le=MAX_OUTBOUND_ACTION_TIMELINE_LIMIT,
         description="Maximum number of safe outbound timeline entries to return.",
     ),
+]
+
+OutboundActionTimelineCategoryFilter = Annotated[
+    OutboundActionTimelineCategory | None,
+    Query(description="Filter safe outbound timeline entries by category."),
+]
+
+OutboundActionTimelineEventFilter = Annotated[
+    OutboundActionTimelineEvent | None,
+    Query(description="Filter safe outbound timeline entries by event type."),
 ]
 
 
@@ -855,12 +867,23 @@ def list_outbound_action_timeline(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    category: OutboundActionTimelineCategoryFilter = None,
+    event: OutboundActionTimelineEventFilter = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
     limit: OutboundActionTimelineLimit = DEFAULT_OUTBOUND_ACTION_TIMELINE_LIMIT,
 ) -> list[OutboundActionTimelineEntryRead]:
     """Read safe outbound history without delivering, approving, or mutating."""
     try:
         entries = OutboundActionTimelineService(session).list_for_action(
-            workspace, account_id, action_id, limit=limit
+            workspace,
+            account_id,
+            action_id,
+            category=category,
+            event=event,
+            created_after=created_after,
+            created_before=created_before,
+            limit=limit,
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
