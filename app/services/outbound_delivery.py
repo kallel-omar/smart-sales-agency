@@ -1,5 +1,6 @@
 """Explicit orchestration for provider-neutral outbound action delivery."""
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import func
@@ -37,6 +38,14 @@ class OutboundIntegrationActionNotRetryableError(ValueError):
 
 class OutboundIntegrationActionRetryDeniedError(OutboundIntegrationActionNotRetryableError):
     """Raised when the retry policy safely denies a failed action."""
+
+
+class OutboundDeliveryAttemptQueryValidationError(ValueError):
+    """Raised when a delivery-attempt read filter has an invalid range."""
+
+
+DEFAULT_DELIVERY_ATTEMPT_LIMIT = 50
+MAX_DELIVERY_ATTEMPT_LIMIT = 100
 
 
 class OutboundIntegrationDeliveryService:
@@ -103,21 +112,38 @@ class OutboundIntegrationDeliveryService:
         workspace: Workspace,
         account_id: UUID,
         action_id: UUID,
+        *,
+        attempt_status: OutboundIntegrationActionStatus | None = None,
+        started_after: datetime | None = None,
+        started_before: datetime | None = None,
+        newest_first: bool = False,
+        limit: int = DEFAULT_DELIVERY_ATTEMPT_LIMIT,
     ) -> list[OutboundIntegrationDeliveryAttempt]:
         """Return safe attempt history only after workspace/account/action scoping."""
+        if started_after and started_before and started_after > started_before:
+            raise OutboundDeliveryAttemptQueryValidationError(
+                "started_after must be earlier than or equal to started_before"
+            )
         account = self.account_service.get_for_workspace(workspace, account_id)
         self._get_action_for_account(workspace, account, action_id)
+        statement = select(OutboundIntegrationDeliveryAttempt).where(
+            OutboundIntegrationDeliveryAttempt.workspace_id == workspace.id,
+            OutboundIntegrationDeliveryAttempt.integration_account_id == account.id,
+            OutboundIntegrationDeliveryAttempt.outbound_integration_action_id == action_id,
+        )
+        if attempt_status:
+            statement = statement.where(OutboundIntegrationDeliveryAttempt.status == attempt_status)
+        if started_after:
+            statement = statement.where(OutboundIntegrationDeliveryAttempt.started_at >= started_after)
+        if started_before:
+            statement = statement.where(OutboundIntegrationDeliveryAttempt.started_at <= started_before)
+        ordering = (
+            OutboundIntegrationDeliveryAttempt.attempt_number.desc()
+            if newest_first
+            else OutboundIntegrationDeliveryAttempt.attempt_number
+        )
         return list(
-            self.session.exec(
-                select(OutboundIntegrationDeliveryAttempt)
-                .where(
-                    OutboundIntegrationDeliveryAttempt.workspace_id == workspace.id,
-                    OutboundIntegrationDeliveryAttempt.integration_account_id == account.id,
-                    OutboundIntegrationDeliveryAttempt.outbound_integration_action_id
-                    == action_id,
-                )
-                .order_by(OutboundIntegrationDeliveryAttempt.attempt_number)
-            ).all()
+            self.session.exec(statement.order_by(ordering).limit(limit)).all()
         )
 
     def _get_action_for_account(

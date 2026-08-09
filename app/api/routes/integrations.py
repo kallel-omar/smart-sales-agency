@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -54,6 +54,9 @@ from app.services.outbound_action_query import (
     OutboundIntegrationActionQueryService,
 )
 from app.services.outbound_delivery import (
+    DEFAULT_DELIVERY_ATTEMPT_LIMIT,
+    MAX_DELIVERY_ATTEMPT_LIMIT,
+    OutboundDeliveryAttemptQueryValidationError,
     OutboundIntegrationActionAlreadyProcessedError,
     OutboundIntegrationActionNotFoundError,
     OutboundIntegrationActionNotRetryableError,
@@ -96,6 +99,15 @@ OutboundActionLimit = Annotated[
 OutboundActionStatusFilter = Annotated[
     OutboundIntegrationActionStatus | None,
     Query(alias="status"),
+]
+
+DeliveryAttemptLimit = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_DELIVERY_ATTEMPT_LIMIT,
+        description="Maximum number of safe delivery attempts to return.",
+    ),
 ]
 
 
@@ -565,6 +577,11 @@ def list_outbound_integration_delivery_attempts(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    attempt_status: OutboundActionStatusFilter = None,
+    started_after: datetime | None = None,
+    started_before: datetime | None = None,
+    order: Literal["oldest_first", "newest_first"] = "oldest_first",
+    limit: DeliveryAttemptLimit = DEFAULT_DELIVERY_ATTEMPT_LIMIT,
 ) -> list[OutboundIntegrationDeliveryAttemptRead]:
     """Return safe, ordered delivery-attempt history for one scoped action."""
     try:
@@ -572,11 +589,18 @@ def list_outbound_integration_delivery_attempts(
             workspace,
             account_id,
             action_id,
+            attempt_status=attempt_status,
+            started_after=started_after,
+            started_before=started_before,
+            newest_first=order == "newest_first",
+            limit=limit,
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
     except OutboundIntegrationActionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except OutboundDeliveryAttemptQueryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [outbound_delivery_attempt_read(attempt) for attempt in attempts]
 
 
