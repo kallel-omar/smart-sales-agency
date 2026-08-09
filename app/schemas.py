@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import (
+    AIInvocationStatus,
     ApprovalStatus,
     IntegrationAccountAuditAction,
     LeadStatus,
@@ -131,6 +133,27 @@ class IntegrationExecutionTraceRead(BaseModel):
     correlation_id: UUID
     inbound: IntegrationExecutionInboundReceiptRead
     outbound_actions: list[IntegrationExecutionOutboundActionRead]
+
+
+class AIInvocationUsageRead(BaseModel):
+    """Safe AI accounting metadata; prompt, response, and credential data is absent."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    conversation_id: UUID | None
+    task_identifier: str
+    agent_identifier: str
+    provider: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    latency_ms: int
+    estimated_cost: Decimal | None
+    status: AIInvocationStatus
+    created_at: datetime
 
 
 class IntegrationAccountProvision(BaseModel):

@@ -27,6 +27,7 @@ from app.schemas import (
     InboundIntegrationEvent,
     InboundIntegrationDuplicateRead,
     InboundIntegrationReplyRead,
+    AIInvocationUsageRead,
     IntegrationExecutionDeliveryAttemptRead,
     IntegrationExecutionInboundReceiptRead,
     IntegrationExecutionOutboundActionRead,
@@ -66,6 +67,7 @@ from app.services.inbound_integrations import (
     InboundIntegrationEventIdValidationError,
     InboundIntegrationService,
 )
+from app.services.ai_invocation_usage import AIInvocationUsageService
 from app.services.integration_account_audit import (
     DEFAULT_AUDIT_EVENT_LIMIT,
     MAX_AUDIT_EVENT_LIMIT,
@@ -512,6 +514,18 @@ def get_integration_operational_summary(
         now=utc_now(),
     )
     return IntegrationOperationalSummaryRead(**summary.__dict__)
+
+
+@router.get("/ai-usage", response_model=list[AIInvocationUsageRead])
+def list_workspace_ai_invocation_usage(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> list[AIInvocationUsageRead]:
+    """Read safe AI usage metadata for the current workspace only."""
+    return [
+        AIInvocationUsageRead.model_validate(usage)
+        for usage in AIInvocationUsageService(session).list_for_workspace(workspace)
+    ]
 
 
 @router.get("/accounts/{account_id}/health", response_model=IntegrationAccountHealthRead)

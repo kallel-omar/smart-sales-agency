@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Column, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, Numeric, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -92,6 +93,13 @@ class OutboundIntegrationAuditAction(StrEnum):
     UNARCHIVED = "unarchived"
 
 
+class AIInvocationStatus(StrEnum):
+    """Safe terminal outcome for one provider-neutral AI invocation."""
+
+    SUCCESSFUL = "successful"
+    FAILED = "failed"
+
+
 class Workspace(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
 
@@ -163,6 +171,30 @@ class InboundIntegrationEventReceipt(SQLModel, table=True):
     # Opaque server-generated execution reference. It contains no provider data.
     correlation_id: UUID = Field(default_factory=uuid4, unique=True, index=True)
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class AIInvocationUsage(SQLModel, table=True):
+    """Workspace-scoped usage metadata without prompts, responses, or secrets."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    # Conversations are currently represented by lead-owned message history,
+    # not a standalone table, so this remains an optional opaque reference.
+    conversation_id: UUID | None = Field(default=None, index=True)
+    task_identifier: str = Field(max_length=100, index=True)
+    agent_identifier: str = Field(max_length=100, index=True)
+    provider: str = Field(max_length=100, index=True)
+    model: str = Field(max_length=200, index=True)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    latency_ms: int = Field(ge=0)
+    estimated_cost: Decimal | None = Field(
+        default=None,
+        sa_column=Column(Numeric(18, 8), nullable=True),
+    )
+    status: AIInvocationStatus = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
 class OutboundIntegrationAction(SQLModel, table=True):
