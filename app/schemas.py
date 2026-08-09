@@ -239,6 +239,15 @@ class OutboundIntegrationDeliveryStatusRead(BaseModel):
     next_retry_at: datetime | None
 
 
+class OutboundApprovalStatusRead(BaseModel):
+    """Safe, read-only approval state for one outbound action."""
+
+    action_id: UUID
+    requires_approval: bool
+    approval_request_id: UUID | None
+    approval_status: ApprovalStatus | None
+
+
 class OutboundActionExpirationCleanupRead(BaseModel):
     deleted_count: int
     cutoff: datetime

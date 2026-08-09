@@ -30,6 +30,7 @@ from app.schemas import (
     IntegrationAccountSecretReferenceUpdate,
     IntegrationOperationalSummaryRead,
     OutboundActionExpirationCleanupRead,
+    OutboundApprovalStatusRead,
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionDetailRead,
     OutboundIntegrationActionRead,
@@ -81,6 +82,10 @@ from app.services.outbound_delivery import (
 from app.services.outbound_delivery_status import (
     OutboundIntegrationDeliveryStatusService,
     OutboundIntegrationDeliveryStatusView,
+)
+from app.services.outbound_approval_status import (
+    OutboundApprovalStatusNotFoundError,
+    OutboundApprovalStatusService,
 )
 from app.services.outbound_delivery_approvals import (
     OutboundDeliveryApprovalRejectedError,
@@ -693,6 +698,28 @@ def retry_failed_outbound_integration_action(
     except OutboundIntegrationActionNotRetryableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_read(action, account)
+
+
+@router.get(
+    "/accounts/{account_id}/outbound-actions/{action_id}/approval-status",
+    response_model=OutboundApprovalStatusRead,
+)
+def get_outbound_approval_status(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundApprovalStatusRead:
+    """Return safe approval state without approving, delivering, or mutating."""
+    try:
+        view = OutboundApprovalStatusService(session).get_for_action(
+            workspace, account_id, action_id
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundApprovalStatusNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return OutboundApprovalStatusRead(**view.__dict__)
 
 
 @router.get(
