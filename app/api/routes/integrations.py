@@ -3,10 +3,10 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.dependencies import (
-    CurrentIntegrationWorkspaceDep,
     CurrentWorkspaceDep,
     SessionDep,
     SettingsDep,
+    VerifiedIntegrationContextDep,
 )
 from app.models import IntegrationAccount
 from app.schemas import (
@@ -117,7 +117,7 @@ def rotate_integration_account_credential(
 async def receive_inbound_event(
     payload: InboundIntegrationEvent,
     session: SessionDep,
-    workspace: CurrentIntegrationWorkspaceDep,
+    integration_context: VerifiedIntegrationContextDep,
     settings: SettingsDep,
 ) -> SalesReply:
     """Accept a normalized provider-neutral inbound integration event."""
@@ -125,7 +125,10 @@ async def receive_inbound_event(
     integration_service = InboundIntegrationService(session, settings)
 
     try:
-        result = await integration_service.handle_event(payload, workspace)
+        result = await integration_service.handle_event(
+            payload,
+            integration_context.workspace,
+        )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lead not found") from exc
 

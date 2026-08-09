@@ -39,15 +39,25 @@ def workspace_id(client, slug: str) -> UUID:
     return UUID(client.get(f"/api/workspaces/{slug}").json()["id"])
 
 
-def test_valid_inbound_integration_event_creates_sales_reply(client, integration_account_factory):
+def test_valid_inbound_integration_event_creates_sales_reply(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
     create_workspace(client, "company-a", "Company A")
     integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
     lead_id = create_lead(client, "company-a")
+    payload = inbound_event_payload(lead_id)
+    headers, body = signed_webhook_request(
+        "company-a-key",
+        payload,
+        event_id="provider-event-123",
+    )
 
     response = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": "company-a-key"},
-        json=inbound_event_payload(lead_id),
+        headers=headers,
+        content=body,
     )
 
     assert response.status_code == 200
@@ -65,7 +75,11 @@ def test_valid_inbound_integration_event_creates_sales_reply(client, integration
     assert history.json()[0]["channel"] == "website_chat"
 
 
-def test_invalid_inbound_integration_event_is_rejected(client, integration_account_factory):
+def test_invalid_inbound_integration_event_is_rejected(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
     create_workspace(client, "company-a", "Company A")
     integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
     lead_id = create_lead(client, "company-a")
@@ -73,11 +87,8 @@ def test_invalid_inbound_integration_event_is_rejected(client, integration_accou
     payload = inbound_event_payload(lead_id)
     payload["workspace_id"] = "must-not-be-accepted"
 
-    response = client.post(
-        "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": "company-a-key"},
-        json=payload,
-    )
+    headers, body = signed_webhook_request("company-a-key", payload)
+    response = client.post("/api/integrations/inbound-events", headers=headers, content=body)
 
     assert response.status_code == 422
 
@@ -93,7 +104,7 @@ def test_unknown_integration_context_is_rejected(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid integration context"
+    assert response.json()["detail"] == "Invalid webhook authentication"
 
 
 def test_inactive_integration_context_is_rejected(client, integration_account_factory):
@@ -104,17 +115,29 @@ def test_inactive_integration_context_is_rejected(client, integration_account_fa
     assert response.status_code == 401
 
 
-def test_integration_event_cannot_access_another_workspace_lead(client, integration_account_factory):
+def test_integration_event_cannot_access_another_workspace_lead(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
     create_workspace(client, "company-a", "Company A")
     create_workspace(client, "company-b", "Company B")
-    integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
-    integration_account_factory(workspace_id(client, "company-b"), "company-b-key")
+    integration_account_factory(
+        workspace_id(client, "company-a"),
+        "company-a-key",
+    )
+    integration_account_factory(
+        workspace_id(client, "company-b"),
+        "company-b-key",
+    )
     company_b_lead_id = create_lead(client, "company-b")
+    payload = inbound_event_payload(company_b_lead_id)
+    headers, body = signed_webhook_request("company-a-key", payload)
 
     response = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": "company-a-key"},
-        json=inbound_event_payload(company_b_lead_id),
+        headers=headers,
+        content=body,
     )
 
     assert response.status_code == 404

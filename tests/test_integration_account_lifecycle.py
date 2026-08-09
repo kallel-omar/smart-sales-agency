@@ -35,7 +35,7 @@ def provision_account(client, workspace_slug: str) -> dict:
     response = client.post(
         "/api/integrations/accounts",
         headers=workspace_headers(workspace_slug),
-        json={"provider": "generic-channel", "external_account_id": "account-123"},
+        json={"provider": "generic_hmac", "external_account_id": "account-123"},
     )
     assert response.status_code == 201
     return response.json()
@@ -111,7 +111,10 @@ def test_accounts_are_listed_only_in_their_workspace_and_cross_workspace_mutatio
     assert unchanged.json()[0]["active"] is True
 
 
-def test_deactivation_and_reactivation_control_authentication_for_current_credential(client):
+def test_deactivation_and_reactivation_control_authentication_for_current_credential(
+    client,
+    signed_webhook_request,
+):
     create_workspace(client, "company-a")
     account = provision_account(client, "company-a")
     lead_id = create_lead(client, "company-a")
@@ -124,10 +127,11 @@ def test_deactivation_and_reactivation_control_authentication_for_current_creden
     assert deactivated.json()["active"] is False
     assert "credential_hash" not in deactivated.json()
 
+    headers, body = signed_webhook_request(account["inbound_credential"], inbound_payload(lead_id))
     denied = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": account["inbound_credential"]},
-        json=inbound_payload(lead_id),
+        headers=headers,
+        content=body,
     )
     assert denied.status_code == 401
 
@@ -139,15 +143,19 @@ def test_deactivation_and_reactivation_control_authentication_for_current_creden
     assert reactivated.json()["active"] is True
     assert "credential_hash" not in reactivated.json()
 
+    headers, body = signed_webhook_request(account["inbound_credential"], inbound_payload(lead_id))
     accepted = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": account["inbound_credential"]},
-        json=inbound_payload(lead_id),
+        headers=headers,
+        content=body,
     )
     assert accepted.status_code == 200
 
 
-def test_rotation_immediately_invalidates_previous_credential_and_authenticates_new_one(client):
+def test_rotation_immediately_invalidates_previous_credential_and_authenticates_new_one(
+    client,
+    signed_webhook_request,
+):
     create_workspace(client, "company-a")
     account = provision_account(client, "company-a")
     lead_id = create_lead(client, "company-a")
@@ -161,16 +169,18 @@ def test_rotation_immediately_invalidates_previous_credential_and_authenticates_
     assert rotated_data["inbound_credential"] != account["inbound_credential"]
     assert "credential_hash" not in rotated_data
 
+    headers, body = signed_webhook_request(account["inbound_credential"], inbound_payload(lead_id))
     old_credential = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": account["inbound_credential"]},
-        json=inbound_payload(lead_id),
+        headers=headers,
+        content=body,
     )
     assert old_credential.status_code == 401
 
+    headers, body = signed_webhook_request(rotated_data["inbound_credential"], inbound_payload(lead_id))
     new_credential = client.post(
         "/api/integrations/inbound-events",
-        headers={"X-Integration-Key": rotated_data["inbound_credential"]},
-        json=inbound_payload(lead_id),
+        headers=headers,
+        content=body,
     )
     assert new_credential.status_code == 200

@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     require_human_approval: bool = True
     default_channel: Literal["console", "whatsapp", "email"] = "console"
 
+    # Provider webhook secrets are supplied through secure runtime configuration.
+    # The map is keyed by the provider value of an IntegrationAccount.
+    webhook_hmac_secrets: dict[str, str] = Field(default_factory=dict)
+    webhook_max_age_seconds: int = Field(default=300, gt=0, le=3_600)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

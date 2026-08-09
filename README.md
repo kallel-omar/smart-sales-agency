@@ -223,8 +223,11 @@ Receive provider-neutral inbound events through a replaceable integration bounda
 `X-Integration-Key` is resolved server-side against an active, persisted
 integration account that belongs to one workspace. Only a one-way credential
 hash is stored; the event body never establishes a workspace.
-Production integration-account mapping and verification will replace this
-temporary mechanism.
+The inbound route also authenticates the webhook before Sales processing.
+The included generic HMAC adapter expects `X-Webhook-Signature` and
+`X-Webhook-Timestamp`; its provider secret is runtime configuration and is
+never returned or persisted with the account. Provider adapters remain outside
+the core domain.
 
 /health
 
