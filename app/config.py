@@ -1,8 +1,10 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.services.ai_model_tiers import AIModelTier, AIModelTierMapping
 
 
 class Settings(BaseSettings):
@@ -15,6 +17,11 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4.1-mini"
     llm_timeout_seconds: float = Field(default=45, gt=0, le=180)
+
+    # Domain-level model capability mappings. They are intentionally optional
+    # until a caller asks for a tier; the existing LLM settings remain the
+    # backward-compatible transport configuration for current agent flows.
+    ai_model_tier_mappings: dict[AIModelTier, AIModelTierMapping] = Field(default_factory=dict)
 
     require_human_approval: bool = True
     default_channel: Literal["console", "whatsapp", "email"] = "console"
@@ -76,6 +83,12 @@ class Settings(BaseSettings):
         if len(classes) != len(set(classes)):
             raise ValueError("Outbound delivery failure classes must be unique")
         return ",".join(classes)
+
+    @model_validator(mode="after")
+    def validate_ai_model_tier_mappings(self) -> "Settings":
+        if AIModelTier.NONE in self.ai_model_tier_mappings:
+            raise ValueError("The none AI model tier must not have a provider/model mapping")
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",
