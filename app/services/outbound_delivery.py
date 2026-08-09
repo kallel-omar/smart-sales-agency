@@ -124,13 +124,14 @@ class OutboundIntegrationDeliveryService:
             action.status == OutboundIntegrationActionStatus.PENDING
             and self.is_expired(action)
         ):
+            previous_status = action.status
             self.transition_guard.require_transition(
                 action, OutboundIntegrationActionStatus.EXPIRED
             )
             action.status = OutboundIntegrationActionStatus.EXPIRED
             action.expired_at = utc_now()
             self.session.add(action)
-            self.audit_service.record(action, OutboundIntegrationAuditAction.EXPIRED)
+            self._record_transition_audit(action, previous_status)
             self.session.commit()
             raise OutboundIntegrationActionExpiredError("Outbound integration action has expired")
         try:
@@ -160,6 +161,7 @@ class OutboundIntegrationDeliveryService:
             raise InactiveIntegrationAccountError("Integration account is inactive")
 
         action = self._get_action_for_account(workspace, account, action_id)
+        previous_status = action.status
         try:
             self.transition_guard.require_retry_attempt(action)
         except OutboundIntegrationActionInvalidStateTransitionError as exc:
@@ -184,6 +186,7 @@ class OutboundIntegrationDeliveryService:
     ) -> tuple[OutboundIntegrationAction, IntegrationAccount]:
         account = self.account_service.get_for_workspace(workspace, account_id)
         action = self._get_action_for_account(workspace, account, action_id)
+        previous_status = action.status
         try:
             self.transition_guard.require_transition(
                 action, OutboundIntegrationActionStatus.CANCELLED
@@ -195,7 +198,7 @@ class OutboundIntegrationDeliveryService:
         action.status = OutboundIntegrationActionStatus.CANCELLED
         action.cancelled_at = utc_now()
         self.session.add(action)
-        self.audit_service.record(action, OutboundIntegrationAuditAction.CANCELLED)
+        self._record_transition_audit(action, previous_status)
         self.session.commit()
         self.session.refresh(action)
         return action, account
@@ -344,6 +347,7 @@ class OutboundIntegrationDeliveryService:
         result: DeliveryAdapterResult,
     ) -> None:
         recorded_at = utc_now()
+        previous_status = action.status
         if result.delivered:
             self.transition_guard.require_transition(
                 action, OutboundIntegrationActionStatus.DELIVERED
@@ -361,7 +365,7 @@ class OutboundIntegrationDeliveryService:
             attempt.failure_code = None
             attempt.failure_message = None
             attempt.failure_classification = None
-            self.audit_service.record(action, OutboundIntegrationAuditAction.DELIVERED)
+            self._record_transition_audit(action, previous_status)
         else:
             self.transition_guard.require_transition(
                 action, OutboundIntegrationActionStatus.FAILED
@@ -379,6 +383,17 @@ class OutboundIntegrationDeliveryService:
             attempt.failure_code = action.failure_code
             attempt.failure_message = action.failure_message
             attempt.failure_classification = action.failure_classification
-            self.audit_service.record(action, OutboundIntegrationAuditAction.FAILED)
+            self._record_transition_audit(action, previous_status)
         self.session.add(action)
         self.session.add(attempt)
+
+    def _record_transition_audit(
+        self,
+        action: OutboundIntegrationAction,
+        previous_status: OutboundIntegrationActionStatus,
+    ) -> None:
+        """Record only audit events authorized by the shared transition guard."""
+        event_action = self.transition_guard.audit_event_for_transition(
+            previous_status, action.status
+        )
+        self.audit_service.record(action, event_action)

@@ -2,7 +2,11 @@
 
 from typing import ClassVar
 
-from app.models import OutboundIntegrationAction, OutboundIntegrationActionStatus
+from app.models import (
+    OutboundIntegrationAction,
+    OutboundIntegrationActionStatus,
+    OutboundIntegrationAuditAction,
+)
 
 
 class OutboundIntegrationActionInvalidStateTransitionError(ValueError):
@@ -51,6 +55,23 @@ class OutboundIntegrationActionStateTransitionGuard:
         raise OutboundIntegrationActionInvalidStateTransitionError(
             f"Outbound integration action cannot transition from {action.status} to {target}"
         )
+
+    def audit_event_for_transition(
+        self,
+        source: OutboundIntegrationActionStatus,
+        target: OutboundIntegrationActionStatus,
+    ) -> OutboundIntegrationAuditAction:
+        """Return the safe audit event for one already-authorized state transition."""
+        if not self.can_transition(source, target):
+            raise OutboundIntegrationActionInvalidStateTransitionError(
+                f"Outbound integration action cannot transition from {source} to {target}"
+            )
+        return {
+            OutboundIntegrationActionStatus.DELIVERED: OutboundIntegrationAuditAction.DELIVERED,
+            OutboundIntegrationActionStatus.FAILED: OutboundIntegrationAuditAction.FAILED,
+            OutboundIntegrationActionStatus.CANCELLED: OutboundIntegrationAuditAction.CANCELLED,
+            OutboundIntegrationActionStatus.EXPIRED: OutboundIntegrationAuditAction.EXPIRED,
+        }[target]
 
     def require_pending_delivery(self, action: OutboundIntegrationAction) -> None:
         """Initial delivery is only valid while an action is pending."""

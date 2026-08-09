@@ -1,6 +1,10 @@
 import pytest
 
-from app.models import OutboundIntegrationAction, OutboundIntegrationActionStatus
+from app.models import (
+    OutboundIntegrationAction,
+    OutboundIntegrationActionStatus,
+    OutboundIntegrationAuditAction,
+)
 from app.services.outbound_action_state_transitions import (
     OutboundIntegrationActionInvalidStateTransitionError,
     OutboundIntegrationActionStateTransitionGuard,
@@ -64,3 +68,21 @@ def test_transition_guard_keeps_initial_delivery_and_retry_states_distinct():
         guard.require_pending_delivery(_action(OutboundIntegrationActionStatus.FAILED))
     with pytest.raises(OutboundIntegrationActionInvalidStateTransitionError):
         guard.require_retry_attempt(_action(OutboundIntegrationActionStatus.PENDING))
+
+
+def test_transition_guard_maps_only_valid_transitions_to_safe_audit_events():
+    guard = OutboundIntegrationActionStateTransitionGuard()
+
+    assert guard.audit_event_for_transition(
+        OutboundIntegrationActionStatus.PENDING,
+        OutboundIntegrationActionStatus.CANCELLED,
+    ) == OutboundIntegrationAuditAction.CANCELLED
+    assert guard.audit_event_for_transition(
+        OutboundIntegrationActionStatus.FAILED,
+        OutboundIntegrationActionStatus.DELIVERED,
+    ) == OutboundIntegrationAuditAction.DELIVERED
+    with pytest.raises(OutboundIntegrationActionInvalidStateTransitionError):
+        guard.audit_event_for_transition(
+            OutboundIntegrationActionStatus.DELIVERED,
+            OutboundIntegrationActionStatus.FAILED,
+        )
