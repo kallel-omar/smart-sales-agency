@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # until a caller asks for a tier; the existing LLM settings remain the
     # backward-compatible transport configuration for current agent flows.
     ai_model_tier_mappings: dict[AIModelTier, AIModelTierMapping] = Field(default_factory=dict)
+    # Premium capability is opt-in policy. A request must also carry a valid,
+    # explicit premium justification before the routing policy may select it.
+    ai_model_routing_premium_enabled: bool = False
 
     require_human_approval: bool = True
     default_channel: Literal["console", "whatsapp", "email"] = "console"
