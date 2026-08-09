@@ -30,6 +30,7 @@ from app.schemas import (
     IntegrationAccountSecretReferenceUpdate,
     IntegrationOperationalSummaryRead,
     OutboundActionExpirationCleanupRead,
+    OutboundActionStateHistoryEntryRead,
     OutboundApprovalStatusRead,
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionDetailRead,
@@ -67,6 +68,11 @@ from app.services.outbound_action_query import (
     OutboundActionQueryValidationError,
     OutboundIntegrationActionQueryNotFoundError,
     OutboundIntegrationActionQueryService,
+)
+from app.services.outbound_action_state_history import (
+    DEFAULT_OUTBOUND_STATE_HISTORY_LIMIT,
+    MAX_OUTBOUND_STATE_HISTORY_LIMIT,
+    OutboundActionStateHistoryService,
 )
 from app.services.outbound_delivery import (
     DEFAULT_DELIVERY_ATTEMPT_LIMIT,
@@ -153,6 +159,15 @@ OutboundAuditLimit = Annotated[
         ge=1,
         le=MAX_OUTBOUND_AUDIT_EVENT_LIMIT,
         description="Maximum number of safe outbound audit events to return.",
+    ),
+]
+
+OutboundStateHistoryLimit = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_OUTBOUND_STATE_HISTORY_LIMIT,
+        description="Maximum number of safe outbound state transitions to return.",
     ),
 ]
 
@@ -784,6 +799,31 @@ def get_outbound_approval_status(
     except OutboundApprovalStatusNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return OutboundApprovalStatusRead(**view.__dict__)
+
+
+@router.get(
+    "/accounts/{account_id}/outbound-actions/{action_id}/state-history",
+    response_model=list[OutboundActionStateHistoryEntryRead],
+)
+def list_outbound_action_state_history(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    limit: OutboundStateHistoryLimit = DEFAULT_OUTBOUND_STATE_HISTORY_LIMIT,
+) -> list[OutboundActionStateHistoryEntryRead]:
+    """Read successful transitions only; this endpoint never changes an action."""
+    try:
+        entries = OutboundActionStateHistoryService(session).list_for_action(
+            workspace, account_id, action_id, limit=limit
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [OutboundActionStateHistoryEntryRead(**entry.__dict__) for entry in entries]
 
 
 @router.get(

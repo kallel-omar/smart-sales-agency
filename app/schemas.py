@@ -231,6 +231,14 @@ class OutboundIntegrationAuditEventRead(BaseModel):
     created_at: datetime
 
 
+class OutboundActionStateHistoryEntryRead(BaseModel):
+    """Safe, immutable state-transition history for one outbound action."""
+
+    state: OutboundIntegrationActionStatus
+    event: OutboundIntegrationAuditAction
+    created_at: datetime
+
+
 class OutboundIntegrationDeliveryStatusRead(BaseModel):
     """Safe read-only summary of an outbound action and retry eligibility."""
 
