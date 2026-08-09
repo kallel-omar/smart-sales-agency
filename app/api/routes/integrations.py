@@ -19,6 +19,7 @@ from app.models import (
     OutboundIntegrationAuditAction,
     OutboundIntegrationDeliveryAttempt,
     OutboundActionAnnotation,
+    OutboundActionLabel,
     utc_now,
 )
 from app.schemas import (
@@ -34,6 +35,8 @@ from app.schemas import (
     OutboundActionExpirationCleanupRead,
     OutboundActionAnnotationCreate,
     OutboundActionAnnotationRead,
+    OutboundActionLabelCreate,
+    OutboundActionLabelRead,
     OutboundActionPriorityUpdate,
     OutboundActionStateHistoryEntryRead,
     OutboundActionTimelineEntryRead,
@@ -71,6 +74,12 @@ from app.services.outbound_action_audit import (
     OutboundIntegrationActionAuditService,
 )
 from app.services.outbound_action_annotations import OutboundActionAnnotationService
+from app.services.outbound_action_labels import (
+    MAX_OUTBOUND_ACTION_LABELS,
+    OutboundActionLabelNotFoundError,
+    OutboundActionLabelService,
+    OutboundActionLabelValidationError,
+)
 from app.services.outbound_action_query import (
     DEFAULT_OUTBOUND_ACTION_LIMIT,
     MAX_OUTBOUND_ACTION_LIMIT,
@@ -204,6 +213,7 @@ OutboundActionTimelineLimit = Annotated[
     ),
 ]
 OutboundActionAnnotationLimit = Annotated[int, Query(ge=1, le=100)]
+OutboundActionLabelLimit = Annotated[int, Query(ge=1, le=MAX_OUTBOUND_ACTION_LABELS)]
 
 OutboundActionTimelineCategoryFilter = Annotated[
     OutboundActionTimelineCategory | None,
@@ -289,6 +299,10 @@ def outbound_action_annotation_read(annotation: OutboundActionAnnotation) -> Out
         id=annotation.id, outbound_integration_action_id=annotation.outbound_integration_action_id,
         text=annotation.text, created_at=annotation.created_at
     )
+
+
+def outbound_action_label_read(label: OutboundActionLabel) -> OutboundActionLabelRead:
+    return OutboundActionLabelRead(label=label.label, created_at=label.created_at)
 
 
 def outbound_action_detail_read(
@@ -713,6 +727,65 @@ def list_outbound_action_annotations(action_id: UUID, session: SessionDep, works
     except OutboundIntegrationActionQueryNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
     return [outbound_action_annotation_read(row) for row in rows]
+
+
+@router.post(
+    "/outbound-actions/{action_id}/labels",
+    response_model=OutboundActionLabelRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_outbound_action_label(
+    action_id: UUID,
+    payload: OutboundActionLabelCreate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundActionLabelRead:
+    try:
+        label = OutboundActionLabelService(session).add(workspace, action_id, payload.label)
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except OutboundActionLabelValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return outbound_action_label_read(label)
+
+
+@router.get(
+    "/outbound-actions/{action_id}/labels",
+    response_model=list[OutboundActionLabelRead],
+)
+def list_outbound_action_labels(
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    limit: OutboundActionLabelLimit = MAX_OUTBOUND_ACTION_LABELS,
+) -> list[OutboundActionLabelRead]:
+    try:
+        labels = OutboundActionLabelService(session).list_for_action(
+            workspace, action_id, limit=limit
+        )
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return [outbound_action_label_read(label) for label in labels]
+
+
+@router.delete(
+    "/outbound-actions/{action_id}/labels/{label}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_outbound_action_label(
+    action_id: UUID,
+    label: str,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> None:
+    try:
+        OutboundActionLabelService(session).remove(workspace, action_id, label)
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except OutboundActionLabelNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OutboundActionLabelValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.put("/outbound-actions/{action_id}/priority", response_model=OutboundIntegrationActionDetailRead)

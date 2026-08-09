@@ -215,6 +215,26 @@ class OutboundActionAnnotation(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
+class OutboundActionLabel(SQLModel, table=True):
+    """Safe, normalized operator label for one workspace-scoped outbound action."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "outbound_integration_action_id",
+            "label",
+            name="uq_outbound_action_label",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    outbound_integration_action_id: UUID = Field(
+        foreign_key="outboundintegrationaction.id", index=True
+    )
+    label: str = Field(max_length=64, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class OutboundIntegrationDeliveryAttempt(SQLModel, table=True):
     """Safe, workspace-scoped history of explicit outbound delivery attempts."""
 

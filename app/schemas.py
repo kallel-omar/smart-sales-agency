@@ -208,6 +208,16 @@ class OutboundActionAnnotationRead(BaseModel):
     created_at: datetime
 
 
+class OutboundActionLabelCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(min_length=1, max_length=64)
+
+
+class OutboundActionLabelRead(BaseModel):
+    label: str
+    created_at: datetime
+
+
 class OutboundActionPriorityUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     priority: OutboundActionPriority
