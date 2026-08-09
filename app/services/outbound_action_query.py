@@ -20,6 +20,10 @@ class OutboundActionQueryValidationError(ValueError):
     """Raised when an outbound-action read filter has an invalid range."""
 
 
+class OutboundIntegrationActionQueryNotFoundError(LookupError):
+    """Raised when a requested action is outside the current workspace."""
+
+
 class OutboundIntegrationActionQueryService:
     """Return outbound actions only from the resolved current workspace."""
 
@@ -69,3 +73,27 @@ class OutboundIntegrationActionQueryService:
                 statement.order_by(OutboundIntegrationAction.created_at.desc()).limit(limit)
             ).all()
         )
+
+    def get_for_workspace(
+        self,
+        workspace: Workspace,
+        action_id: UUID,
+    ) -> tuple[OutboundIntegrationAction, str]:
+        """Return one action joined to its account provider in the current workspace."""
+        row = self.session.exec(
+            select(OutboundIntegrationAction, IntegrationAccount.provider)
+            .join(
+                IntegrationAccount,
+                IntegrationAccount.id == OutboundIntegrationAction.integration_account_id,
+            )
+            .where(
+                OutboundIntegrationAction.id == action_id,
+                OutboundIntegrationAction.workspace_id == workspace.id,
+                IntegrationAccount.workspace_id == workspace.id,
+            )
+        ).first()
+        if not row:
+            raise OutboundIntegrationActionQueryNotFoundError(
+                "Outbound integration action not found"
+            )
+        return row

@@ -171,6 +171,12 @@ class OutboundIntegrationActionSummaryRead(BaseModel):
     created_at: datetime
 
 
+class OutboundIntegrationActionDetailRead(OutboundIntegrationActionSummaryRead):
+    """Safe single-action operational view with no outbound request content."""
+
+    failure_message: str | None
+
+
 class OutboundIntegrationDeliveryAttemptRead(BaseModel):
     """Safe outbound delivery-attempt history with no request or secret data."""
 

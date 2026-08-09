@@ -27,6 +27,7 @@ from app.schemas import (
     IntegrationAccountRead,
     IntegrationAccountSecretReferenceUpdate,
     OutboundIntegrationActionCreate,
+    OutboundIntegrationActionDetailRead,
     OutboundIntegrationActionRead,
     OutboundIntegrationActionSummaryRead,
     OutboundIntegrationDeliveryAttemptRead,
@@ -49,6 +50,7 @@ from app.services.outbound_action_query import (
     DEFAULT_OUTBOUND_ACTION_LIMIT,
     MAX_OUTBOUND_ACTION_LIMIT,
     OutboundActionQueryValidationError,
+    OutboundIntegrationActionQueryNotFoundError,
     OutboundIntegrationActionQueryService,
 )
 from app.services.outbound_delivery import (
@@ -150,6 +152,16 @@ def outbound_action_summary_read(
         failed_at=action.failed_at,
         failure_code=action.failure_code,
         created_at=action.created_at,
+    )
+
+
+def outbound_action_detail_read(
+    action: OutboundIntegrationAction,
+    provider: str,
+) -> OutboundIntegrationActionDetailRead:
+    return OutboundIntegrationActionDetailRead(
+        **outbound_action_summary_read(action, provider).model_dump(),
+        failure_message=action.failure_message,
     )
 
 
@@ -432,6 +444,26 @@ def list_outbound_integration_actions(
     except OutboundActionQueryValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [outbound_action_summary_read(action, provider_name) for action, provider_name in rows]
+
+
+@router.get(
+    "/outbound-actions/{action_id}",
+    response_model=OutboundIntegrationActionDetailRead,
+)
+def get_outbound_integration_action_detail(
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundIntegrationActionDetailRead:
+    """Read one safe outbound action view without delivering or mutating it."""
+    try:
+        action, provider = OutboundIntegrationActionQueryService(session).get_for_workspace(
+            workspace,
+            action_id,
+        )
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return outbound_action_detail_read(action, provider)
 
 
 @router.post(
