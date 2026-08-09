@@ -657,6 +657,7 @@ def list_outbound_integration_actions(
     workspace: CurrentWorkspaceDep,
     action_status: OutboundActionStatusFilter = None,
     priority: OutboundActionPriorityFilter = None,
+    label: str | None = Query(default=None, min_length=1, max_length=64),
     provider: str | None = Query(default=None, min_length=1, max_length=100),
     integration_account_id: UUID | None = None,
     created_after: datetime | None = None,
@@ -665,10 +666,14 @@ def list_outbound_integration_actions(
 ) -> list[OutboundIntegrationActionSummaryRead]:
     """List safe outbound action summaries from the current workspace only."""
     try:
+        normalized_label = (
+            OutboundActionLabelService.normalize(label) if label is not None else None
+        )
         rows = OutboundIntegrationActionQueryService(session).list_for_workspace(
             workspace,
             action_status=action_status,
             priority=priority,
+            label=normalized_label,
             provider=provider,
             integration_account_id=integration_account_id,
             created_after=created_after,
@@ -676,6 +681,8 @@ def list_outbound_integration_actions(
             limit=limit,
         )
     except OutboundActionQueryValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OutboundActionLabelValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [outbound_action_summary_read(action, provider_name) for action, provider_name in rows]
 

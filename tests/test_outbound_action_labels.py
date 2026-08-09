@@ -104,3 +104,35 @@ def test_outbound_action_labels_validate_remove_and_enforce_workspace_isolation(
         f"/api/integrations/outbound-actions/{action_b['id']}/labels",
         headers=_headers("company-a"),
     ).status_code == 404
+
+
+def test_outbound_action_listing_filters_by_exact_normalized_label_within_workspace(client):
+    _workspace(client, "company-a")
+    _workspace(client, "company-b")
+    first = _action(client, "company-a", "first")
+    second = _action(client, "company-a", "second")
+    third = _action(client, "company-b", "third")
+
+    for action, slug, label in (
+        (first, "company-a", "follow_up"),
+        (second, "company-a", "urgent"),
+        (third, "company-b", "follow_up"),
+    ):
+        assert client.post(
+            f"/api/integrations/outbound-actions/{action['id']}/labels",
+            headers=_headers(slug),
+            json={"label": label},
+        ).status_code == 201
+
+    filtered = client.get(
+        "/api/integrations/outbound-actions",
+        headers=_headers("company-a"),
+        params={"label": " FOLLOW_UP "},
+    )
+    assert filtered.status_code == 200
+    assert [item["id"] for item in filtered.json()] == [first["id"]]
+    assert client.get(
+        "/api/integrations/outbound-actions",
+        headers=_headers("company-a"),
+        params={"label": "not safe"},
+    ).status_code == 422

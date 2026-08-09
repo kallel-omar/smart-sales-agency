@@ -8,6 +8,7 @@ from sqlalchemy import delete
 
 from app.models import (
     IntegrationAccount,
+    OutboundActionLabel,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
     OutboundActionPriority,
@@ -38,6 +39,7 @@ class OutboundIntegrationActionQueryService:
         *,
         action_status: OutboundIntegrationActionStatus | None = None,
         priority: OutboundActionPriority | None = None,
+        label: str | None = None,
         provider: str | None = None,
         integration_account_id: UUID | None = None,
         created_after: datetime | None = None,
@@ -61,6 +63,12 @@ class OutboundIntegrationActionQueryService:
             statement = statement.where(OutboundIntegrationAction.status == action_status)
         if priority:
             statement = statement.where(OutboundIntegrationAction.priority == priority)
+        if label:
+            statement = statement.join(
+                OutboundActionLabel,
+                (OutboundActionLabel.outbound_integration_action_id == OutboundIntegrationAction.id)
+                & (OutboundActionLabel.workspace_id == workspace.id),
+            ).where(OutboundActionLabel.label == label)
         if provider:
             statement = statement.where(
                 IntegrationAccount.provider == provider.strip()
