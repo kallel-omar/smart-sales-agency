@@ -262,6 +262,10 @@ classes (`temporary`, `permanent`, `authentication`, `rate_limit`,
 `validation`, or `unknown`) without embedding provider behavior in the domain.
 A denied retry creates no new attempt.
 
+`OUTBOUND_DELIVERY_RETRY_DELAY_STRATEGY` (`fixed` or `exponential`) and its
+delay values provide deterministic next-retry timing for read models. They do
+not schedule, queue, or automatically invoke delivery.
+
 /health
 
 Service health and active LLM mode
