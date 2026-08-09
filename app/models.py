@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, JSON, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -51,6 +51,7 @@ class IntegrationAccountAuditAction(StrEnum):
 
 class OutboundIntegrationActionType(StrEnum):
     SEND_MESSAGE = "send_message"
+    SEND_MEDIA = "send_media"
 
 
 class OutboundIntegrationActionStatus(StrEnum):

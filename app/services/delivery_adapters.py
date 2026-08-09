@@ -13,6 +13,9 @@ from app.models import (
 _GENERIC_FAILURE_CLASSIFICATIONS = {
     "adapter_execution_failed": OutboundDeliveryFailureClassification.TEMPORARY,
     "adapter_not_configured": OutboundDeliveryFailureClassification.PERMANENT,
+    "adapter_capabilities_unavailable": OutboundDeliveryFailureClassification.PERMANENT,
+    "unsupported_action_type": OutboundDeliveryFailureClassification.VALIDATION,
+    "content_too_long": OutboundDeliveryFailureClassification.VALIDATION,
     "authentication_failed": OutboundDeliveryFailureClassification.AUTHENTICATION,
     "rate_limited": OutboundDeliveryFailureClassification.RATE_LIMIT,
     "validation_failed": OutboundDeliveryFailureClassification.VALIDATION,
@@ -36,7 +39,7 @@ class DeliveryAdapterCapabilities:
 
 
 DEFAULT_DELIVERY_ADAPTER_CAPABILITIES = DeliveryAdapterCapabilities(
-    supported_action_types=frozenset(OutboundIntegrationActionType),
+    supported_action_types=frozenset({OutboundIntegrationActionType.SEND_MESSAGE}),
 )
 
 

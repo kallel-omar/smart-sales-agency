@@ -9,8 +9,8 @@ from sqlmodel import Session, select
 from app.models import (
     IntegrationAccount,
     OutboundIntegrationAction,
-    OutboundIntegrationAuditAction,
     OutboundIntegrationActionStatus,
+    OutboundIntegrationAuditAction,
     OutboundIntegrationDeliveryAttempt,
     Workspace,
     utc_now,
@@ -215,18 +215,47 @@ class OutboundIntegrationDeliveryService:
                 "No delivery adapter is configured for this provider",
             )
         else:
-            try:
-                result = adapter.deliver(action, account)
-            except Exception:  # noqa: BLE001 - adapters are an external extension boundary.
-                result = DeliveryAdapterResult.failure(
-                    "adapter_execution_failed",
-                    "Delivery adapter execution failed",
-                )
+            result = self._validate_adapter_capabilities(action, account)
+            if result is None:
+                try:
+                    result = adapter.deliver(action, account)
+                except Exception:  # noqa: BLE001 - adapters are an external extension boundary.
+                    result = DeliveryAdapterResult.failure(
+                        "adapter_execution_failed",
+                        "Delivery adapter execution failed",
+                    )
 
         self._persist_outcome(action, attempt, result)
         self.session.commit()
         self.session.refresh(action)
         return action, account
+
+    def _validate_adapter_capabilities(
+        self,
+        action: OutboundIntegrationAction,
+        account: IntegrationAccount,
+    ) -> DeliveryAdapterResult | None:
+        """Return a safe failure before adapter I/O when constraints are unmet."""
+        capabilities = self.adapter_registry.capabilities_for(account.provider)
+        if capabilities is None:
+            return DeliveryAdapterResult.failure(
+                "adapter_capabilities_unavailable",
+                "Delivery adapter capabilities are unavailable",
+            )
+        if action.action_type not in capabilities.supported_action_types:
+            return DeliveryAdapterResult.failure(
+                "unsupported_action_type",
+                "Outbound action type is not supported by this delivery adapter",
+            )
+        if (
+            capabilities.max_content_length is not None
+            and len(action.content) > capabilities.max_content_length
+        ):
+            return DeliveryAdapterResult.failure(
+                "content_too_long",
+                "Outbound action content exceeds the delivery adapter limit",
+            )
+        return None
 
     def _new_attempt(
         self,
