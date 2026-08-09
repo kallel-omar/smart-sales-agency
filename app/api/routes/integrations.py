@@ -196,6 +196,7 @@ OutboundActionTimelineLimit = Annotated[
         description="Maximum number of safe outbound timeline entries to return.",
     ),
 ]
+OutboundActionAnnotationLimit = Annotated[int, Query(ge=1, le=100)]
 
 OutboundActionTimelineCategoryFilter = Annotated[
     OutboundActionTimelineCategory | None,
@@ -692,6 +693,15 @@ def create_outbound_action_annotation(action_id: UUID, payload: OutboundActionAn
     except OutboundIntegrationActionQueryNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
     return outbound_action_annotation_read(annotation)
+
+
+@router.get("/outbound-actions/{action_id}/annotations", response_model=list[OutboundActionAnnotationRead])
+def list_outbound_action_annotations(action_id: UUID, session: SessionDep, workspace: CurrentWorkspaceDep, limit: OutboundActionAnnotationLimit = 50) -> list[OutboundActionAnnotationRead]:
+    try:
+        rows = OutboundActionAnnotationService(session).list_for_action(workspace, action_id, limit=limit)
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return [outbound_action_annotation_read(row) for row in rows]
 
 
 @router.post(
