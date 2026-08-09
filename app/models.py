@@ -160,6 +160,8 @@ class InboundIntegrationEventReceipt(SQLModel, table=True):
         index=True,
     )
     external_event_id: str = Field(max_length=200, index=True)
+    # Opaque server-generated execution reference. It contains no provider data.
+    correlation_id: UUID = Field(default_factory=uuid4, unique=True, index=True)
     created_at: datetime = Field(default_factory=utc_now)
 
 

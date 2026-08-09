@@ -67,6 +67,17 @@ class InboundIntegrationDuplicateRead(BaseModel):
     """Safe acknowledgement for a retry that was already accepted once."""
 
     duplicate: bool = True
+    correlation_id: UUID
+
+
+class InboundIntegrationReplyRead(BaseModel):
+    """Safe first-delivery response for a durably correlated inbound event."""
+
+    lead_id: UUID
+    detected_stage: SalesStage
+    draft_reply: str
+    approval_id: UUID | None = None
+    correlation_id: UUID
 
 
 class IntegrationAccountProvision(BaseModel):

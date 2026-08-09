@@ -178,7 +178,10 @@ def test_inbound_event_duplicate_is_acknowledged_without_second_domain_dispatch(
     duplicate = client.post("/api/integrations/inbound-events", headers=headers, content=body)
 
     assert duplicate.status_code == 200
-    assert duplicate.json() == {"duplicate": True}
+    assert duplicate.json() == {
+        "duplicate": True,
+        "correlation_id": first.json()["correlation_id"],
+    }
     duplicate_history = client.get(
         f"/api/conversations/{lead_id}",
         headers={"X-Workspace-Slug": "company-a"},

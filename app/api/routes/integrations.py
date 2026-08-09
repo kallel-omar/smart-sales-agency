@@ -25,6 +25,7 @@ from app.models import (
 from app.schemas import (
     InboundIntegrationEvent,
     InboundIntegrationDuplicateRead,
+    InboundIntegrationReplyRead,
     IntegrationAccountAuditEventRead,
     IntegrationAccountAuditRetentionCleanupRead,
     IntegrationAccountCredentialRead,
@@ -1243,7 +1244,7 @@ def list_outbound_integration_delivery_attempts(
 
 @router.post(
     "/inbound-events",
-    response_model=SalesReply | InboundIntegrationDuplicateRead,
+    response_model=InboundIntegrationReplyRead | SalesReply | InboundIntegrationDuplicateRead,
 )
 async def receive_inbound_event(
     payload: InboundIntegrationEvent,
@@ -1251,11 +1252,12 @@ async def receive_inbound_event(
     integration_context: VerifiedIntegrationContextDep,
     settings: SettingsDep,
     request: Request,
-) -> SalesReply | InboundIntegrationDuplicateRead:
+) -> InboundIntegrationReplyRead | SalesReply | InboundIntegrationDuplicateRead:
     """Accept an inbound event; the optional header enables durable retry safety."""
 
     integration_service = InboundIntegrationService(session, settings)
     integration_event_id = request.headers.get("X-Integration-Event-Id")
+    reservation = None
 
     try:
         if integration_event_id is not None:
@@ -1265,7 +1267,9 @@ async def receive_inbound_event(
                 integration_event_id,
             )
             if not reservation.first_delivery:
-                return InboundIntegrationDuplicateRead()
+                return InboundIntegrationDuplicateRead(
+                    correlation_id=reservation.receipt.correlation_id,
+                )
         result = await integration_service.handle_event(
             payload,
             integration_context.workspace,
@@ -1275,9 +1279,17 @@ async def receive_inbound_event(
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lead not found") from exc
 
+    reply = {
+        "lead_id": payload.lead_id,
+        "detected_stage": result.detected_stage,
+        "draft_reply": result.draft_reply,
+        "approval_id": result.approval_id,
+    }
+    if reservation is not None:
+        return InboundIntegrationReplyRead(
+            **reply,
+            correlation_id=reservation.receipt.correlation_id,
+        )
     return SalesReply(
-        lead_id=payload.lead_id,
-        detected_stage=result.detected_stage,
-        draft_reply=result.draft_reply,
-        approval_id=result.approval_id,
+        **reply,
     )
