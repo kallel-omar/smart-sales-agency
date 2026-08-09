@@ -174,6 +174,8 @@ class OutboundIntegrationAction(SQLModel, table=True):
         index=True,
     )
     priority: OutboundActionPriority = Field(default=OutboundActionPriority.NORMAL, index=True)
+    # Opaque future-operator reference. Identity validation is intentionally deferred.
+    owner_reference: str | None = Field(default=None, max_length=200, index=True)
     provider_delivery_id: str | None = Field(default=None, max_length=255)
     delivered_at: datetime | None = None
     failed_at: datetime | None = None

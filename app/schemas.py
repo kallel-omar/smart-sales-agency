@@ -162,6 +162,7 @@ class OutboundIntegrationActionRead(BaseModel):
     correlation_id: str | None
     requires_approval: bool
     approval_request_id: UUID | None
+    owner_reference: str | None
     status: OutboundIntegrationActionStatus
     provider_delivery_id: str | None
     delivered_at: datetime | None
@@ -185,6 +186,7 @@ class OutboundIntegrationActionSummaryRead(BaseModel):
     action_type: OutboundIntegrationActionType
     status: OutboundIntegrationActionStatus
     priority: OutboundActionPriority
+    owner_reference: str | None
     provider_delivery_id: str | None
     delivered_at: datetime | None
     failed_at: datetime | None
@@ -221,6 +223,13 @@ class OutboundActionLabelRead(BaseModel):
 class OutboundActionPriorityUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     priority: OutboundActionPriority
+
+
+class OutboundActionOwnerReferenceUpdate(BaseModel):
+    """Opaque future-operator reference; identity validation is intentionally deferred."""
+
+    model_config = ConfigDict(extra="forbid")
+    owner_reference: str | None = Field(default=None, max_length=200)
 
 
 class OutboundIntegrationActionDetailRead(OutboundIntegrationActionSummaryRead):

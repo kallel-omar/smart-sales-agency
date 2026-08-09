@@ -37,6 +37,7 @@ from app.schemas import (
     OutboundActionAnnotationRead,
     OutboundActionLabelCreate,
     OutboundActionLabelRead,
+    OutboundActionOwnerReferenceUpdate,
     OutboundActionPriorityUpdate,
     OutboundActionStateHistoryEntryRead,
     OutboundActionTimelineEntryRead,
@@ -79,6 +80,10 @@ from app.services.outbound_action_labels import (
     OutboundActionLabelNotFoundError,
     OutboundActionLabelService,
     OutboundActionLabelValidationError,
+)
+from app.services.outbound_action_ownership import (
+    OutboundActionOwnerReferenceValidationError,
+    OutboundActionOwnershipService,
 )
 from app.services.outbound_action_query import (
     DEFAULT_OUTBOUND_ACTION_LIMIT,
@@ -255,6 +260,7 @@ def outbound_action_read(
         correlation_id=action.correlation_id,
         requires_approval=action.requires_approval,
         approval_request_id=action.approval_request_id,
+        owner_reference=action.owner_reference,
         status=action.status,
         priority=action.priority,
         provider_delivery_id=action.provider_delivery_id,
@@ -282,6 +288,7 @@ def outbound_action_summary_read(
         action_type=action.action_type,
         status=action.status,
         priority=action.priority,
+        owner_reference=action.owner_reference,
         provider_delivery_id=action.provider_delivery_id,
         delivered_at=action.delivered_at,
         failed_at=action.failed_at,
@@ -802,6 +809,31 @@ def update_outbound_action_priority(action_id: UUID, payload: OutboundActionPrio
         _, provider = OutboundIntegrationActionQueryService(session).get_for_workspace(workspace, action_id)
     except OutboundIntegrationActionQueryNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    return outbound_action_detail_read(action, provider)
+
+
+@router.put(
+    "/outbound-actions/{action_id}/owner-reference",
+    response_model=OutboundIntegrationActionDetailRead,
+)
+def update_outbound_action_owner_reference(
+    action_id: UUID,
+    payload: OutboundActionOwnerReferenceUpdate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundIntegrationActionDetailRead:
+    """Set an unverified opaque owner reference without affecting delivery behavior."""
+    try:
+        action = OutboundActionOwnershipService(session).set_owner_reference(
+            workspace, action_id, payload.owner_reference
+        )
+        _, provider = OutboundIntegrationActionQueryService(session).get_for_workspace(
+            workspace, action_id
+        )
+    except OutboundIntegrationActionQueryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except OutboundActionOwnerReferenceValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return outbound_action_detail_read(action, provider)
 
 
