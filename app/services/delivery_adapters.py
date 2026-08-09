@@ -179,12 +179,7 @@ class GenericWebhookDeliveryAdapter:
                 "Generic webhook delivery failed",
                 OutboundDeliveryFailureClassification.TEMPORARY,
             )
-        if 200 <= response.status_code < 300:
-            return DeliveryAdapterResult.success(response.headers.get("x-delivery-id"))
-        return DeliveryAdapterResult.failure(
-            "webhook_delivery_failed",
-            "Generic webhook delivery was not accepted",
-        )
+        return normalize_webhook_response(response)
 
     def _headers(
         self, body: bytes, account: IntegrationAccount
@@ -226,6 +221,42 @@ class GenericWebhookDeliveryAdapter:
             },
             separators=(",", ":"),
         ).encode()
+
+
+def normalize_webhook_response(response: WebhookHttpResponse) -> DeliveryAdapterResult:
+    """Map generic HTTP semantics to safe provider-neutral delivery outcomes."""
+    status_code = response.status_code
+    if 200 <= status_code < 300:
+        return DeliveryAdapterResult.success(response.headers.get("x-delivery-id"))
+    if status_code == 429:
+        return DeliveryAdapterResult.failure(
+            "webhook_rate_limited",
+            "Generic webhook delivery was rate limited",
+            OutboundDeliveryFailureClassification.RATE_LIMIT,
+        )
+    if status_code in {401, 403}:
+        return DeliveryAdapterResult.failure(
+            "webhook_authentication_failed",
+            "Generic webhook authentication was rejected",
+            OutboundDeliveryFailureClassification.AUTHENTICATION,
+        )
+    if 400 <= status_code < 500:
+        return DeliveryAdapterResult.failure(
+            "webhook_validation_failed",
+            "Generic webhook request was rejected",
+            OutboundDeliveryFailureClassification.VALIDATION,
+        )
+    if 500 <= status_code < 600:
+        return DeliveryAdapterResult.failure(
+            "webhook_server_error",
+            "Generic webhook service failed",
+            OutboundDeliveryFailureClassification.TEMPORARY,
+        )
+    return DeliveryAdapterResult.failure(
+        "webhook_response_unknown",
+        "Generic webhook delivery returned an unknown response",
+        OutboundDeliveryFailureClassification.UNKNOWN,
+    )
 
 
 class DeliveryAdapterRegistry:

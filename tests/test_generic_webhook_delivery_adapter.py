@@ -8,6 +8,7 @@ from app.models import IntegrationAccount, OutboundIntegrationAction, OutboundIn
 from app.services.delivery_adapters import (
     GenericWebhookDeliveryAdapter,
     WebhookHttpResponse,
+    normalize_webhook_response,
 )
 
 
@@ -98,6 +99,25 @@ def test_signing_enabled_without_a_resolved_secret_fails_before_network_io():
     result = adapter.deliver(_action(), IntegrationAccount(provider="generic_webhook"))
     assert result.failure_code == "webhook_signing_secret_unavailable"
     assert transport.calls == []
+
+
+def test_generic_webhook_response_normalization_uses_safe_http_semantics():
+    cases = [
+        (200, True, None),
+        (429, False, "rate_limit"),
+        (401, False, "authentication"),
+        (403, False, "authentication"),
+        (422, False, "validation"),
+        (503, False, "temporary"),
+        (302, False, "unknown"),
+    ]
+    for status_code, delivered, classification in cases:
+        result = normalize_webhook_response(WebhookHttpResponse(status_code, {}))
+        assert result.delivered is delivered
+        assert (
+            result.failure_classification.value if result.failure_classification else None
+        ) == classification
+        assert "body" not in result.__dict__
 
 
 class StaticSecretResolver:
