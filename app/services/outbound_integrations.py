@@ -6,10 +6,12 @@ from sqlmodel import Session, select
 from app.models import (
     IntegrationAccount,
     OutboundIntegrationAction,
+    OutboundIntegrationAuditAction,
     OutboundIntegrationActionType,
     Workspace,
 )
 from app.services.integration_accounts import IntegrationAccountService
+from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
 
 
 class InactiveIntegrationAccountError(ValueError):
@@ -26,6 +28,7 @@ class OutboundIntegrationService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.account_service = IntegrationAccountService(session)
+        self.audit_service = OutboundIntegrationActionAuditService(session)
 
     def create_action(
         self,
@@ -74,6 +77,7 @@ class OutboundIntegrationService:
             **normalized_input,
         )
         self.session.add(action)
+        self.audit_service.record(action, OutboundIntegrationAuditAction.CREATED)
         self.session.commit()
         self.session.refresh(action)
         return action, account

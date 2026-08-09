@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from app.models import (
     IntegrationAccount,
     OutboundIntegrationAction,
+    OutboundIntegrationAuditAction,
     OutboundIntegrationActionStatus,
     OutboundIntegrationDeliveryAttempt,
     Workspace,
@@ -20,6 +21,7 @@ from app.services.delivery_adapters import (
     default_delivery_adapter_registry,
 )
 from app.services.integration_accounts import IntegrationAccountService
+from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
 from app.services.outbound_integrations import InactiveIntegrationAccountError
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 
@@ -69,6 +71,7 @@ class OutboundIntegrationDeliveryService:
         self.account_service = IntegrationAccountService(session)
         self.adapter_registry = adapter_registry or default_delivery_adapter_registry()
         self.retry_policy = retry_policy or OutboundDeliveryRetryPolicy(3)
+        self.audit_service = OutboundIntegrationActionAuditService(session)
 
     def deliver_pending_action(
         self,
@@ -85,6 +88,7 @@ class OutboundIntegrationDeliveryService:
             action.status = OutboundIntegrationActionStatus.EXPIRED
             action.expired_at = utc_now()
             self.session.add(action)
+            self.audit_service.record(action, OutboundIntegrationAuditAction.EXPIRED)
             self.session.commit()
             raise OutboundIntegrationActionExpiredError("Outbound integration action has expired")
         if action.status != OutboundIntegrationActionStatus.PENDING:
@@ -120,6 +124,7 @@ class OutboundIntegrationDeliveryService:
                 f"Outbound integration action retry is not eligible: {eligibility.denial_reason}"
             )
 
+        self.audit_service.record(action, OutboundIntegrationAuditAction.RETRIED)
         return self._deliver_action(action, account)
 
     def cancel_pending_action(
@@ -134,6 +139,7 @@ class OutboundIntegrationDeliveryService:
         action.status = OutboundIntegrationActionStatus.CANCELLED
         action.cancelled_at = utc_now()
         self.session.add(action)
+        self.audit_service.record(action, OutboundIntegrationAuditAction.CANCELLED)
         self.session.commit()
         self.session.refresh(action)
         return action, account
@@ -200,6 +206,7 @@ class OutboundIntegrationDeliveryService:
         account: IntegrationAccount,
     ) -> tuple[OutboundIntegrationAction, IntegrationAccount]:
         attempt = self._new_attempt(action)
+        self.audit_service.record(action, OutboundIntegrationAuditAction.DELIVERY_ATTEMPTED)
 
         adapter = self.adapter_registry.get(account.provider)
         if not adapter:
@@ -276,6 +283,7 @@ class OutboundIntegrationDeliveryService:
             attempt.failure_code = None
             attempt.failure_message = None
             attempt.failure_classification = None
+            self.audit_service.record(action, OutboundIntegrationAuditAction.DELIVERED)
         else:
             action.status = OutboundIntegrationActionStatus.FAILED
             action.provider_delivery_id = None
@@ -290,5 +298,6 @@ class OutboundIntegrationDeliveryService:
             attempt.failure_code = action.failure_code
             attempt.failure_message = action.failure_message
             attempt.failure_classification = action.failure_classification
+            self.audit_service.record(action, OutboundIntegrationAuditAction.FAILED)
         self.session.add(action)
         self.session.add(attempt)

@@ -70,6 +70,18 @@ class OutboundDeliveryFailureClassification(StrEnum):
     UNKNOWN = "unknown"
 
 
+class OutboundIntegrationAuditAction(StrEnum):
+    """Safe, provider-neutral lifecycle events for outbound actions."""
+
+    CREATED = "created"
+    DELIVERY_ATTEMPTED = "delivery_attempted"
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    RETRIED = "retried"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
 class Workspace(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
 
@@ -159,6 +171,19 @@ class OutboundIntegrationAction(SQLModel, table=True):
         default=None,
         index=True,
     )
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class OutboundIntegrationAuditEvent(SQLModel, table=True):
+    """Safe immutable history for outbound action lifecycle transitions."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(foreign_key="integrationaccount.id", index=True)
+    outbound_integration_action_id: UUID = Field(
+        foreign_key="outboundintegrationaction.id", index=True
+    )
+    action: OutboundIntegrationAuditAction = Field(index=True)
     created_at: datetime = Field(default_factory=utc_now)
 
 

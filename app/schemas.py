@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.models import (
     ApprovalStatus,
     IntegrationAccountAuditAction,
+    OutboundIntegrationAuditAction,
     LeadStatus,
     OutboundIntegrationActionStatus,
     OutboundIntegrationActionType,
@@ -200,6 +201,19 @@ class OutboundIntegrationDeliveryAttemptRead(BaseModel):
     completed_at: datetime | None
     failure_code: str | None
     failure_message: str | None
+
+
+class OutboundIntegrationAuditEventRead(BaseModel):
+    """Safe outbound lifecycle audit record with no request or secret data."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    integration_account_id: UUID
+    outbound_integration_action_id: UUID
+    action: OutboundIntegrationAuditAction
+    created_at: datetime
 
 
 class OutboundIntegrationDeliveryStatusRead(BaseModel):
