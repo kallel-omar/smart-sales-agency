@@ -11,6 +11,7 @@ from app.api.dependencies import (
 from app.models import IntegrationAccount
 from app.schemas import (
     InboundIntegrationEvent,
+    IntegrationAccountAuditEventRead,
     IntegrationAccountCredentialRead,
     IntegrationAccountProvision,
     IntegrationAccountRead,
@@ -18,6 +19,7 @@ from app.schemas import (
     SalesReply,
 )
 from app.services.inbound_integrations import InboundIntegrationService
+from app.services.integration_account_audit import IntegrationAccountAuditService
 from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
     IntegrationAccountService,
@@ -75,6 +77,26 @@ def list_integration_accounts(
 ) -> list[IntegrationAccountRead]:
     accounts = IntegrationAccountService(session).list_for_workspace(workspace)
     return [account_read(account) for account in accounts]
+
+
+@router.get(
+    "/accounts/{account_id}/audit-events",
+    response_model=list[IntegrationAccountAuditEventRead],
+)
+def list_integration_account_audit_events(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> list[IntegrationAccountAuditEventRead]:
+    """Return safe lifecycle history for an account in the current workspace."""
+    account_service = IntegrationAccountService(session)
+    try:
+        account_service.get_for_workspace(workspace, account_id)
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+
+    events = IntegrationAccountAuditService(session).list_for_account(workspace, account_id)
+    return [IntegrationAccountAuditEventRead.model_validate(event) for event in events]
 
 
 @router.post("/accounts/{account_id}/deactivate", response_model=IntegrationAccountRead)

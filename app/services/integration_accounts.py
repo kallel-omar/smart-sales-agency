@@ -6,7 +6,13 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.models import IntegrationAccount, Workspace, utc_now
+from app.models import (
+    IntegrationAccount,
+    IntegrationAccountAuditAction,
+    Workspace,
+    utc_now,
+)
+from app.services.integration_account_audit import IntegrationAccountAuditService
 from app.services.secret_reference_policy import IntegrationSecretReferencePolicy
 
 
@@ -26,6 +32,7 @@ class IntegrationAccountService:
         self.secret_reference_policy = (
             secret_reference_policy or IntegrationSecretReferencePolicy()
         )
+        self.audit_service = IntegrationAccountAuditService(session)
 
     def provision(
         self,
@@ -48,6 +55,7 @@ class IntegrationAccountService:
             credential_hash=self._hash_credential(credential),
         )
         self.session.add(account)
+        self.audit_service.record(account, IntegrationAccountAuditAction.PROVISIONED)
         self.session.commit()
         self.session.refresh(account)
         return account, credential
@@ -61,24 +69,24 @@ class IntegrationAccountService:
         return list(self.session.exec(statement).all())
 
     def deactivate(self, workspace: Workspace, account_id: UUID) -> IntegrationAccount:
-        account = self._get_for_workspace(workspace, account_id)
+        account = self.get_for_workspace(workspace, account_id)
         account.active = False
-        return self._save(account)
+        return self._save(account, IntegrationAccountAuditAction.DEACTIVATED)
 
     def reactivate(self, workspace: Workspace, account_id: UUID) -> IntegrationAccount:
-        account = self._get_for_workspace(workspace, account_id)
+        account = self.get_for_workspace(workspace, account_id)
         account.active = True
-        return self._save(account)
+        return self._save(account, IntegrationAccountAuditAction.REACTIVATED)
 
     def rotate_credential(
         self,
         workspace: Workspace,
         account_id: UUID,
     ) -> tuple[IntegrationAccount, str]:
-        account = self._get_for_workspace(workspace, account_id)
+        account = self.get_for_workspace(workspace, account_id)
         credential = self._new_credential()
         account.credential_hash = self._hash_credential(credential)
-        self._save(account)
+        self._save(account, IntegrationAccountAuditAction.CREDENTIAL_ROTATED)
         return account, credential
 
     def update_secret_reference(
@@ -92,11 +100,14 @@ class IntegrationAccountService:
         Inactive accounts are intentionally eligible: this changes future
         verifier configuration only and does not reactivate the account.
         """
-        account = self._get_for_workspace(workspace, account_id)
+        account = self.get_for_workspace(workspace, account_id)
         account.secret_reference = self.secret_reference_policy.validate(secret_reference)
-        return self._save(account)
+        return self._save(
+            account,
+            IntegrationAccountAuditAction.SECRET_REFERENCE_CHANGED,
+        )
 
-    def _get_for_workspace(
+    def get_for_workspace(
         self,
         workspace: Workspace,
         account_id: UUID,
@@ -111,9 +122,14 @@ class IntegrationAccountService:
             raise IntegrationAccountNotFoundError("Integration account not found")
         return account
 
-    def _save(self, account: IntegrationAccount) -> IntegrationAccount:
+    def _save(
+        self,
+        account: IntegrationAccount,
+        audit_action: IntegrationAccountAuditAction,
+    ) -> IntegrationAccount:
         account.updated_at = utc_now()
         self.session.add(account)
+        self.audit_service.record(account, audit_action)
         self.session.commit()
         self.session.refresh(account)
         return account

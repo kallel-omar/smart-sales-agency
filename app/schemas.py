@@ -4,7 +4,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import ApprovalStatus, LeadStatus, SalesStage
+from app.models import (
+    ApprovalStatus,
+    IntegrationAccountAuditAction,
+    LeadStatus,
+    SalesStage,
+)
 
 
 class LeadCreate(BaseModel):
@@ -92,6 +97,18 @@ class IntegrationAccountCredentialRead(IntegrationAccountRead):
     """Returned only when an inbound credential is first issued or rotated."""
 
     inbound_credential: str
+
+
+class IntegrationAccountAuditEventRead(BaseModel):
+    """Safe integration-account lifecycle history representation."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    integration_account_id: UUID
+    action: IntegrationAccountAuditAction
+    created_at: datetime
 
 
 class WorkflowResult(BaseModel):

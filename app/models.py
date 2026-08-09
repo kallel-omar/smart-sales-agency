@@ -40,6 +40,15 @@ class ApprovalStatus(StrEnum):
     REJECTED = "rejected"
     EXECUTED = "executed"
 
+
+class IntegrationAccountAuditAction(StrEnum):
+    PROVISIONED = "provisioned"
+    CREDENTIAL_ROTATED = "credential_rotated"
+    DEACTIVATED = "deactivated"
+    REACTIVATED = "reactivated"
+    SECRET_REFERENCE_CHANGED = "secret_reference_changed"
+
+
 class Workspace(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
 
@@ -74,6 +83,19 @@ class IntegrationAccount(SQLModel, table=True):
     active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class IntegrationAccountAuditEvent(SQLModel, table=True):
+    """Safe, workspace-scoped history for integration account lifecycle events."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id",
+        index=True,
+    )
+    action: IntegrationAccountAuditAction = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class Lead(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
