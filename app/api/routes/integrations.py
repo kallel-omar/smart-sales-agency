@@ -163,6 +163,11 @@ OutboundActionStatusFilter = Annotated[
     Query(alias="status"),
 ]
 
+OutboundActionPriorityFilter = Annotated[
+    OutboundActionPriority | None,
+    Query(description="Filter outbound actions by their provider-neutral priority."),
+]
+
 DeliveryAttemptLimit = Annotated[
     int,
     Query(
@@ -637,6 +642,7 @@ def list_outbound_integration_actions(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
     action_status: OutboundActionStatusFilter = None,
+    priority: OutboundActionPriorityFilter = None,
     provider: str | None = Query(default=None, min_length=1, max_length=100),
     integration_account_id: UUID | None = None,
     created_after: datetime | None = None,
@@ -648,6 +654,7 @@ def list_outbound_integration_actions(
         rows = OutboundIntegrationActionQueryService(session).list_for_workspace(
             workspace,
             action_status=action_status,
+            priority=priority,
             provider=provider,
             integration_account_id=integration_account_id,
             created_after=created_after,

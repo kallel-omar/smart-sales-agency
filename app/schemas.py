@@ -371,6 +371,7 @@ class IntegrationOperationalSummaryRead(BaseModel):
     most_recent_outbound_at: datetime | None
     recent_delivered_count: int
     recent_failed_count: int
+    priority_counts: dict[OutboundActionPriority, int]
 
 
 class WorkflowResult(BaseModel):

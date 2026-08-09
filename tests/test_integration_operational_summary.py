@@ -39,6 +39,12 @@ def test_operational_summary_aggregates_only_current_workspace_and_is_read_only(
     assert summary["retryable_failed_action_count"] == 1
     assert summary["recent_delivered_count"] == 1
     assert summary["recent_failed_count"] == 1
+    assert summary["priority_counts"] == {
+        "low": 0,
+        "normal": 3,
+        "high": 0,
+        "urgent": 0,
+    }
     assert summary["most_recent_outbound_at"] is not None
     for sensitive in ("content", "payload", "secret_reference", "credential_hash"):
         assert sensitive not in summary
@@ -57,3 +63,35 @@ def test_operational_summary_is_workspace_scoped(client):
     assert summary.status_code == 200
     assert summary.json()["active_integration_account_count"] == 0
     assert summary.json()["pending_outbound_action_count"] == 0
+    assert summary.json()["priority_counts"] == {
+        "low": 0,
+        "normal": 0,
+        "high": 0,
+        "urgent": 0,
+    }
+
+
+def test_operational_summary_counts_each_priority_within_the_current_workspace(client):
+    assert client.post("/api/workspaces", json={"slug": "company-a", "name": "Company A"}).status_code == 201
+    assert client.post("/api/workspaces", json={"slug": "company-b", "name": "Company B"}).status_code == 201
+    account_a = _account(client, "company-a", "generic_hmac")
+    account_b = _account(client, "company-b", "generic_hmac")
+    low = _action(client, "company-a", account_a["id"], "low")
+    high = _action(client, "company-a", account_a["id"], "high")
+    _action(client, "company-b", account_b["id"], "company-b")
+
+    for action_id, priority in ((low["id"], "low"), (high["id"], "high")):
+        assert client.put(
+            f"/api/integrations/outbound-actions/{action_id}/priority",
+            headers=_headers("company-a"),
+            json={"priority": priority},
+        ).status_code == 200
+
+    summary = client.get("/api/integrations/operational-summary", headers=_headers("company-a"))
+    assert summary.status_code == 200
+    assert summary.json()["priority_counts"] == {
+        "low": 1,
+        "normal": 0,
+        "high": 1,
+        "urgent": 0,
+    }

@@ -10,6 +10,7 @@ from app.models import (
     IntegrationAccount,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
+    OutboundActionPriority,
     OutboundIntegrationDeliveryAttempt,
     Workspace,
 )
@@ -28,6 +29,7 @@ class IntegrationOperationalSummary:
     most_recent_outbound_at: datetime | None
     recent_delivered_count: int
     recent_failed_count: int
+    priority_counts: dict[OutboundActionPriority, int]
 
 
 class IntegrationOperationalSummaryService:
@@ -60,6 +62,10 @@ class IntegrationOperationalSummaryService:
                         & (OutboundIntegrationAction.created_at >= cutoff),
                         (OutboundIntegrationAction.status == OutboundIntegrationActionStatus.FAILED)
                         & (OutboundIntegrationAction.created_at >= cutoff),
+                        OutboundIntegrationAction.priority == OutboundActionPriority.LOW,
+                        OutboundIntegrationAction.priority == OutboundActionPriority.NORMAL,
+                        OutboundIntegrationAction.priority == OutboundActionPriority.HIGH,
+                        OutboundIntegrationAction.priority == OutboundActionPriority.URGENT,
                     )
                 ],
             ).where(OutboundIntegrationAction.workspace_id == workspace.id)
@@ -107,4 +113,10 @@ class IntegrationOperationalSummaryService:
             most_recent_outbound_at=aggregate[0],
             recent_delivered_count=values[5],
             recent_failed_count=values[6],
+            priority_counts={
+                OutboundActionPriority.LOW: values[7],
+                OutboundActionPriority.NORMAL: values[8],
+                OutboundActionPriority.HIGH: values[9],
+                OutboundActionPriority.URGENT: values[10],
+            },
         )

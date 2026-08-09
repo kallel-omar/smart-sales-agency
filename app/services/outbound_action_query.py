@@ -37,6 +37,7 @@ class OutboundIntegrationActionQueryService:
         workspace: Workspace,
         *,
         action_status: OutboundIntegrationActionStatus | None = None,
+        priority: OutboundActionPriority | None = None,
         provider: str | None = None,
         integration_account_id: UUID | None = None,
         created_after: datetime | None = None,
@@ -58,6 +59,8 @@ class OutboundIntegrationActionQueryService:
         )
         if action_status:
             statement = statement.where(OutboundIntegrationAction.status == action_status)
+        if priority:
+            statement = statement.where(OutboundIntegrationAction.priority == priority)
         if provider:
             statement = statement.where(
                 IntegrationAccount.provider == provider.strip()

@@ -91,6 +91,31 @@ def test_workspace_action_listing_supports_safe_filters_and_isolated_results(cli
     ).json() == []
 
 
+def test_workspace_action_listing_supports_exact_priority_filter(client):
+    _workspace(client, "company-a")
+    account = _account(client, "company-a")
+    normal = _action(client, "company-a", account["id"], "normal")
+    high = _action(client, "company-a", account["id"], "high")
+
+    assert client.put(
+        f"/api/integrations/outbound-actions/{high['id']}/priority",
+        headers=_headers("company-a"),
+        json={"priority": "high"},
+    ).status_code == 200
+
+    filtered = client.get(
+        "/api/integrations/outbound-actions",
+        headers=_headers("company-a"),
+        params={"priority": "high"},
+    )
+
+    assert filtered.status_code == 200
+    assert [(item["id"], item["priority"]) for item in filtered.json()] == [
+        (high["id"], "high")
+    ]
+    assert normal["id"] not in [item["id"] for item in filtered.json()]
+
+
 def test_workspace_action_listing_rejects_invalid_ranges_and_limits(client):
     _workspace(client, "company-a")
     response = client.get(
