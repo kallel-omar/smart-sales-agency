@@ -99,6 +99,7 @@ class OutboundIntegrationDeliveryService:
         eligibility = self.retry_policy.evaluate(
             attempt_count=self._attempt_count(action),
             failure_code=action.failure_code,
+            failure_classification=action.failure_classification,
         )
         if not eligibility.allowed:
             raise OutboundIntegrationActionRetryDeniedError(

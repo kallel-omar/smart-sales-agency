@@ -256,7 +256,11 @@ Outbound delivery retries remain explicit through
 `OUTBOUND_DELIVERY_MAX_ATTEMPTS` bounds all delivery attempts for an action,
 including the original delivery. `OUTBOUND_DELIVERY_NON_RETRYABLE_FAILURE_CODES`
 is an optional comma-separated provider-neutral deny list; any other safe
-failure code remains retryable by default. A denied retry creates no new attempt.
+failure code remains retryable by default.
+`OUTBOUND_DELIVERY_NON_RETRYABLE_FAILURE_CLASSES` can also deny generic failure
+classes (`temporary`, `permanent`, `authentication`, `rate_limit`,
+`validation`, or `unknown`) without embedding provider behavior in the domain.
+A denied retry creates no new attempt.
 
 /health
 

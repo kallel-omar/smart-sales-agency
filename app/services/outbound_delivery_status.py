@@ -55,6 +55,7 @@ class OutboundIntegrationDeliveryStatusService:
             action_status=action.status,
             attempt_count=attempt_count,
             failure_code=action.failure_code,
+            failure_classification=action.failure_classification,
         )
         return OutboundIntegrationDeliveryStatusView(
             action=action,

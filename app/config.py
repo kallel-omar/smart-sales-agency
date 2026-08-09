@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # this list are retryable by default until the maximum is reached.
     outbound_delivery_max_attempts: int = Field(default=3, ge=1, le=100)
     outbound_delivery_non_retryable_failure_codes: str = ""
+    outbound_delivery_non_retryable_failure_classes: str = ""
 
     @field_validator("outbound_delivery_non_retryable_failure_codes")
     @classmethod
@@ -49,6 +50,24 @@ class Settings(BaseSettings):
         if len(codes) != len(set(codes)):
             raise ValueError("Outbound delivery non-retryable failure codes must be unique")
         return ",".join(codes)
+
+    @field_validator("outbound_delivery_non_retryable_failure_classes")
+    @classmethod
+    def validate_outbound_delivery_non_retryable_failure_classes(cls, value: str) -> str:
+        allowed = {
+            "temporary",
+            "permanent",
+            "authentication",
+            "rate_limit",
+            "validation",
+            "unknown",
+        }
+        classes = [item.strip().lower() for item in value.split(",") if item.strip()]
+        if any(item not in allowed for item in classes):
+            raise ValueError("Outbound delivery failure classes must be provider-neutral values")
+        if len(classes) != len(set(classes)):
+            raise ValueError("Outbound delivery failure classes must be unique")
+        return ",".join(classes)
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -5,7 +5,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from app.config import Settings
-from app.models import OutboundIntegrationActionStatus
+from app.models import (
+    OutboundDeliveryFailureClassification,
+    OutboundIntegrationActionStatus,
+)
 
 _FAILURE_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 
@@ -33,6 +36,7 @@ class OutboundDeliveryRetryPolicy:
         self,
         maximum_attempts: int,
         non_retryable_failure_codes: Iterable[str] = (),
+        non_retryable_failure_classes: Iterable[OutboundDeliveryFailureClassification | str] = (),
     ) -> None:
         if not 1 <= maximum_attempts <= 100:
             raise OutboundDeliveryRetryPolicyConfigurationError(
@@ -42,6 +46,10 @@ class OutboundDeliveryRetryPolicy:
         self.non_retryable_failure_codes = frozenset(
             self._normalize_failure_code(code) for code in non_retryable_failure_codes
         )
+        self.non_retryable_failure_classes = frozenset(
+            self._normalize_failure_classification(value)
+            for value in non_retryable_failure_classes
+        )
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "OutboundDeliveryRetryPolicy":
@@ -50,13 +58,19 @@ class OutboundDeliveryRetryPolicy:
             if settings.outbound_delivery_non_retryable_failure_codes
             else ()
         )
-        return cls(settings.outbound_delivery_max_attempts, codes)
+        classes = (
+            settings.outbound_delivery_non_retryable_failure_classes.split(",")
+            if settings.outbound_delivery_non_retryable_failure_classes
+            else ()
+        )
+        return cls(settings.outbound_delivery_max_attempts, codes, classes)
 
     def evaluate(
         self,
         *,
         attempt_count: int,
         failure_code: str | None,
+        failure_classification: OutboundDeliveryFailureClassification | None = None,
     ) -> OutboundDeliveryRetryEligibility:
         """Evaluate an already-failed action before a new attempt is created."""
         if attempt_count >= self.maximum_attempts:
@@ -72,6 +86,14 @@ class OutboundDeliveryRetryPolicy:
                 allowed=False,
                 denial_reason="failure_code_not_retryable",
             )
+        if (
+            failure_classification is not None
+            and failure_classification in self.non_retryable_failure_classes
+        ):
+            return OutboundDeliveryRetryEligibility(
+                allowed=False,
+                denial_reason="failure_classification_not_retryable",
+            )
         return OutboundDeliveryRetryEligibility(allowed=True)
 
     def evaluate_action(
@@ -80,6 +102,7 @@ class OutboundDeliveryRetryPolicy:
         action_status: OutboundIntegrationActionStatus,
         attempt_count: int,
         failure_code: str | None,
+        failure_classification: OutboundDeliveryFailureClassification | None = None,
     ) -> OutboundDeliveryRetryEligibility:
         """Evaluate retry eligibility for an action without changing its state.
 
@@ -99,6 +122,7 @@ class OutboundDeliveryRetryPolicy:
         return self.evaluate(
             attempt_count=attempt_count,
             failure_code=failure_code,
+            failure_classification=failure_classification,
         )
 
     @staticmethod
@@ -109,3 +133,14 @@ class OutboundDeliveryRetryPolicy:
                 "Retry-policy failure codes must use lowercase letters, numbers, or underscores"
             )
         return normalized
+
+    @staticmethod
+    def _normalize_failure_classification(
+        value: OutboundDeliveryFailureClassification | str,
+    ) -> OutboundDeliveryFailureClassification:
+        try:
+            return OutboundDeliveryFailureClassification(str(value).strip().lower())
+        except ValueError as exc:
+            raise OutboundDeliveryRetryPolicyConfigurationError(
+                "Retry-policy failure classes must be provider-neutral values"
+            ) from exc
