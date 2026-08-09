@@ -40,6 +40,10 @@ class OutboundIntegrationActionRetryDeniedError(OutboundIntegrationActionNotRetr
     """Raised when the retry policy safely denies a failed action."""
 
 
+class OutboundIntegrationActionNotCancellableError(ValueError):
+    """Raised when an action is no longer pending."""
+
+
 class OutboundDeliveryAttemptQueryValidationError(ValueError):
     """Raised when a delivery-attempt read filter has an invalid range."""
 
@@ -107,6 +111,22 @@ class OutboundIntegrationDeliveryService:
             )
 
         return self._deliver_action(action, account)
+
+    def cancel_pending_action(
+        self, workspace: Workspace, account_id: UUID, action_id: UUID
+    ) -> tuple[OutboundIntegrationAction, IntegrationAccount]:
+        account = self.account_service.get_for_workspace(workspace, account_id)
+        action = self._get_action_for_account(workspace, account, action_id)
+        if action.status != OutboundIntegrationActionStatus.PENDING:
+            raise OutboundIntegrationActionNotCancellableError(
+                "Only pending outbound integration actions can be cancelled"
+            )
+        action.status = OutboundIntegrationActionStatus.CANCELLED
+        action.cancelled_at = utc_now()
+        self.session.add(action)
+        self.session.commit()
+        self.session.refresh(action)
+        return action, account
 
     def list_attempts_for_action(
         self,

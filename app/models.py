@@ -57,6 +57,7 @@ class OutboundIntegrationActionStatus(StrEnum):
     PENDING = "pending"
     DELIVERED = "delivered"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class OutboundDeliveryFailureClassification(StrEnum):
@@ -148,6 +149,7 @@ class OutboundIntegrationAction(SQLModel, table=True):
     provider_delivery_id: str | None = Field(default=None, max_length=255)
     delivered_at: datetime | None = None
     failed_at: datetime | None = None
+    cancelled_at: datetime | None = None
     failure_code: str | None = Field(default=None, max_length=100)
     failure_message: str | None = Field(default=None, max_length=500)
     failure_classification: OutboundDeliveryFailureClassification | None = Field(

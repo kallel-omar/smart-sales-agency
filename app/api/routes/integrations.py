@@ -58,6 +58,7 @@ from app.services.outbound_delivery import (
     MAX_DELIVERY_ATTEMPT_LIMIT,
     OutboundDeliveryAttemptQueryValidationError,
     OutboundIntegrationActionAlreadyProcessedError,
+    OutboundIntegrationActionNotCancellableError,
     OutboundIntegrationActionNotFoundError,
     OutboundIntegrationActionNotRetryableError,
     OutboundIntegrationActionRetryDeniedError,
@@ -143,6 +144,7 @@ def outbound_action_read(
         provider_delivery_id=action.provider_delivery_id,
         delivered_at=action.delivered_at,
         failed_at=action.failed_at,
+        cancelled_at=action.cancelled_at,
         failure_code=action.failure_code,
         failure_message=action.failure_message,
         created_at=action.created_at,
@@ -163,6 +165,7 @@ def outbound_action_summary_read(
         provider_delivery_id=action.provider_delivery_id,
         delivered_at=action.delivered_at,
         failed_at=action.failed_at,
+        cancelled_at=action.cancelled_at,
         failure_code=action.failure_code,
         created_at=action.created_at,
     )
@@ -504,6 +507,26 @@ def deliver_outbound_integration_action(
     except InactiveIntegrationAccountError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionAlreadyProcessedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return outbound_action_read(action, account)
+
+
+@router.post(
+    "/accounts/{account_id}/outbound-actions/{action_id}/cancel",
+    response_model=OutboundIntegrationActionRead,
+)
+def cancel_outbound_integration_action(
+    account_id: UUID, action_id: UUID, session: SessionDep, workspace: CurrentWorkspaceDep
+) -> OutboundIntegrationActionRead:
+    try:
+        action, account = OutboundIntegrationDeliveryService(session).cancel_pending_action(
+            workspace, account_id, action_id
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except OutboundIntegrationActionNotCancellableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_read(action, account)
 

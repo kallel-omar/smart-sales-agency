@@ -150,6 +150,7 @@ class OutboundIntegrationActionRead(BaseModel):
     provider_delivery_id: str | None
     delivered_at: datetime | None
     failed_at: datetime | None
+    cancelled_at: datetime | None
     failure_code: str | None
     failure_message: str | None
     created_at: datetime
@@ -167,6 +168,7 @@ class OutboundIntegrationActionSummaryRead(BaseModel):
     provider_delivery_id: str | None
     delivered_at: datetime | None
     failed_at: datetime | None
+    cancelled_at: datetime | None
     failure_code: str | None
     created_at: datetime
 
