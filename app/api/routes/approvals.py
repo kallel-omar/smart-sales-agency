@@ -6,7 +6,16 @@ from sqlmodel import select
 
 from app.api.dependencies import CurrentWorkspaceDep, SessionDep
 from app.channels.console import ConsoleChannel
-from app.models import ApprovalRequest, ApprovalStatus, ConversationMessage, Lead, SalesStage
+from app.models import (
+    ApprovalRequest,
+    ApprovalStatus,
+    ConversationMessage,
+    Lead,
+    OutboundIntegrationAction,
+    SalesStage,
+    Workspace,
+)
+from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
 from app.schemas import ApprovalDecision, ApprovalRead
 from app.services.repository import SalesRepository
 
@@ -16,17 +25,24 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 def get_workspace_approval(
     approval_id: UUID,
     session: SessionDep,
-    workspace_slug: str,
+    workspace: Workspace,
 ) -> ApprovalRequest:
-    approval = session.exec(
+    lead_approval = session.exec(
         select(ApprovalRequest)
         .join(Lead, ApprovalRequest.lead_id == Lead.id)
         .where(
             ApprovalRequest.id == approval_id,
-            Lead.tenant_id == workspace_slug,
+            Lead.tenant_id == workspace.slug,
         )
     ).first()
 
+    if lead_approval:
+        return lead_approval
+
+    approval = OutboundDeliveryApprovalService(session).get_scoped_approval(
+        workspace,
+        approval_id,
+    )
     if not approval:
         raise HTTPException(
             status_code=404,
@@ -58,7 +74,7 @@ async def approve_action(
     approval = get_workspace_approval(
         approval_id,
         session,
-        workspace.slug,
+        workspace,
     )
 
     if approval.status != ApprovalStatus.PENDING:
@@ -73,6 +89,10 @@ async def approve_action(
 
     session.add(approval)
     session.commit()
+
+    if approval.lead_id is None:
+        session.refresh(approval)
+        return approval
 
     # Safe demo channel. Later, this will select WhatsApp, email, etc.
     delivery = await ConsoleChannel().send(
@@ -127,7 +147,7 @@ def reject_action(
     approval = get_workspace_approval(
         approval_id,
         session,
-        workspace.slug,
+        workspace,
     )
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(status_code=409, detail="Approval request is already decided")

@@ -156,6 +156,12 @@ class OutboundIntegrationAction(SQLModel, table=True):
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     correlation_id: str | None = Field(default=None, max_length=200, index=True)
     idempotency_key: str = Field(max_length=200)
+    requires_approval: bool = Field(default=False, index=True)
+    approval_request_id: UUID | None = Field(
+        default=None,
+        foreign_key="approvalrequest.id",
+        index=True,
+    )
     status: OutboundIntegrationActionStatus = Field(
         default=OutboundIntegrationActionStatus.PENDING,
         index=True,
@@ -272,7 +278,7 @@ class ConversationMessage(SQLModel, table=True):
 
 class ApprovalRequest(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    lead_id: UUID = Field(foreign_key="lead.id", index=True)
+    lead_id: UUID | None = Field(default=None, foreign_key="lead.id", index=True)
     action_type: str = Field(default="send_message", max_length=100)
     channel: str = Field(default="console", max_length=50)
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))

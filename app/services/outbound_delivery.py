@@ -24,6 +24,7 @@ from app.services.delivery_adapters import (
 )
 from app.services.integration_accounts import IntegrationAccountService
 from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
+from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
 from app.services.outbound_integrations import InactiveIntegrationAccountError
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 
@@ -77,6 +78,7 @@ class OutboundIntegrationDeliveryService:
         self.adapter_registry = adapter_registry or default_delivery_adapter_registry()
         self.retry_policy = retry_policy or OutboundDeliveryRetryPolicy(3)
         self.audit_service = OutboundIntegrationActionAuditService(session)
+        self.approval_service = OutboundDeliveryApprovalService(session)
 
     @classmethod
     def from_settings(
@@ -120,6 +122,8 @@ class OutboundIntegrationDeliveryService:
             raise OutboundIntegrationActionAlreadyProcessedError(
                 "Outbound integration action has already reached a terminal state"
             )
+
+        self.approval_service.require_approved(workspace, action)
 
         return self._deliver_action(action, account)
 

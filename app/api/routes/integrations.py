@@ -82,6 +82,10 @@ from app.services.outbound_delivery_status import (
     OutboundIntegrationDeliveryStatusService,
     OutboundIntegrationDeliveryStatusView,
 )
+from app.services.outbound_delivery_approvals import (
+    OutboundDeliveryApprovalRejectedError,
+    OutboundDeliveryApprovalRequiredError,
+)
 from app.services.outbound_integrations import (
     InactiveIntegrationAccountError,
     OutboundIntegrationActionIdempotencyConflictError,
@@ -163,6 +167,8 @@ def outbound_action_read(
         action_type=action.action_type,
         content=action.content,
         correlation_id=action.correlation_id,
+        requires_approval=action.requires_approval,
+        approval_request_id=action.approval_request_id,
         status=action.status,
         provider_delivery_id=action.provider_delivery_id,
         delivered_at=action.delivered_at,
@@ -526,9 +532,10 @@ def create_outbound_integration_action(
             action_type=payload.action_type,
             content=payload.content,
             payload=payload.payload,
-            correlation_id=payload.correlation_id,
-        idempotency_key=payload.idempotency_key,
-        expires_at=payload.expires_at,
+        correlation_id=payload.correlation_id,
+            idempotency_key=payload.idempotency_key,
+            expires_at=payload.expires_at,
+            requires_approval=payload.requires_approval,
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
@@ -627,6 +634,8 @@ def deliver_outbound_integration_action(
     except OutboundIntegrationActionAlreadyProcessedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionExpiredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (OutboundDeliveryApprovalRequiredError, OutboundDeliveryApprovalRejectedError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return outbound_action_read(action, account)
 

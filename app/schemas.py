@@ -133,6 +133,7 @@ class OutboundIntegrationActionCreate(BaseModel):
     correlation_id: str | None = Field(default=None, min_length=1, max_length=200)
     idempotency_key: str = Field(min_length=1, max_length=200)
     expires_at: datetime | None = None
+    requires_approval: bool = False
 
 
 class OutboundIntegrationActionRead(BaseModel):
@@ -148,6 +149,8 @@ class OutboundIntegrationActionRead(BaseModel):
     action_type: OutboundIntegrationActionType
     content: str
     correlation_id: str | None
+    requires_approval: bool
+    approval_request_id: UUID | None
     status: OutboundIntegrationActionStatus
     provider_delivery_id: str | None
     delivered_at: datetime | None
@@ -289,7 +292,7 @@ class ApprovalRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    lead_id: UUID
+    lead_id: UUID | None
     action_type: str
     channel: str
     payload: dict[str, Any]

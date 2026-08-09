@@ -12,6 +12,7 @@ from app.models import (
 )
 from app.services.integration_accounts import IntegrationAccountService
 from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
+from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
 
 
 class InactiveIntegrationAccountError(ValueError):
@@ -42,6 +43,7 @@ class OutboundIntegrationService:
         correlation_id: str | None,
         idempotency_key: str,
         expires_at: datetime | None = None,
+        requires_approval: bool = False,
     ) -> tuple[OutboundIntegrationAction, IntegrationAccount]:
         account = self.account_service.get_for_workspace(workspace, account_id)
         if not account.active:
@@ -54,6 +56,7 @@ class OutboundIntegrationService:
             "payload": payload,
             "correlation_id": correlation_id.strip() if correlation_id else None,
             "expires_at": expires_at,
+            "requires_approval": requires_approval,
         }
         normalized_key = idempotency_key.strip()
         existing = self.session.exec(
@@ -77,6 +80,11 @@ class OutboundIntegrationService:
             **normalized_input,
         )
         self.session.add(action)
+        self.session.flush()
+        if requires_approval:
+            OutboundDeliveryApprovalService(self.session).create_for_action(
+                action, account.provider
+            )
         self.audit_service.record(action, OutboundIntegrationAuditAction.CREATED)
         self.session.commit()
         self.session.refresh(action)
@@ -93,4 +101,5 @@ class OutboundIntegrationService:
             and action.content == values["content"]
             and action.payload == values["payload"]
             and action.correlation_id == values["correlation_id"]
+            and action.requires_approval == values["requires_approval"]
         )
