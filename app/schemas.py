@@ -80,6 +80,59 @@ class InboundIntegrationReplyRead(BaseModel):
     correlation_id: UUID
 
 
+class IntegrationExecutionInboundReceiptRead(BaseModel):
+    """Safe persisted inbound receipt for one correlated integration execution."""
+
+    integration_account_id: UUID
+    provider: str
+    external_account_id: str | None
+    external_event_id: str
+    correlation_id: UUID
+    received_at: datetime
+
+
+class IntegrationExecutionDeliveryAttemptRead(BaseModel):
+    """Safe delivery attempt nested under its correlated outbound action."""
+
+    id: UUID
+    attempt_number: int
+    status: OutboundIntegrationActionStatus
+    provider_delivery_id: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    failure_code: str | None
+    failure_message: str | None
+
+
+class IntegrationExecutionOutboundActionRead(BaseModel):
+    """Safe read-only outbound action projection for an integration trace."""
+
+    id: UUID
+    integration_account_id: UUID
+    provider: str
+    external_target_id: str
+    action_type: OutboundIntegrationActionType
+    status: OutboundIntegrationActionStatus
+    requires_approval: bool
+    approval_request_id: UUID | None
+    approval_status: ApprovalStatus | None
+    provider_delivery_id: str | None
+    delivered_at: datetime | None
+    failed_at: datetime | None
+    cancelled_at: datetime | None
+    expired_at: datetime | None
+    created_at: datetime
+    delivery_attempts: list[IntegrationExecutionDeliveryAttemptRead]
+
+
+class IntegrationExecutionTraceRead(BaseModel):
+    """Safe workspace-scoped composition of existing integration execution records."""
+
+    correlation_id: UUID
+    inbound: IntegrationExecutionInboundReceiptRead
+    outbound_actions: list[IntegrationExecutionOutboundActionRead]
+
+
 class IntegrationAccountProvision(BaseModel):
     """Provider-neutral account data needed to provision inbound access."""
 

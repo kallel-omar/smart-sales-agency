@@ -26,6 +26,10 @@ from app.schemas import (
     InboundIntegrationEvent,
     InboundIntegrationDuplicateRead,
     InboundIntegrationReplyRead,
+    IntegrationExecutionDeliveryAttemptRead,
+    IntegrationExecutionInboundReceiptRead,
+    IntegrationExecutionOutboundActionRead,
+    IntegrationExecutionTraceRead,
     IntegrationAccountAuditEventRead,
     IntegrationAccountAuditRetentionCleanupRead,
     IntegrationAccountCredentialRead,
@@ -73,6 +77,11 @@ from app.services.integration_accounts import (
 )
 from app.services.integration_health import IntegrationHealthService
 from app.services.integration_operational_summary import IntegrationOperationalSummaryService
+from app.services.integration_execution_trace import (
+    IntegrationExecutionTraceNotFoundError,
+    IntegrationExecutionTraceService,
+    IntegrationExecutionTraceView,
+)
 from app.services.outbound_action_audit import (
     DEFAULT_OUTBOUND_AUDIT_EVENT_LIMIT,
     MAX_OUTBOUND_AUDIT_EVENT_LIMIT,
@@ -362,6 +371,60 @@ def outbound_delivery_status_read(
         retry_allowed=view.retry_eligibility.allowed,
         retry_denial_reason=view.retry_eligibility.denial_reason,
         next_retry_at=view.next_retry_at,
+    )
+
+
+def integration_execution_trace_read(
+    view: IntegrationExecutionTraceView,
+) -> IntegrationExecutionTraceRead:
+    """Render only established safe fields from the trace service's persisted view."""
+    receipt = view.receipt.receipt
+    receipt_account = view.receipt.account
+    return IntegrationExecutionTraceRead(
+        correlation_id=receipt.correlation_id,
+        inbound=IntegrationExecutionInboundReceiptRead(
+            integration_account_id=receipt.integration_account_id,
+            provider=receipt_account.provider,
+            external_account_id=receipt_account.external_account_id,
+            external_event_id=receipt.external_event_id,
+            correlation_id=receipt.correlation_id,
+            received_at=receipt.created_at,
+        ),
+        outbound_actions=[
+            IntegrationExecutionOutboundActionRead(
+                id=outbound.action.id,
+                integration_account_id=outbound.action.integration_account_id,
+                provider=outbound.account.provider,
+                external_target_id=outbound.action.external_target_id,
+                action_type=outbound.action.action_type,
+                status=outbound.action.status,
+                requires_approval=outbound.action.requires_approval,
+                approval_request_id=outbound.action.approval_request_id,
+                approval_status=(
+                    outbound.approval.status if outbound.approval is not None else None
+                ),
+                provider_delivery_id=outbound.action.provider_delivery_id,
+                delivered_at=outbound.action.delivered_at,
+                failed_at=outbound.action.failed_at,
+                cancelled_at=outbound.action.cancelled_at,
+                expired_at=outbound.action.expired_at,
+                created_at=outbound.action.created_at,
+                delivery_attempts=[
+                    IntegrationExecutionDeliveryAttemptRead(
+                        id=attempt.id,
+                        attempt_number=attempt.attempt_number,
+                        status=attempt.status,
+                        provider_delivery_id=attempt.provider_delivery_id,
+                        started_at=attempt.started_at,
+                        completed_at=attempt.completed_at,
+                        failure_code=attempt.failure_code,
+                        failure_message=attempt.failure_message,
+                    )
+                    for attempt in outbound.delivery_attempts
+                ],
+            )
+            for outbound in view.outbound_actions
+        ],
     )
 
 
@@ -1240,6 +1303,29 @@ def list_outbound_integration_delivery_attempts(
     except OutboundDeliveryAttemptQueryValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [outbound_delivery_attempt_read(attempt) for attempt in attempts]
+
+
+@router.get(
+    "/execution-traces/{correlation_id}",
+    response_model=IntegrationExecutionTraceRead,
+)
+def get_integration_execution_trace(
+    correlation_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> IntegrationExecutionTraceRead:
+    """Read one safe execution trace from existing workspace-scoped records only."""
+    try:
+        view = IntegrationExecutionTraceService(session).get_for_workspace(
+            workspace,
+            correlation_id,
+        )
+    except IntegrationExecutionTraceNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Integration execution trace not found",
+        ) from exc
+    return integration_execution_trace_read(view)
 
 
 @router.post(
