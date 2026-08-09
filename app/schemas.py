@@ -239,6 +239,17 @@ class OutboundActionStateHistoryEntryRead(BaseModel):
     created_at: datetime
 
 
+class OutboundActionTimelineEntryRead(BaseModel):
+    """Safe chronological entry composed from existing outbound records."""
+
+    category: str
+    event: str
+    message: str
+    created_at: datetime
+    state: OutboundIntegrationActionStatus | None
+    attempt_number: int | None
+
+
 class OutboundActionTransitionValidationRead(BaseModel):
     """Safe, read-only preflight result for a requested state transition."""
 

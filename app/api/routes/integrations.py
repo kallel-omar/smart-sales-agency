@@ -31,6 +31,7 @@ from app.schemas import (
     IntegrationOperationalSummaryRead,
     OutboundActionExpirationCleanupRead,
     OutboundActionStateHistoryEntryRead,
+    OutboundActionTimelineEntryRead,
     OutboundActionTransitionExplanationRead,
     OutboundActionTransitionValidationRead,
     OutboundApprovalStatusRead,
@@ -75,6 +76,11 @@ from app.services.outbound_action_state_history import (
     DEFAULT_OUTBOUND_STATE_HISTORY_LIMIT,
     MAX_OUTBOUND_STATE_HISTORY_LIMIT,
     OutboundActionStateHistoryService,
+)
+from app.services.outbound_action_timeline import (
+    DEFAULT_OUTBOUND_ACTION_TIMELINE_LIMIT,
+    MAX_OUTBOUND_ACTION_TIMELINE_LIMIT,
+    OutboundActionTimelineService,
 )
 from app.services.outbound_action_transition_validation import (
     OutboundActionTransitionValidationService,
@@ -173,6 +179,15 @@ OutboundStateHistoryLimit = Annotated[
         ge=1,
         le=MAX_OUTBOUND_STATE_HISTORY_LIMIT,
         description="Maximum number of safe outbound state transitions to return.",
+    ),
+]
+
+OutboundActionTimelineLimit = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_OUTBOUND_ACTION_TIMELINE_LIMIT,
+        description="Maximum number of safe outbound timeline entries to return.",
     ),
 ]
 
@@ -829,6 +844,31 @@ def list_outbound_action_state_history(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [OutboundActionStateHistoryEntryRead(**entry.__dict__) for entry in entries]
+
+
+@router.get(
+    "/accounts/{account_id}/outbound-actions/{action_id}/timeline",
+    response_model=list[OutboundActionTimelineEntryRead],
+)
+def list_outbound_action_timeline(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    limit: OutboundActionTimelineLimit = DEFAULT_OUTBOUND_ACTION_TIMELINE_LIMIT,
+) -> list[OutboundActionTimelineEntryRead]:
+    """Read safe outbound history without delivering, approving, or mutating."""
+    try:
+        entries = OutboundActionTimelineService(session).list_for_action(
+            workspace, account_id, action_id, limit=limit
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [OutboundActionTimelineEntryRead(**entry.__dict__) for entry in entries]
 
 
 @router.get(
