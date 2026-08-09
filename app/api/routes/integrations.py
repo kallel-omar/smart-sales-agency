@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -74,6 +74,7 @@ from app.services.outbound_delivery import (
     OutboundIntegrationActionAlreadyProcessedError,
     OutboundIntegrationActionExpiredError,
     OutboundIntegrationActionNotCancellableError,
+    OutboundIntegrationActionNotReadyError,
     OutboundIntegrationActionNotFoundError,
     OutboundIntegrationActionNotRetryableError,
     OutboundIntegrationActionRetryDeniedError,
@@ -102,6 +103,15 @@ from app.services.repository import NotFoundError
 from app.services.secret_reference_policy import SecretReferenceValidationError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
+
+
+def _utc_timestamp(value: datetime | None) -> datetime | None:
+    """Render persisted scheduling timestamps explicitly in UTC."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 AuditLimit = Annotated[
     int,
@@ -179,6 +189,7 @@ def outbound_action_read(
         delivered_at=action.delivered_at,
         failed_at=action.failed_at,
         cancelled_at=action.cancelled_at,
+        not_before=_utc_timestamp(action.not_before),
         expires_at=action.expires_at,
         expired_at=action.expired_at,
         failure_code=action.failure_code,
@@ -202,6 +213,7 @@ def outbound_action_summary_read(
         delivered_at=action.delivered_at,
         failed_at=action.failed_at,
         cancelled_at=action.cancelled_at,
+        not_before=_utc_timestamp(action.not_before),
         expires_at=action.expires_at,
         expired_at=action.expired_at,
         failure_code=action.failure_code,
@@ -541,6 +553,7 @@ def create_outbound_integration_action(
             idempotency_key=payload.idempotency_key,
             expires_at=payload.expires_at,
             requires_approval=payload.requires_approval,
+            not_before=payload.not_before,
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
@@ -639,6 +652,8 @@ def deliver_outbound_integration_action(
     except OutboundIntegrationActionAlreadyProcessedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionExpiredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OutboundIntegrationActionNotReadyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (OutboundDeliveryApprovalRequiredError, OutboundDeliveryApprovalRejectedError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

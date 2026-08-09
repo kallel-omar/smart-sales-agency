@@ -170,6 +170,7 @@ class OutboundIntegrationAction(SQLModel, table=True):
     delivered_at: datetime | None = None
     failed_at: datetime | None = None
     cancelled_at: datetime | None = None
+    not_before: datetime | None = Field(default=None, index=True)
     expires_at: datetime | None = Field(default=None, index=True)
     expired_at: datetime | None = None
     failure_code: str | None = Field(default=None, max_length=100)

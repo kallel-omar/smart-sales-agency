@@ -44,6 +44,7 @@ class OutboundIntegrationService:
         idempotency_key: str,
         expires_at: datetime | None = None,
         requires_approval: bool = False,
+        not_before: datetime | None = None,
     ) -> tuple[OutboundIntegrationAction, IntegrationAccount]:
         account = self.account_service.get_for_workspace(workspace, account_id)
         if not account.active:
@@ -56,6 +57,7 @@ class OutboundIntegrationService:
             "payload": payload,
             "correlation_id": correlation_id.strip() if correlation_id else None,
             "expires_at": expires_at,
+            "not_before": not_before,
             "requires_approval": requires_approval,
         }
         normalized_key = idempotency_key.strip()

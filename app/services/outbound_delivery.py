@@ -56,6 +56,10 @@ class OutboundIntegrationActionExpiredError(ValueError):
     """Raised after a pending action expires before an adapter is invoked."""
 
 
+class OutboundIntegrationActionNotReadyError(ValueError):
+    """Raised before an action's UTC not-before time is reached."""
+
+
 class OutboundDeliveryAttemptQueryValidationError(ValueError):
     """Raised when a delivery-attempt read filter has an invalid range."""
 
@@ -121,6 +125,10 @@ class OutboundIntegrationDeliveryService:
         if action.status != OutboundIntegrationActionStatus.PENDING:
             raise OutboundIntegrationActionAlreadyProcessedError(
                 "Outbound integration action has already reached a terminal state"
+            )
+        if self._is_before_not_before(action):
+            raise OutboundIntegrationActionNotReadyError(
+                "Outbound integration action is not available before its not-before time"
             )
 
         self.approval_service.require_approved(workspace, action)
@@ -301,6 +309,15 @@ class OutboundIntegrationDeliveryService:
         )
         self.session.add(attempt)
         return attempt
+
+    @staticmethod
+    def _is_before_not_before(action: OutboundIntegrationAction) -> bool:
+        if action.not_before is None:
+            return False
+        now = utc_now()
+        if action.not_before.tzinfo is None:
+            now = now.replace(tzinfo=None)
+        return now < action.not_before
 
     @staticmethod
     def _is_expired(action: OutboundIntegrationAction) -> bool:
