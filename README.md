@@ -226,10 +226,16 @@ hash is stored; the event body never establishes a workspace.
 The inbound route also authenticates the webhook before Sales processing.
 The included generic HMAC adapter expects `X-Webhook-Signature` and
 `X-Webhook-Timestamp`. Each integration account holds an internal
-`secret_reference`, such as `WEBHOOK_GENERIC_HMAC_SECRET`; the environment
+`secret_reference`, such as `INTEGRATION_SECRET_GENERIC_HMAC`; the environment
 secret resolver reads that variable only at verification time. Secret values and
 references are never returned in account responses. Provider adapters remain
 outside the core domain.
+
+Integration account provisioning accepts only secret references in the
+`INTEGRATION_SECRET_` namespace, using uppercase letters, numbers, and
+underscores. This prevents account input from pointing the environment resolver
+at unrelated process configuration. Provisioning validates and stores only the
+reference; it never reads or returns the referenced secret value.
 
 /health
 

@@ -22,6 +22,7 @@ from app.services.integration_accounts import (
     IntegrationAccountService,
 )
 from app.services.repository import NotFoundError
+from app.services.secret_reference_policy import SecretReferenceValidationError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -51,12 +52,18 @@ def provision_integration_account(
     workspace: CurrentWorkspaceDep,
 ) -> IntegrationAccountCredentialRead:
     """Provision a workspace-owned account and return its credential once."""
-    account, credential = IntegrationAccountService(session).provision(
-        workspace,
-        payload.provider,
-        payload.external_account_id,
-        payload.secret_reference,
-    )
+    try:
+        account, credential = IntegrationAccountService(session).provision(
+            workspace,
+            payload.provider,
+            payload.external_account_id,
+            payload.secret_reference,
+        )
+    except SecretReferenceValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Secret reference is not allowed",
+        ) from exc
     return account_credential_read(account, credential)
 
 

@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from app.models import IntegrationAccount, Workspace, utc_now
+from app.services.secret_reference_policy import IntegrationSecretReferencePolicy
 
 
 class IntegrationAccountNotFoundError(LookupError):
@@ -16,8 +17,15 @@ class IntegrationAccountNotFoundError(LookupError):
 class IntegrationAccountService:
     """Workspace-scoped lifecycle operations for inbound integration accounts."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        secret_reference_policy: IntegrationSecretReferencePolicy | None = None,
+    ) -> None:
         self.session = session
+        self.secret_reference_policy = (
+            secret_reference_policy or IntegrationSecretReferencePolicy()
+        )
 
     def provision(
         self,
@@ -26,6 +34,9 @@ class IntegrationAccountService:
         external_account_id: str | None,
         secret_reference: str,
     ) -> tuple[IntegrationAccount, str]:
+        validated_secret_reference = self.secret_reference_policy.validate(
+            secret_reference
+        )
         credential = self._new_credential()
         account = IntegrationAccount(
             workspace_id=workspace.id,
@@ -33,7 +44,7 @@ class IntegrationAccountService:
             external_account_id=external_account_id.strip()
             if external_account_id is not None
             else None,
-            secret_reference=secret_reference.strip(),
+            secret_reference=validated_secret_reference,
             credential_hash=self._hash_credential(credential),
         )
         self.session.add(account)

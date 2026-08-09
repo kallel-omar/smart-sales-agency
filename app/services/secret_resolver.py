@@ -6,6 +6,8 @@ import os
 from collections.abc import Mapping
 from typing import Protocol
 
+from app.services.secret_reference_policy import IntegrationSecretReferencePolicy
+
 
 class SecretResolver(Protocol):
     """Resolves an internal secret reference without exposing its value."""
@@ -21,10 +23,17 @@ class EnvironmentSecretResolver:
     implement the same protocol without changing webhook verification.
     """
 
-    def __init__(self, environment: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        environment: Mapping[str, str] | None = None,
+        secret_reference_policy: IntegrationSecretReferencePolicy | None = None,
+    ) -> None:
         self.environment = environment if environment is not None else os.environ
+        self.secret_reference_policy = (
+            secret_reference_policy or IntegrationSecretReferencePolicy()
+        )
 
     def resolve(self, reference: str | None) -> str | None:
-        if not reference:
+        if not self.secret_reference_policy.is_allowed(reference):
             return None
         return self.environment.get(reference)

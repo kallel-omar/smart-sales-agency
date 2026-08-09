@@ -38,7 +38,7 @@ def provision_account(client, workspace_slug: str) -> dict:
         json={
             "provider": "generic_hmac",
             "external_account_id": "account-123",
-            "secret_reference": "TEST_GENERIC_HMAC_SECRET",
+            "secret_reference": "INTEGRATION_SECRET_GENERIC_HMAC_TEST",
         },
     )
     assert response.status_code == 201
@@ -72,7 +72,7 @@ def test_provisioning_returns_raw_credential_once_and_persists_only_its_hash(cli
             created["inbound_credential"].encode()
         ).hexdigest()
         assert account.credential_hash != created["inbound_credential"]
-        assert account.secret_reference == "TEST_GENERIC_HMAC_SECRET"
+        assert account.secret_reference == "INTEGRATION_SECRET_GENERIC_HMAC_TEST"
         assert "test-generic-hmac-secret" not in {
             str(value) for value in account.__dict__.values()
         }

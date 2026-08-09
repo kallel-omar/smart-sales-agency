@@ -17,7 +17,10 @@ from app.models import IntegrationAccount
 
 @pytest.fixture
 def client(monkeypatch) -> Generator[TestClient, None, None]:
-    monkeypatch.setenv("TEST_GENERIC_HMAC_SECRET", "test-generic-hmac-secret")
+    monkeypatch.setenv(
+        "INTEGRATION_SECRET_GENERIC_HMAC_TEST",
+        "test-generic-hmac-secret",
+    )
     test_engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -58,7 +61,7 @@ def integration_account_factory(client):
         credential: str,
         active: bool = True,
         provider: str = "generic_hmac",
-        secret_reference: str | None = "TEST_GENERIC_HMAC_SECRET",
+        secret_reference: str | None = "INTEGRATION_SECRET_GENERIC_HMAC_TEST",
     ):
         session_dependency = app.dependency_overrides[get_session]
         with next(session_dependency()) as session:
