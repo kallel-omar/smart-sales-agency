@@ -24,6 +24,7 @@ class IntegrationAccountService:
         workspace: Workspace,
         provider: str,
         external_account_id: str | None,
+        secret_reference: str,
     ) -> tuple[IntegrationAccount, str]:
         credential = self._new_credential()
         account = IntegrationAccount(
@@ -32,6 +33,7 @@ class IntegrationAccountService:
             external_account_id=external_account_id.strip()
             if external_account_id is not None
             else None,
+            secret_reference=secret_reference.strip(),
             credential_hash=self._hash_credential(credential),
         )
         self.session.add(account)

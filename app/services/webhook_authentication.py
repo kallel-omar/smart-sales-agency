@@ -10,6 +10,7 @@ from typing import Protocol
 
 from app.config import Settings
 from app.models import IntegrationAccount
+from app.services.secret_resolver import EnvironmentSecretResolver, SecretResolver
 
 
 class WebhookAuthenticationError(PermissionError):
@@ -85,8 +86,13 @@ class GenericHmacWebhookVerifier:
 class ProviderWebhookAuthenticationService:
     """Selects a provider verifier while keeping the core integration flow generic."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        secret_resolver: SecretResolver | None = None,
+    ) -> None:
         self.settings = settings
+        self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
         self.verifiers: dict[str, ProviderWebhookVerifier] = {
             GenericHmacWebhookVerifier.provider: GenericHmacWebhookVerifier(),
         }
@@ -104,11 +110,13 @@ class ProviderWebhookAuthenticationService:
         if not verifier:
             raise WebhookAuthenticationError("Webhook authentication failed")
 
+        secret = self.secret_resolver.resolve(account.secret_reference)
+
         return verifier.verify(
             payload=payload,
             signature=signature,
             timestamp=timestamp,
             event_id=event_id,
-            secret=self.settings.webhook_hmac_secrets.get(account.provider),
+            secret=secret,
             max_age_seconds=self.settings.webhook_max_age_seconds,
         )

@@ -65,6 +65,9 @@ class IntegrationAccount(SQLModel, table=True):
     workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
     provider: str = Field(max_length=100, index=True)
     external_account_id: str | None = Field(default=None, max_length=255)
+    # A provider-neutral identifier resolved by the configured secret backend.
+    # It is intentionally not the secret value itself.
+    secret_reference: str | None = Field(default=None, max_length=255)
     credential_hash: str = Field(
         sa_column=Column(String(64), unique=True, index=True, nullable=False)
     )

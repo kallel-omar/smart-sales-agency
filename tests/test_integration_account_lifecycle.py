@@ -35,7 +35,11 @@ def provision_account(client, workspace_slug: str) -> dict:
     response = client.post(
         "/api/integrations/accounts",
         headers=workspace_headers(workspace_slug),
-        json={"provider": "generic_hmac", "external_account_id": "account-123"},
+        json={
+            "provider": "generic_hmac",
+            "external_account_id": "account-123",
+            "secret_reference": "TEST_GENERIC_HMAC_SECRET",
+        },
     )
     assert response.status_code == 201
     return response.json()
@@ -56,6 +60,8 @@ def test_provisioning_returns_raw_credential_once_and_persists_only_its_hash(cli
 
     assert created["inbound_credential"]
     assert "credential_hash" not in created
+    assert "secret_reference" not in created
+    assert "test-generic-hmac-secret" not in str(created)
 
     account_id = UUID(created["id"])
     session_dependency = app.dependency_overrides[get_session]
@@ -66,6 +72,10 @@ def test_provisioning_returns_raw_credential_once_and_persists_only_its_hash(cli
             created["inbound_credential"].encode()
         ).hexdigest()
         assert account.credential_hash != created["inbound_credential"]
+        assert account.secret_reference == "TEST_GENERIC_HMAC_SECRET"
+        assert "test-generic-hmac-secret" not in {
+            str(value) for value in account.__dict__.values()
+        }
 
     accounts = client.get(
         "/api/integrations/accounts",
@@ -75,6 +85,8 @@ def test_provisioning_returns_raw_credential_once_and_persists_only_its_hash(cli
     assert accounts.json()[0]["id"] == created["id"]
     assert "inbound_credential" not in accounts.json()[0]
     assert "credential_hash" not in accounts.json()[0]
+    assert "secret_reference" not in accounts.json()[0]
+    assert "test-generic-hmac-secret" not in str(accounts.json()[0])
 
 
 def test_accounts_are_listed_only_in_their_workspace_and_cross_workspace_mutation_is_denied(client):

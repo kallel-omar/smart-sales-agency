@@ -55,6 +55,7 @@ def provision_integration_account(
         workspace,
         payload.provider,
         payload.external_account_id,
+        payload.secret_reference,
     )
     return account_credential_read(account, credential)
 

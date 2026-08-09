@@ -16,7 +16,8 @@ from app.models import IntegrationAccount
 
 
 @pytest.fixture
-def client() -> Generator[TestClient, None, None]:
+def client(monkeypatch) -> Generator[TestClient, None, None]:
+    monkeypatch.setenv("TEST_GENERIC_HMAC_SECRET", "test-generic-hmac-secret")
     test_engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -35,7 +36,6 @@ def client() -> Generator[TestClient, None, None]:
             database_url="sqlite://",
             llm_mode="demo",
             require_human_approval=True,
-            webhook_hmac_secrets={"generic_hmac": "test-generic-hmac-secret"},
         )
 
     app.dependency_overrides[get_session] = get_test_session
@@ -58,6 +58,7 @@ def integration_account_factory(client):
         credential: str,
         active: bool = True,
         provider: str = "generic_hmac",
+        secret_reference: str | None = "TEST_GENERIC_HMAC_SECRET",
     ):
         session_dependency = app.dependency_overrides[get_session]
         with next(session_dependency()) as session:
@@ -65,6 +66,7 @@ def integration_account_factory(client):
                 workspace_id=workspace_id,
                 provider=provider,
                 external_account_id=f"account-{credential}",
+                secret_reference=secret_reference,
                 credential_hash=sha256(credential.encode()).hexdigest(),
                 active=active,
             )
@@ -83,11 +85,12 @@ def signed_webhook_request():
         timestamp: int | None = None,
         signature: str | None = None,
         event_id: str | None = None,
+        secret: str = "test-generic-hmac-secret",
     ) -> tuple[dict[str, str], bytes]:
         timestamp_value = timestamp if timestamp is not None else int(time.time())
         body = json.dumps(payload, separators=(",", ":")).encode()
         expected_signature = hmac.new(
-            b"test-generic-hmac-secret",
+            secret.encode(),
             str(timestamp_value).encode() + b"." + body,
             sha256,
         ).hexdigest()

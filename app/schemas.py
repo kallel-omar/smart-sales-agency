@@ -61,6 +61,9 @@ class IntegrationAccountProvision(BaseModel):
 
     provider: str = Field(min_length=1, max_length=100)
     external_account_id: str | None = Field(default=None, max_length=255)
+    # Accepted only to link the account to a configured secret backend. It is
+    # deliberately excluded from normal account responses.
+    secret_reference: str = Field(min_length=1, max_length=255)
 
 
 class IntegrationAccountRead(BaseModel):

@@ -79,6 +79,85 @@ def test_unknown_provider_verifier_is_rejected_safely(
     assert response.json()["detail"] == "Invalid webhook authentication"
 
 
+def test_account_secret_reference_resolves_and_verifies(
+    client,
+    integration_account_factory,
+    monkeypatch,
+    signed_webhook_request,
+):
+    secret_reference = "CUSTOM_GENERIC_HMAC_SECRET"
+    secret = "custom-test-generic-hmac-secret"
+    monkeypatch.setenv(secret_reference, secret)
+    create_workspace(client, "company-a")
+    integration_account_factory(
+        workspace_id(client, "company-a"),
+        "company-a-key",
+        secret_reference=secret_reference,
+    )
+    lead_id = create_lead(client, "company-a")
+    headers, body = signed_webhook_request(
+        "company-a-key",
+        inbound_payload(lead_id),
+        secret=secret,
+    )
+
+    response = client.post(
+        "/api/integrations/inbound-events",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 200
+
+
+def test_missing_secret_reference_is_rejected_safely(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
+    create_workspace(client, "company-a")
+    integration_account_factory(
+        workspace_id(client, "company-a"),
+        "company-a-key",
+        secret_reference=None,
+    )
+    lead_id = create_lead(client, "company-a")
+    headers, body = signed_webhook_request("company-a-key", inbound_payload(lead_id))
+
+    response = client.post(
+        "/api/integrations/inbound-events",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid webhook authentication"
+
+
+def test_missing_environment_secret_is_rejected_safely(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
+    create_workspace(client, "company-a")
+    integration_account_factory(
+        workspace_id(client, "company-a"),
+        "company-a-key",
+        secret_reference="MISSING_WEBHOOK_SECRET",
+    )
+    lead_id = create_lead(client, "company-a")
+    headers, body = signed_webhook_request("company-a-key", inbound_payload(lead_id))
+
+    response = client.post(
+        "/api/integrations/inbound-events",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid webhook authentication"
+
+
 def test_signed_webhook_body_cannot_bypass_verification(
     client,
     integration_account_factory,
