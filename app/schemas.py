@@ -63,6 +63,12 @@ class InboundIntegrationEvent(BaseModel):
     external_event_id: str | None = Field(default=None, max_length=200)
 
 
+class InboundIntegrationDuplicateRead(BaseModel):
+    """Safe acknowledgement for a retry that was already accepted once."""
+
+    duplicate: bool = True
+
+
 class IntegrationAccountProvision(BaseModel):
     """Provider-neutral account data needed to provision inbound access."""
 

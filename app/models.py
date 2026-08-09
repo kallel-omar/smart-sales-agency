@@ -141,6 +141,28 @@ class IntegrationAccountAuditEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class InboundIntegrationEventReceipt(SQLModel, table=True):
+    """Provider-neutral, durable retry receipt for one authenticated inbound event."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "integration_account_id",
+            "external_event_id",
+            name="uq_inbound_integration_event_receipt",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id",
+        index=True,
+    )
+    external_event_id: str = Field(max_length=200, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class OutboundIntegrationAction(SQLModel, table=True):
     """Provider-neutral outbound delivery intent and its safe outcome."""
 

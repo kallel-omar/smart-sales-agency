@@ -150,3 +150,128 @@ def test_integration_event_cannot_access_another_workspace_lead(
 
     assert history.status_code == 200
     assert history.json() == []
+
+
+def test_inbound_event_duplicate_is_acknowledged_without_second_domain_dispatch(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
+    create_workspace(client, "company-a", "Company A")
+    integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
+    lead_id = create_lead(client, "company-a")
+    payload = inbound_event_payload(lead_id)
+    payload.pop("external_event_id")
+    headers, body = signed_webhook_request("company-a-key", payload)
+    headers["X-Integration-Event-Id"] = "provider-event-123"
+
+    first = client.post("/api/integrations/inbound-events", headers=headers, content=body)
+
+    assert first.status_code == 200
+    first_history = client.get(
+        f"/api/conversations/{lead_id}",
+        headers={"X-Workspace-Slug": "company-a"},
+    )
+    assert first_history.status_code == 200
+    assert len(first_history.json()) == 1
+
+    duplicate = client.post("/api/integrations/inbound-events", headers=headers, content=body)
+
+    assert duplicate.status_code == 200
+    assert duplicate.json() == {"duplicate": True}
+    duplicate_history = client.get(
+        f"/api/conversations/{lead_id}",
+        headers={"X-Workspace-Slug": "company-a"},
+    )
+    assert duplicate_history.status_code == 200
+    assert len(duplicate_history.json()) == len(first_history.json())
+
+
+def test_same_inbound_event_identifier_is_distinct_per_integration_account(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
+    create_workspace(client, "company-a", "Company A")
+    account_workspace_id = workspace_id(client, "company-a")
+    integration_account_factory(account_workspace_id, "company-a-key-1")
+    integration_account_factory(account_workspace_id, "company-a-key-2")
+    lead_id = create_lead(client, "company-a")
+    payload = inbound_event_payload(lead_id)
+
+    first_headers, first_body = signed_webhook_request("company-a-key-1", payload)
+    second_headers, second_body = signed_webhook_request("company-a-key-2", payload)
+    first_headers["X-Integration-Event-Id"] = "provider-event-123"
+    second_headers["X-Integration-Event-Id"] = "provider-event-123"
+
+    assert client.post("/api/integrations/inbound-events", headers=first_headers, content=first_body).status_code == 200
+    assert client.post("/api/integrations/inbound-events", headers=second_headers, content=second_body).status_code == 200
+
+
+def test_inbound_event_identifier_is_workspace_scoped(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
+    create_workspace(client, "company-a", "Company A")
+    create_workspace(client, "company-b", "Company B")
+    integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
+    integration_account_factory(workspace_id(client, "company-b"), "company-b-key")
+    lead_a = create_lead(client, "company-a")
+    lead_b = create_lead(client, "company-b")
+    headers_a, body_a = signed_webhook_request("company-a-key", inbound_event_payload(lead_a))
+    headers_b, body_b = signed_webhook_request("company-b-key", inbound_event_payload(lead_b))
+    headers_a["X-Integration-Event-Id"] = "provider-event-123"
+    headers_b["X-Integration-Event-Id"] = "provider-event-123"
+
+    assert client.post("/api/integrations/inbound-events", headers=headers_a, content=body_a).status_code == 200
+    assert client.post("/api/integrations/inbound-events", headers=headers_b, content=body_b).status_code == 200
+
+
+def test_supplied_inbound_event_identifier_is_validated(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
+    create_workspace(client, "company-a", "Company A")
+    integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
+    lead_id = create_lead(client, "company-a")
+
+    for event_id in ("", "   ", "invalid/id", "a" * 201):
+        headers, body = signed_webhook_request("company-a-key", inbound_event_payload(lead_id))
+        headers["X-Integration-Event-Id"] = event_id
+
+        response = client.post(
+            "/api/integrations/inbound-events",
+            headers=headers,
+            content=body,
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "External event identifier is invalid"}
+
+
+def test_legacy_inbound_event_without_identifier_remains_non_idempotent(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
+    create_workspace(client, "company-a", "Company A")
+    integration_account_factory(workspace_id(client, "company-a"), "company-a-key")
+    lead_id = create_lead(client, "company-a")
+    payload = inbound_event_payload(lead_id)
+    payload.pop("external_event_id")
+    headers, body = signed_webhook_request("company-a-key", payload)
+
+    first = client.post("/api/integrations/inbound-events", headers=headers, content=body)
+    second = client.post("/api/integrations/inbound-events", headers=headers, content=body)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert "duplicate" not in second.json()
+    history = client.get(
+        f"/api/conversations/{lead_id}",
+        headers={"X-Workspace-Slug": "company-a"},
+    )
+    assert history.status_code == 200
+    assert len(history.json()) == 2

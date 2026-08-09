@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.dependencies import (
     CurrentWorkspaceDep,
@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.schemas import (
     InboundIntegrationEvent,
+    InboundIntegrationDuplicateRead,
     IntegrationAccountAuditEventRead,
     IntegrationAccountAuditRetentionCleanupRead,
     IntegrationAccountCredentialRead,
@@ -54,7 +55,10 @@ from app.schemas import (
     OutboundDeliveryReadinessRead,
     SalesReply,
 )
-from app.services.inbound_integrations import InboundIntegrationService
+from app.services.inbound_integrations import (
+    InboundIntegrationEventIdValidationError,
+    InboundIntegrationService,
+)
 from app.services.integration_account_audit import (
     DEFAULT_AUDIT_EVENT_LIMIT,
     MAX_AUDIT_EVENT_LIMIT,
@@ -1237,22 +1241,37 @@ def list_outbound_integration_delivery_attempts(
     return [outbound_delivery_attempt_read(attempt) for attempt in attempts]
 
 
-@router.post("/inbound-events", response_model=SalesReply)
+@router.post(
+    "/inbound-events",
+    response_model=SalesReply | InboundIntegrationDuplicateRead,
+)
 async def receive_inbound_event(
     payload: InboundIntegrationEvent,
     session: SessionDep,
     integration_context: VerifiedIntegrationContextDep,
     settings: SettingsDep,
-) -> SalesReply:
-    """Accept a normalized provider-neutral inbound integration event."""
+    request: Request,
+) -> SalesReply | InboundIntegrationDuplicateRead:
+    """Accept an inbound event; the optional header enables durable retry safety."""
 
     integration_service = InboundIntegrationService(session, settings)
+    integration_event_id = request.headers.get("X-Integration-Event-Id")
 
     try:
+        if integration_event_id is not None:
+            reservation = integration_service.reserve_event(
+                integration_context.workspace,
+                integration_context.account,
+                integration_event_id,
+            )
+            if not reservation.first_delivery:
+                return InboundIntegrationDuplicateRead()
         result = await integration_service.handle_event(
             payload,
             integration_context.workspace,
         )
+    except InboundIntegrationEventIdValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lead not found") from exc
 
