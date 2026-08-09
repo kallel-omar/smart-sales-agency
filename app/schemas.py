@@ -8,6 +8,8 @@ from app.models import (
     ApprovalStatus,
     IntegrationAccountAuditAction,
     LeadStatus,
+    OutboundIntegrationActionStatus,
+    OutboundIntegrationActionType,
     SalesStage,
 )
 
@@ -116,6 +118,36 @@ class IntegrationAccountAuditRetentionCleanupRead(BaseModel):
 
     deleted_count: int
     cutoff: datetime
+
+
+class OutboundIntegrationActionCreate(BaseModel):
+    """Provider-neutral outbound delivery intent for a scoped account."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    external_target_id: str = Field(min_length=1, max_length=255)
+    action_type: OutboundIntegrationActionType
+    content: str = Field(min_length=1, max_length=10_000)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    correlation_id: str | None = Field(default=None, min_length=1, max_length=200)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
+class OutboundIntegrationActionRead(BaseModel):
+    """Safe delivery-intent response with no credentials or arbitrary payload."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    integration_account_id: UUID
+    provider: str
+    external_target_id: str
+    action_type: OutboundIntegrationActionType
+    content: str
+    correlation_id: str | None
+    status: OutboundIntegrationActionStatus
+    created_at: datetime
 
 
 class WorkflowResult(BaseModel):

@@ -10,7 +10,12 @@ from app.api.dependencies import (
     SettingsDep,
     VerifiedIntegrationContextDep,
 )
-from app.models import IntegrationAccount, IntegrationAccountAuditAction, utc_now
+from app.models import (
+    IntegrationAccount,
+    IntegrationAccountAuditAction,
+    OutboundIntegrationAction,
+    utc_now,
+)
 from app.schemas import (
     InboundIntegrationEvent,
     IntegrationAccountAuditEventRead,
@@ -19,6 +24,8 @@ from app.schemas import (
     IntegrationAccountProvision,
     IntegrationAccountRead,
     IntegrationAccountSecretReferenceUpdate,
+    OutboundIntegrationActionCreate,
+    OutboundIntegrationActionRead,
     SalesReply,
 )
 from app.services.inbound_integrations import InboundIntegrationService
@@ -32,6 +39,11 @@ from app.services.integration_account_audit import (
 from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
     IntegrationAccountService,
+)
+from app.services.outbound_integrations import (
+    InactiveIntegrationAccountError,
+    OutboundIntegrationActionIdempotencyConflictError,
+    OutboundIntegrationService,
 )
 from app.services.repository import NotFoundError
 from app.services.secret_reference_policy import SecretReferenceValidationError
@@ -59,6 +71,24 @@ def account_credential_read(
     return IntegrationAccountCredentialRead(
         **account_read(account).model_dump(),
         inbound_credential=credential,
+    )
+
+
+def outbound_action_read(
+    action: OutboundIntegrationAction,
+    account: IntegrationAccount,
+) -> OutboundIntegrationActionRead:
+    return OutboundIntegrationActionRead(
+        id=action.id,
+        workspace_id=action.workspace_id,
+        integration_account_id=action.integration_account_id,
+        provider=account.provider,
+        external_target_id=action.external_target_id,
+        action_type=action.action_type,
+        content=action.content,
+        correlation_id=action.correlation_id,
+        status=action.status,
+        created_at=action.created_at,
     )
 
 
@@ -251,6 +281,38 @@ def update_integration_account_secret_reference(
             detail="Secret reference is not allowed",
         ) from exc
     return account_read(account)
+
+
+@router.post(
+    "/accounts/{account_id}/outbound-actions",
+    response_model=OutboundIntegrationActionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_outbound_integration_action(
+    account_id: UUID,
+    payload: OutboundIntegrationActionCreate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> OutboundIntegrationActionRead:
+    """Persist a delivery intent for a future provider adapter; do not send it."""
+    try:
+        action, account = OutboundIntegrationService(session).create_action(
+            workspace,
+            account_id,
+            external_target_id=payload.external_target_id,
+            action_type=payload.action_type,
+            content=payload.content,
+            payload=payload.payload,
+            correlation_id=payload.correlation_id,
+            idempotency_key=payload.idempotency_key,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except InactiveIntegrationAccountError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OutboundIntegrationActionIdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return outbound_action_read(action, account)
 
 
 @router.post("/inbound-events", response_model=SalesReply)

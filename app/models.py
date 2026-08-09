@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, JSON, String , Text
+from sqlalchemy import Column, JSON, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -47,6 +47,14 @@ class IntegrationAccountAuditAction(StrEnum):
     DEACTIVATED = "deactivated"
     REACTIVATED = "reactivated"
     SECRET_REFERENCE_CHANGED = "secret_reference_changed"
+
+
+class OutboundIntegrationActionType(StrEnum):
+    SEND_MESSAGE = "send_message"
+
+
+class OutboundIntegrationActionStatus(StrEnum):
+    PENDING = "pending"
 
 
 class Workspace(SQLModel, table=True):
@@ -95,6 +103,37 @@ class IntegrationAccountAuditEvent(SQLModel, table=True):
         index=True,
     )
     action: IntegrationAccountAuditAction = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class OutboundIntegrationAction(SQLModel, table=True):
+    """Provider-neutral outbound delivery intent awaiting a future adapter."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "integration_account_id",
+            "idempotency_key",
+            name="uq_outbound_integration_action_idempotency",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id",
+        index=True,
+    )
+    external_target_id: str = Field(max_length=255, index=True)
+    action_type: OutboundIntegrationActionType = Field(index=True)
+    content: str = Field(sa_column=Column(Text, nullable=False))
+    payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    correlation_id: str | None = Field(default=None, max_length=200, index=True)
+    idempotency_key: str = Field(max_length=200)
+    status: OutboundIntegrationActionStatus = Field(
+        default=OutboundIntegrationActionStatus.PENDING,
+        index=True,
+    )
     created_at: datetime = Field(default_factory=utc_now)
 
 class Lead(SQLModel, table=True):
