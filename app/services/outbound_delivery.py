@@ -44,6 +44,10 @@ class OutboundIntegrationActionNotCancellableError(ValueError):
     """Raised when an action is no longer pending."""
 
 
+class OutboundIntegrationActionExpiredError(ValueError):
+    """Raised after a pending action expires before an adapter is invoked."""
+
+
 class OutboundDeliveryAttemptQueryValidationError(ValueError):
     """Raised when a delivery-attempt read filter has an invalid range."""
 
@@ -77,6 +81,12 @@ class OutboundIntegrationDeliveryService:
             raise InactiveIntegrationAccountError("Integration account is inactive")
 
         action = self._get_action_for_account(workspace, account, action_id)
+        if self._is_expired(action):
+            action.status = OutboundIntegrationActionStatus.EXPIRED
+            action.expired_at = utc_now()
+            self.session.add(action)
+            self.session.commit()
+            raise OutboundIntegrationActionExpiredError("Outbound integration action has expired")
         if action.status != OutboundIntegrationActionStatus.PENDING:
             raise OutboundIntegrationActionAlreadyProcessedError(
                 "Outbound integration action has already reached a terminal state"
@@ -226,6 +236,15 @@ class OutboundIntegrationDeliveryService:
         )
         self.session.add(attempt)
         return attempt
+
+    @staticmethod
+    def _is_expired(action: OutboundIntegrationAction) -> bool:
+        if action.expires_at is None:
+            return False
+        now = utc_now()
+        if action.expires_at.tzinfo is None:
+            now = now.replace(tzinfo=None)
+        return action.expires_at <= now
 
     def _attempt_count(self, action: OutboundIntegrationAction) -> int:
         """Return the persisted attempt count without loading attempt history."""

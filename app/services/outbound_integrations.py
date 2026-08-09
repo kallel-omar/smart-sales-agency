@@ -1,4 +1,5 @@
 from uuid import UUID
+from datetime import datetime
 
 from sqlmodel import Session, select
 
@@ -37,6 +38,7 @@ class OutboundIntegrationService:
         payload: dict,
         correlation_id: str | None,
         idempotency_key: str,
+        expires_at: datetime | None = None,
     ) -> tuple[OutboundIntegrationAction, IntegrationAccount]:
         account = self.account_service.get_for_workspace(workspace, account_id)
         if not account.active:
@@ -48,6 +50,7 @@ class OutboundIntegrationService:
             "content": content,
             "payload": payload,
             "correlation_id": correlation_id.strip() if correlation_id else None,
+            "expires_at": expires_at,
         }
         normalized_key = idempotency_key.strip()
         existing = self.session.exec(

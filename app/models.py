@@ -58,6 +58,7 @@ class OutboundIntegrationActionStatus(StrEnum):
     DELIVERED = "delivered"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    EXPIRED = "expired"
 
 
 class OutboundDeliveryFailureClassification(StrEnum):
@@ -150,6 +151,8 @@ class OutboundIntegrationAction(SQLModel, table=True):
     delivered_at: datetime | None = None
     failed_at: datetime | None = None
     cancelled_at: datetime | None = None
+    expires_at: datetime | None = Field(default=None, index=True)
+    expired_at: datetime | None = None
     failure_code: str | None = Field(default=None, max_length=100)
     failure_message: str | None = Field(default=None, max_length=500)
     failure_classification: OutboundDeliveryFailureClassification | None = Field(

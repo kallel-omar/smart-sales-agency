@@ -131,6 +131,7 @@ class OutboundIntegrationActionCreate(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     correlation_id: str | None = Field(default=None, min_length=1, max_length=200)
     idempotency_key: str = Field(min_length=1, max_length=200)
+    expires_at: datetime | None = None
 
 
 class OutboundIntegrationActionRead(BaseModel):
@@ -151,6 +152,8 @@ class OutboundIntegrationActionRead(BaseModel):
     delivered_at: datetime | None
     failed_at: datetime | None
     cancelled_at: datetime | None
+    expires_at: datetime | None
+    expired_at: datetime | None
     failure_code: str | None
     failure_message: str | None
     created_at: datetime
@@ -169,6 +172,8 @@ class OutboundIntegrationActionSummaryRead(BaseModel):
     delivered_at: datetime | None
     failed_at: datetime | None
     cancelled_at: datetime | None
+    expires_at: datetime | None
+    expired_at: datetime | None
     failure_code: str | None
     created_at: datetime
 
