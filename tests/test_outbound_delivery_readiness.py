@@ -47,7 +47,7 @@ def test_readiness_composes_approval_not_before_and_capability_constraints(clien
         session.add(persisted)
         session.commit()
         view = _service(session, registry).evaluate(workspace, UUID(account["id"]), UUID(action["id"]))
-        assert view.blocking_reasons == ("unsupported_action_type",)
+        assert view.blocking_reasons == ("adapter_capability_mismatch",)
 
 
 def test_readiness_uses_existing_retry_policy_and_terminal_state(client):

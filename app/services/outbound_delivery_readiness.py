@@ -11,6 +11,7 @@ from app.services.delivery_adapters import DeliveryAdapterRegistry, default_deli
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
 from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
 from app.services.outbound_delivery_status import OutboundIntegrationDeliveryStatusService
+from app.services.outbound_delivery_readiness_reasons import OutboundDeliveryReadinessReasonCode
 from app.services.outbound_retry_delay_policy import OutboundDeliveryRetryDelayPolicy
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 
@@ -20,7 +21,7 @@ class OutboundDeliveryReadiness:
     action_id: UUID
     status: OutboundIntegrationActionStatus
     ready: bool
-    blocking_reasons: tuple[str, ...]
+    blocking_reasons: tuple[OutboundDeliveryReadinessReasonCode, ...]
     next_retry_at: datetime | None
 
 
@@ -49,36 +50,41 @@ class OutboundDeliveryReadinessService:
         )
         action = status_view.action
         account = status_view.account
-        reasons: list[str] = []
+        reasons: list[OutboundDeliveryReadinessReasonCode] = []
         candidate = False
 
         if not account.active:
-            reasons.append("integration_account_inactive")
+            reasons.append(OutboundDeliveryReadinessReasonCode.INTEGRATION_ACCOUNT_INACTIVE)
         if action.status == OutboundIntegrationActionStatus.PENDING:
             candidate = True
         elif action.status == OutboundIntegrationActionStatus.FAILED:
             if status_view.retry_eligibility.allowed:
                 candidate = True
             else:
-                reasons.append(
-                    f"retry_{status_view.retry_eligibility.denial_reason or 'not_allowed'}"
-                )
+                reasons.append(OutboundDeliveryReadinessReasonCode.RETRY_NOT_ELIGIBLE)
         else:
-            reasons.append(f"action_{action.status}")
+            if action.status == OutboundIntegrationActionStatus.CANCELLED:
+                reasons.append(OutboundDeliveryReadinessReasonCode.ACTION_CANCELLED)
+            elif action.status == OutboundIntegrationActionStatus.EXPIRED:
+                reasons.append(OutboundDeliveryReadinessReasonCode.ACTION_EXPIRED)
+            elif action.status == OutboundIntegrationActionStatus.DELIVERED:
+                reasons.append(OutboundDeliveryReadinessReasonCode.ACTION_ALREADY_DELIVERED)
+            else:
+                reasons.append(OutboundDeliveryReadinessReasonCode.ACTION_TERMINAL)
 
         if candidate and OutboundIntegrationDeliveryService.is_expired(action):
-            reasons.append("action_expired")
+            reasons.append(OutboundDeliveryReadinessReasonCode.ACTION_EXPIRED)
         if candidate and OutboundIntegrationDeliveryService.is_before_not_before(action):
-            reasons.append("not_before_not_reached")
+            reasons.append(OutboundDeliveryReadinessReasonCode.NOT_BEFORE_NOT_REACHED)
         if candidate:
             approval = self.approval_service.evaluate(workspace, action)
             if not approval.allowed:
-                reasons.append(approval.denial_reason or "approval_not_approved")
+                reasons.append(self._approval_reason(approval.denial_reason))
             capability_failure = self.adapter_registry.validate_action(
                 account.provider, action
             )
             if capability_failure is not None:
-                reasons.append(capability_failure.failure_code or "adapter_not_ready")
+                reasons.append(OutboundDeliveryReadinessReasonCode.ADAPTER_CAPABILITY_MISMATCH)
 
         return OutboundDeliveryReadiness(
             action_id=action.id,
@@ -86,4 +92,16 @@ class OutboundDeliveryReadinessService:
             ready=not reasons,
             blocking_reasons=tuple(reasons),
             next_retry_at=status_view.next_retry_at,
+        )
+
+    @staticmethod
+    def _approval_reason(denial_reason: str | None) -> OutboundDeliveryReadinessReasonCode:
+        """Translate established approval outcomes into the readiness registry."""
+        return {
+            "approval_unavailable": OutboundDeliveryReadinessReasonCode.APPROVAL_UNAVAILABLE,
+            "approval_pending": OutboundDeliveryReadinessReasonCode.APPROVAL_PENDING,
+            "approval_rejected": OutboundDeliveryReadinessReasonCode.APPROVAL_REJECTED,
+        }.get(
+            denial_reason,
+            OutboundDeliveryReadinessReasonCode.APPROVAL_NOT_APPROVED,
         )
