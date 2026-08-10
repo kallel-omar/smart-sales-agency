@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
@@ -92,6 +92,20 @@ class InboundIntegrationEvent(BaseModel):
     channel: str = Field(min_length=1, max_length=50)
     content: str = Field(min_length=1, max_length=10_000)
     external_event_id: str | None = Field(default=None, max_length=200)
+
+
+class WhatsAppCloudInboundTextEvent(BaseModel):
+    """Text-only event normalized by the WhatsApp Cloud transport boundary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    channel: Literal["whatsapp_cloud"] = "whatsapp_cloud"
+    provider_event_id: str = Field(min_length=1, max_length=200)
+    sender_external_id: str = Field(min_length=1, max_length=255)
+    recipient_account_id: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1, max_length=10_000)
+    timestamp: int | None = Field(default=None, ge=0)
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class InboundIntegrationDuplicateRead(BaseModel):

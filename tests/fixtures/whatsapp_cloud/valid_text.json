@@ -1,0 +1,39 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "111122223333444",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15551234567",
+              "phone_number_id": "555666777888999"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Example Customer"
+                },
+                "wa_id": "15557654321"
+              }
+            ],
+            "messages": [
+              {
+                "from": "15557654321",
+                "id": "wamid.HBgLMTU1NTc2NTQzMjEVAgASGBQzQUMzRjA0N0Y2MzY2QzA0AA",
+                "timestamp": "1720000000",
+                "type": "text",
+                "text": {
+                  "body": "What is the monthly price?"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

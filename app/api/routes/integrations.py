@@ -169,6 +169,7 @@ from app.services.outbound_integrations import (
     OutboundIntegrationActionIdempotencyConflictError,
     OutboundIntegrationService,
 )
+from app.services.whatsapp_cloud import WhatsAppCloudOutboundPayloadSecretError
 from app.services.outbound_retry_delay_policy import OutboundDeliveryRetryDelayPolicy
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 from app.services.repository import NotFoundError
@@ -813,6 +814,8 @@ def create_outbound_integration_action(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionIdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except WhatsAppCloudOutboundPayloadSecretError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return outbound_action_read(action, account)
 
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Protocol
 
+from app.integrations.providers import GENERIC_HMAC_PROVIDER, WHATSAPP_CLOUD_PROVIDER
 from app.config import Settings
 from app.models import IntegrationAccount
 from app.services.secret_resolver import EnvironmentSecretResolver, SecretResolver
@@ -44,7 +45,10 @@ class ProviderWebhookVerifier(Protocol):
 class GenericHmacWebhookVerifier:
     """Small generic HMAC adapter used without coupling to a channel provider."""
 
-    provider = "generic_hmac"
+    provider = GENERIC_HMAC_PROVIDER
+
+    def __init__(self, provider: str = GENERIC_HMAC_PROVIDER) -> None:
+        self.provider = provider
 
     def verify(
         self,
@@ -94,7 +98,8 @@ class ProviderWebhookAuthenticationService:
         self.settings = settings
         self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
         self.verifiers: dict[str, ProviderWebhookVerifier] = {
-            GenericHmacWebhookVerifier.provider: GenericHmacWebhookVerifier(),
+            GENERIC_HMAC_PROVIDER: GenericHmacWebhookVerifier(GENERIC_HMAC_PROVIDER),
+            WHATSAPP_CLOUD_PROVIDER: GenericHmacWebhookVerifier(WHATSAPP_CLOUD_PROVIDER),
         }
 
     def authenticate(

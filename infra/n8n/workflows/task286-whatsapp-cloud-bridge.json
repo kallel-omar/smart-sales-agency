@@ -1,0 +1,385 @@
+{
+  "id": "task286whatsappcloudbridge",
+  "name": "Task 286 WhatsApp Cloud Bridge",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp-cloud",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1040,
+        -360
+      ],
+      "id": "33ee6809-a842-4701-91be-3a1be8eab0a3",
+      "name": "Meta Verification Webhook",
+      "webhookId": "task286-whatsapp-cloud-verify"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst query = $json.query ?? {};\nconst mode = query['hub.mode'];\nconst token = query['hub.verify_token'];\nconst challenge = query['hub.challenge'];\nconst expectedToken = $env.WHATSAPP_CLOUD_VERIFY_TOKEN;\nfunction secureEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left || ''));\n  const rightBuffer = Buffer.from(String(right || ''));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\nif (mode === 'subscribe' && challenge && expectedToken && secureEqual(token, expectedToken)) {\n  return [{ json: { responseCode: 200, body: String(challenge) } }];\n}\nreturn [{ json: { responseCode: 403, body: '' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        -360
+      ],
+      "id": "c3a037f7-f969-4618-8d2e-8ebf72ec7f0d",
+      "name": "Verify Meta Challenge"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.responseCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -480,
+        -360
+      ],
+      "id": "981c7ab8-e2af-42e2-9350-20b0101f15ea",
+      "name": "Return Meta Challenge Result"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-cloud",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1040,
+        -20
+      ],
+      "id": "35cfd645-7602-4749-aa39-af33c2f4eb27",
+      "name": "Meta Event Webhook",
+      "webhookId": "task286-whatsapp-cloud-events"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst headers = $json.headers ?? {};\nconst rawBody = $binary?.data?.data ? Buffer.from($binary.data.data, 'base64') : Buffer.from(JSON.stringify($json.body ?? {}));\nconst signature = headers['x-hub-signature-256'] || headers['X-Hub-Signature-256'];\nconst appSecret = $env.WHATSAPP_CLOUD_APP_SECRET;\nfunction reject(responseCode, reason) {\n  return [{ json: { forwardToFastapi: false, responseCode, reason } }];\n}\nfunction secureEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left || ''));\n  const rightBuffer = Buffer.from(String(right || ''));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\nif (!appSecret || !signature || !signature.startsWith('sha256=')) {\n  return reject(403, 'invalid_signature');\n}\nconst expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');\nif (!secureEqual(signature, expected)) {\n  return reject(403, 'invalid_signature');\n}\nlet body;\ntry {\n  body = JSON.parse(rawBody.toString('utf8'));\n} catch (error) {\n  return reject(400, 'malformed_json');\n}\nif (body.object !== 'whatsapp_business_account' || !Array.isArray(body.entry)) {\n  return reject(400, 'malformed_event');\n}\nfor (const entry of body.entry) {\n  for (const change of entry.changes ?? []) {\n    if (change.field !== 'messages') {\n      continue;\n    }\n    const value = change.value ?? {};\n    if (value.messaging_product !== 'whatsapp') {\n      return reject(400, 'malformed_event');\n    }\n    const metadata = value.metadata ?? {};\n    const recipient = metadata.phone_number_id;\n    const expectedPhone = $env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;\n    if (expectedPhone && recipient !== expectedPhone) {\n      return reject(404, 'account_mismatch');\n    }\n    if (!Array.isArray(value.messages) || value.messages.length === 0) {\n      if (Array.isArray(value.statuses)) {\n        return reject(200, 'status_event');\n      }\n      continue;\n    }\n    const message = value.messages[0] ?? {};\n    if (message.type !== 'text') {\n      return reject(200, `unsupported_${message.type || 'unknown'}`);\n    }\n    const text = message.text?.body;\n    if (!message.id || !message.from || !recipient || !text) {\n      return reject(400, 'malformed_message');\n    }\n    const normalizedBody = JSON.stringify({\n      channel: 'whatsapp_cloud',\n      provider_event_id: message.id,\n      sender_external_id: message.from,\n      recipient_account_id: recipient,\n      content: text,\n      timestamp: message.timestamp ? Number(message.timestamp) : null,\n      provider_metadata: {\n        waba_id: entry.id,\n        display_phone_number: metadata.display_phone_number,\n        message_type: message.type\n      }\n    });\n    const timestamp = Math.floor(Date.now() / 1000).toString();\n    const secret = $env.SSA_WHATSAPP_CLOUD_HMAC_SECRET;\n    const integrationKey = $env.SSA_WHATSAPP_CLOUD_INTEGRATION_KEY;\n    const baseUrl = ($env.SSA_FASTAPI_BASE_URL_FROM_N8N || '').replace(/\\/$/, '');\n    if (!secret || !integrationKey || !baseUrl) {\n      throw new Error('Task 286 n8n runtime environment is incomplete');\n    }\n    const fastapiSignature = crypto.createHmac('sha256', secret).update(`${timestamp}.${normalizedBody}`).digest('hex');\n    return [{\n      json: {\n        forwardToFastapi: true,\n        url: `${baseUrl}/api/integrations/inbound-events/whatsapp-cloud`,\n        body: normalizedBody,\n        headers: {\n          'Content-Type': 'application/json',\n          'X-Integration-Key': integrationKey,\n          'X-Webhook-Timestamp': timestamp,\n          'X-Webhook-Signature': fastapiSignature,\n          'X-Integration-Event-Id': message.id\n        }\n      }\n    }];\n  }\n}\nreturn reject(200, 'no_message_event');"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        -20
+      ],
+      "id": "c8ff9f36-8125-4cf1-8d83-55250021851c",
+      "name": "Verify And Normalize Meta Event"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8894914a-0e09-4e69-a935-7ed19c793e2f",
+              "leftValue": "={{ $json.forwardToFastapi }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        -20
+      ],
+      "id": "84dc8fb4-b694-455a-b7c4-55d25d1f095b",
+      "name": "Should Forward Text"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "={{ $json.headers['Content-Type'] }}"
+            },
+            {
+              "name": "X-Integration-Key",
+              "value": "={{ $json.headers['X-Integration-Key'] }}"
+            },
+            {
+              "name": "X-Webhook-Timestamp",
+              "value": "={{ $json.headers['X-Webhook-Timestamp'] }}"
+            },
+            {
+              "name": "X-Webhook-Signature",
+              "value": "={{ $json.headers['X-Webhook-Signature'] }}"
+            },
+            {
+              "name": "X-Integration-Event-Id",
+              "value": "={{ $json.headers['X-Integration-Event-Id'] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -180,
+        -120
+      ],
+      "id": "d6094e55-897d-470b-bd9e-62c9121c0f5c",
+      "name": "Call FastAPI Boundary"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        100,
+        -120
+      ],
+      "id": "ec70a281-208e-4d0e-86dd-0379eb75323d",
+      "name": "Respond With FastAPI Result"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ accepted: true, reason: $json.reason }) }}",
+        "options": {
+          "responseCode": "={{ $json.responseCode }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -180,
+        80
+      ],
+      "id": "4c35cba1-13f9-4772-89d8-57690870270f",
+      "name": "Acknowledge Ignored Provider Event"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-cloud-outbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1040,
+        340
+      ],
+      "id": "fa54f9a7-9571-4ae5-9210-230c453f75e2",
+      "name": "Outbound Transport Webhook",
+      "webhookId": "task286-whatsapp-cloud-outbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst bodyObject = $json.body ?? {};\nconst rawBody = JSON.stringify(bodyObject);\nconst headers = $json.headers ?? {};\nconst timestamp = headers['x-webhook-timestamp'] || headers['X-Webhook-Timestamp'];\nconst signature = headers['x-webhook-signature'] || headers['X-Webhook-Signature'];\nconst signing = headers['x-webhook-signing'] || headers['X-Webhook-Signing'];\nconst secret = $env.SSA_WHATSAPP_CLOUD_HMAC_SECRET;\nfunction secureEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left || ''));\n  const rightBuffer = Buffer.from(String(right || ''));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\nif (signing !== 'hmac-sha256' || !timestamp || !signature || !secret) {\n  throw new Error('Outbound webhook signature is missing');\n}\nconst expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex');\nif (!secureEqual(signature, expected)) {\n  throw new Error('Outbound webhook signature mismatch');\n}\nif (bodyObject.action_type !== 'send_message' || !bodyObject.external_target_id || !bodyObject.content) {\n  throw new Error('Unsupported outbound action');\n}\nconst baseUrl = ($env.WHATSAPP_CLOUD_GRAPH_API_BASE_URL || 'https://graph.facebook.com').replace(/\\/$/, '');\nconst version = $env.WHATSAPP_CLOUD_GRAPH_API_VERSION;\nconst phoneNumberId = $env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;\nif (!version || !phoneNumberId) {\n  throw new Error('WhatsApp Cloud send request configuration is incomplete');\n}\nreturn [{\n  json: {\n    accepted: true,\n    delivery_id: `whatsapp-cloud-prepared-${bodyObject.action_id}`,\n    prepared_request: {\n      method: 'POST',\n      url: `${baseUrl}/${version}/${phoneNumberId}/messages`,\n      body: {\n        messaging_product: 'whatsapp',\n        recipient_type: 'individual',\n        to: bodyObject.external_target_id,\n        type: 'text',\n        text: {\n          preview_url: false,\n          body: bodyObject.content\n        }\n      }\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        340
+      ],
+      "id": "91a2e52c-1548-43aa-8cae-85649b5c9fb2",
+      "name": "Prepare WhatsApp Text Send"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 202,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "x-delivery-id",
+                "value": "={{ $json.delivery_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -480,
+        340
+      ],
+      "id": "83437911-581d-4ddf-9656-ee6d3e3ccb1e",
+      "name": "Acknowledge Prepared Delivery"
+    }
+  ],
+  "connections": {
+    "Meta Verification Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify Meta Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Meta Challenge": {
+      "main": [
+        [
+          {
+            "node": "Return Meta Challenge Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta Event Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify And Normalize Meta Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify And Normalize Meta Event": {
+      "main": [
+        [
+          {
+            "node": "Should Forward Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Forward Text": {
+      "main": [
+        [
+          {
+            "node": "Call FastAPI Boundary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Acknowledge Ignored Provider Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call FastAPI Boundary": {
+      "main": [
+        [
+          {
+            "node": "Respond With FastAPI Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outbound Transport Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare WhatsApp Text Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare WhatsApp Text Send": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Prepared Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "versionId": "497714ce-31a1-46fd-b0d3-16759df4c49c5",
+  "triggerCount": 3
+}

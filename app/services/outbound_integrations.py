@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
+from app.integrations.providers import WHATSAPP_CLOUD_PROVIDER
 from app.models import (
     IntegrationAccount,
     OutboundIntegrationAction,
@@ -13,6 +14,7 @@ from app.models import (
 from app.services.integration_accounts import IntegrationAccountService
 from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
 from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
+from app.services.whatsapp_cloud import assert_no_outbound_payload_secrets
 
 
 class InactiveIntegrationAccountError(ValueError):
@@ -49,6 +51,8 @@ class OutboundIntegrationService:
         account = self.account_service.get_for_workspace(workspace, account_id)
         if not account.active:
             raise InactiveIntegrationAccountError("Integration account is inactive")
+        if account.provider == WHATSAPP_CLOUD_PROVIDER:
+            assert_no_outbound_payload_secrets(payload)
 
         normalized_input = {
             "external_target_id": external_target_id.strip(),

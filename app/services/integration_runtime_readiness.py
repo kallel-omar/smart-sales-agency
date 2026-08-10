@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from sqlmodel import Session
 
+from app.integrations.providers import GENERIC_WEBHOOK_DELIVERY_PROVIDERS
 from app.config import Settings
 from app.models import (
     IntegrationAccount,
@@ -97,7 +98,7 @@ class IntegrationRuntimeReadinessService:
                 IntegrationRuntimeReadinessReasonCode.OUTBOUND_ADAPTER_CAPABILITY_MISMATCH
             )
 
-        if account.provider == "generic_webhook":
+        if account.provider in GENERIC_WEBHOOK_DELIVERY_PROVIDERS:
             self._append_generic_webhook_configuration_blockers(codes)
             if self.settings.outbound_webhook_signing_enabled:
                 self._append_secret_blockers(account, codes)

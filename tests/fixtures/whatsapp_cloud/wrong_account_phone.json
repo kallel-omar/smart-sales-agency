@@ -1,0 +1,39 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "111122223333444",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550009999",
+              "phone_number_id": "999888777666555"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Example Customer"
+                },
+                "wa_id": "15557654321"
+              }
+            ],
+            "messages": [
+              {
+                "from": "15557654321",
+                "id": "wamid.WRONGACCOUNTID",
+                "timestamp": "1720000004",
+                "type": "text",
+                "text": {
+                  "body": "This should not map to company A."
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

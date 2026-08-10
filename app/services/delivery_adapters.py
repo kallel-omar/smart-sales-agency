@@ -9,6 +9,10 @@ from typing import Protocol
 
 import httpx
 
+from app.integrations.providers import (
+    GENERIC_HMAC_PROVIDER,
+    GENERIC_WEBHOOK_DELIVERY_PROVIDERS,
+)
 from app.models import (
     IntegrationAccount,
     OutboundDeliveryFailureClassification,
@@ -320,7 +324,8 @@ def default_delivery_adapter_registry(
     generic_webhook_adapter: DeliveryAdapter | None = None,
 ) -> DeliveryAdapterRegistry:
     """Return the intentionally minimal adapter set available in this task."""
-    adapters: dict[str, DeliveryAdapter] = {"generic_hmac": NoopDeliveryAdapter()}
+    adapters: dict[str, DeliveryAdapter] = {GENERIC_HMAC_PROVIDER: NoopDeliveryAdapter()}
     if generic_webhook_adapter is not None:
-        adapters["generic_webhook"] = generic_webhook_adapter
+        for provider in GENERIC_WEBHOOK_DELIVERY_PROVIDERS:
+            adapters[provider] = generic_webhook_adapter
     return DeliveryAdapterRegistry(adapters)

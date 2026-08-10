@@ -303,6 +303,15 @@ and any other HTTP consumer can replace n8n without changing the domain model.
 The local self-hosted runtime bridge and Docker smoke harness are documented in
 `docs/N8N_RUNTIME_BRIDGE.md`.
 
+WhatsApp Cloud API transport foundation
+
+`whatsapp_cloud` is the first concrete customer-channel provider. It uses
+self-hosted n8n for Meta webhook verification/signature checks and text-only
+normalization, then calls FastAPI's authenticated integration boundary. FastAPI
+still owns workspace resolution, idempotency, conversation state, approvals,
+handoff, and outbound action state. Task 286 does not include real Meta
+credentials or live message sending. See `docs/WHATSAPP_CLOUD_CHANNEL.md`.
+
 /health
 
 Service health and active LLM mode
