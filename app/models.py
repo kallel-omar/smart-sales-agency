@@ -52,6 +52,13 @@ class SalesLanguage(StrEnum):
     TUNISIAN_ARABIC = "tunisian_arabic"
 
 
+class SalesWritingScript(StrEnum):
+    """Writing systems supported by the bounded Sales language policy."""
+
+    LATIN = "latin"
+    ARABIC = "arabic"
+
+
 class SalesTone(StrEnum):
     """Small, provider-neutral tone choices for customer-facing Sales replies."""
 
@@ -192,6 +199,9 @@ class Workspace(SQLModel, table=True):
     # otherwise classified deterministically at runtime; no conversation data
     # is persisted as workspace configuration.
     sales_preferred_language: SalesLanguage | None = Field(default=None)
+    # Script remains optional: when absent, the runtime policy follows the
+    # customer's latest clearly detected writing system.
+    sales_preferred_script: SalesWritingScript | None = Field(default=None)
     sales_preferred_tone: SalesTone | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

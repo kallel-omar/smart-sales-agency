@@ -6,15 +6,15 @@ from app.api.dependencies import CurrentWorkspaceDep, SessionDep
 from app.models import Workspace
 from app.schemas import (
     WorkspaceCreate,
+    WorkspaceRead,
     WorkspaceSalesCommunicationRead,
     WorkspaceSalesCommunicationUpdate,
-    WorkspaceRead,
     WorkspaceSalesInstructionsRead,
     WorkspaceSalesInstructionsUpdate,
 )
 from app.services.workspaces import (
-    WorkspaceSalesInstructionsService,
     WorkspaceSalesCommunicationService,
+    WorkspaceSalesInstructionsService,
     WorkspaceSalesInstructionsValidationError,
 )
 
@@ -34,6 +34,7 @@ def sales_communication_read(
 ) -> WorkspaceSalesCommunicationRead:
     return WorkspaceSalesCommunicationRead(
         preferred_language=workspace.sales_preferred_language,
+        preferred_script=workspace.sales_preferred_script,
         preferred_tone=workspace.sales_preferred_tone,
     )
 
@@ -158,6 +159,7 @@ def update_workspace_sales_communication(
     updated = WorkspaceSalesCommunicationService(session).update(
         workspace,
         preferred_language=payload.preferred_language,
+        preferred_script=payload.preferred_script,
         preferred_tone=payload.preferred_tone,
     )
     return sales_communication_read(updated)

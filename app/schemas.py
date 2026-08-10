@@ -10,15 +10,16 @@ from app.models import (
     ApprovalStatus,
     IntegrationAccountAuditAction,
     LeadStatus,
-    OutboundIntegrationActionStatus,
     OutboundActionPriority,
+    OutboundIntegrationActionStatus,
     OutboundIntegrationActionType,
     OutboundIntegrationAuditAction,
-    SalesLanguage,
     SalesConversationHandoffStatus,
     SalesHandoffReasonCode,
+    SalesLanguage,
     SalesStage,
     SalesTone,
+    SalesWritingScript,
 )
 
 
@@ -636,6 +637,7 @@ class WorkspaceSalesCommunicationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     preferred_language: SalesLanguage | None = None
+    preferred_script: SalesWritingScript | None = None
     preferred_tone: SalesTone | None = None
 
 
@@ -643,4 +645,5 @@ class WorkspaceSalesCommunicationRead(BaseModel):
     """Safe view of the current workspace's Sales communication preferences only."""
 
     preferred_language: SalesLanguage | None
+    preferred_script: SalesWritingScript | None
     preferred_tone: SalesTone | None

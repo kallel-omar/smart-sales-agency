@@ -3,7 +3,7 @@
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.language_policy import (
     render_sales_communication_instruction,
-    select_sales_language,
+    select_sales_communication_style,
     select_sales_tone,
 )
 from app.departments.sales.prompt_composition import (
@@ -119,10 +119,13 @@ class SalesConversationAgent:
             )
 
         workspace = self.context.workspace
-        language = select_sales_language(
+        communication_style = select_sales_communication_style(
             customer_message=inbound,
             workspace_preferred_language=(
                 workspace.sales_preferred_language if workspace else None
+            ),
+            workspace_preferred_script=(
+                workspace.sales_preferred_script if workspace else None
             ),
             prior_customer_messages=self._prior_customer_messages(history),
         )
@@ -140,7 +143,8 @@ class SalesConversationAgent:
                 sales_handoff_policy=SALES_HANDOFF_POLICY,
                 language_tone_instruction=SalesLanguageToneInstruction(
                     content=render_sales_communication_instruction(
-                        language=language,
+                        language=communication_style.language,
+                        script=communication_style.script,
                         tone=tone,
                     )
                 ),
