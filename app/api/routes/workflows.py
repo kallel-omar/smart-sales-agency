@@ -10,7 +10,7 @@ from app.api.dependencies import (
 )
 from app.departments.sales.services import SalesDepartmentService
 from app.schemas import WorkflowResult
-from app.services.llm import build_llm
+from app.services.ai_invocation_gateway import AIInvocationGateway
 from app.services.repository import NotFoundError, SalesRepository
 
 router = APIRouter(
@@ -48,7 +48,9 @@ async def run_lead_workflow(
     context = AgentContext(
         settings=settings,
         repository=repository,
-        llm=build_llm(settings),
+        llm=None,
+        workspace=workspace,
+        ai_invocation_gateway=AIInvocationGateway(session, settings),
     )
 
     sales_department = SalesDepartmentService(context)

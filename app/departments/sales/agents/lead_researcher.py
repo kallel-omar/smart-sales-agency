@@ -2,6 +2,8 @@ from urllib.parse import urlparse
 
 from app.departments.sales.agents.base import AgentContext
 from app.models import Lead
+from app.services.ai_invocation_gateway import AIInvocationGatewayRequest
+from app.services.ai_model_routing import AIModelRoutingTask
 
 
 class LeadResearchAgent:
@@ -63,7 +65,25 @@ class LeadResearchAgent:
                 f"Notes: {lead.notes}"
             )
 
-            summary = await self.context.llm.complete(system, user)
+            if self.context.ai_invocation_gateway is None:
+                raise RuntimeError("No AI invocation gateway is configured for lead research")
+            if self.context.workspace is None:
+                raise RuntimeError("A server-resolved workspace is required for AI invocation")
+
+            invocation = await self.context.ai_invocation_gateway.invoke(
+                AIInvocationGatewayRequest(
+                    workspace=self.context.workspace,
+                    task=AIModelRoutingTask.SIMPLE_SUMMARY,
+                    task_identifier="sales.lead_research",
+                    agent_identifier="lead_research",
+                    system_prompt=system,
+                    user_prompt=user,
+                    conversation_id=lead.id,
+                )
+            )
+            if invocation.content is None:
+                raise RuntimeError("Lead research requires an LLM completion")
+            summary = invocation.content
             pain_points = ["Review the generated brief before outreach"]
             opportunities = ["Prepare a personalized discovery message"]
             evidence = [{"type": "lead_input", "value": user}]
