@@ -15,6 +15,7 @@ from app.models import (
     OutboundIntegrationActionType,
     OutboundIntegrationAuditAction,
     SalesLanguage,
+    SalesConversationHandoffStatus,
     SalesHandoffReasonCode,
     SalesStage,
     SalesTone,
@@ -568,6 +569,16 @@ class SalesReply(BaseModel):
     approval_id: UUID | None = None
     handoff_required: bool = False
     handoff_reason_code: SalesHandoffReasonCode | None = None
+
+
+class SalesHandoffResolutionRead(BaseModel):
+    """Safe response for an explicit Sales handoff resolution."""
+
+    lead_id: UUID
+    reason_code: SalesHandoffReasonCode
+    status: SalesConversationHandoffStatus
+    created_at: datetime
+    resolved_at: datetime
 
 class ConversationMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)

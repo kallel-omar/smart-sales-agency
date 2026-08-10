@@ -63,6 +63,13 @@ class SalesHandoffReasonCode(StrEnum):
     APPROVAL_REQUIRED = "approval_required"
 
 
+class SalesConversationHandoffStatus(StrEnum):
+    """Explicit lifecycle states for a Sales conversation handoff."""
+
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -444,22 +451,19 @@ class ConversationMessage(SQLModel, table=True):
 
 
 class SalesConversationHandoff(SQLModel, table=True):
-    """One active, safe human-attention state for a workspace Sales conversation."""
-
-    __table_args__ = (
-        UniqueConstraint(
-            "workspace_id",
-            "lead_id",
-            name="uq_sales_conversation_handoff_workspace_lead",
-        ),
-    )
+    """Historical, workspace-scoped lifecycle record for a Sales handoff."""
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
     lead_id: UUID = Field(foreign_key="lead.id", index=True)
     reason_code: SalesHandoffReasonCode = Field(index=True)
     explanation: str = Field(max_length=500)
+    status: SalesConversationHandoffStatus = Field(
+        default=SalesConversationHandoffStatus.ACTIVE,
+        index=True,
+    )
     created_at: datetime = Field(default_factory=utc_now, index=True)
+    resolved_at: datetime | None = Field(default=None, index=True)
 
 
 class ApprovalRequest(SQLModel, table=True):

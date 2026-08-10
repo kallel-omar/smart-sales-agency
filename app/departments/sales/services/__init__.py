@@ -7,6 +7,10 @@ from app.departments.sales.services.conversation_turn_service import (
     SalesConversationTurnResult,
     SalesConversationTurnService,
 )
+from app.departments.sales.services.handoff_service import (
+    SalesConversationHandoffService,
+    SalesHandoffResolutionResult,
+)
 
 __all__ = [
     "SalesDepartmentService",
@@ -14,4 +18,6 @@ __all__ = [
     "SalesConversationTurnInput",
     "SalesConversationTurnResult",
     "SalesConversationTurnService",
+    "SalesConversationHandoffService",
+    "SalesHandoffResolutionResult",
 ]

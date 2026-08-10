@@ -4,12 +4,18 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api.dependencies import CurrentWorkspaceDep, SessionDep, SettingsDep
 from app.departments.sales.services import (
+    SalesConversationHandoffService,
     SalesConversationTurnInput,
     SalesConversationTurnService,
 )
 from app.models import ConversationMessage
-from app.schemas import ConversationMessageRead, InboundMessage, SalesReply
-from app.services.repository import NotFoundError, SalesRepository
+from app.schemas import (
+    ConversationMessageRead,
+    InboundMessage,
+    SalesHandoffResolutionRead,
+    SalesReply,
+)
+from app.services.repository import HandoffLifecycleConflictError, NotFoundError, SalesRepository
 
 
 router = APIRouter(
@@ -85,4 +91,34 @@ async def draft_sales_reply(
         approval_id=result.approval_id,
         handoff_required=result.handoff_required,
         handoff_reason_code=result.handoff_reason_code,
+    )
+
+
+@router.post(
+    "/{lead_id}/handoff/resolve",
+    response_model=SalesHandoffResolutionRead,
+)
+def resolve_sales_handoff(
+    lead_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> SalesHandoffResolutionRead:
+    """Explicitly resolve the current workspace-scoped Sales handoff."""
+
+    try:
+        result = SalesConversationHandoffService(
+            repository=SalesRepository(session),
+            workspace=workspace,
+        ).resolve_active_handoff(lead_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Lead not found") from exc
+    except HandoffLifecycleConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return SalesHandoffResolutionRead(
+        lead_id=result.lead_id,
+        reason_code=result.reason_code,
+        status=result.status,
+        created_at=result.created_at,
+        resolved_at=result.resolved_at,
     )

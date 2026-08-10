@@ -12,6 +12,7 @@ from app.models import (
     LeadStatus,
     Product,
     SalesConversationHandoff,
+    SalesConversationHandoffStatus,
     SalesHandoffReasonCode,
     Workspace,
 )
@@ -19,6 +20,10 @@ from app.models import (
 
 class NotFoundError(LookupError):
     pass
+
+
+class HandoffLifecycleConflictError(RuntimeError):
+    """Raised when a requested Sales handoff lifecycle transition is invalid."""
 
 
 class SalesRepository:
@@ -93,13 +98,48 @@ class SalesRepository:
         workspace: Workspace,
         lead_id: UUID,
     ) -> SalesConversationHandoff | None:
-        """Read handoff state only through its server-resolved workspace owner."""
+        """Read the current active handoff through its server-resolved owner."""
 
         statement = select(SalesConversationHandoff).where(
             SalesConversationHandoff.workspace_id == workspace.id,
             SalesConversationHandoff.lead_id == lead_id,
+            SalesConversationHandoff.status == SalesConversationHandoffStatus.ACTIVE,
         )
         return self.session.exec(statement).first()
+
+    def get_latest_sales_handoff(
+        self,
+        workspace: Workspace,
+        lead_id: UUID,
+    ) -> SalesConversationHandoff | None:
+        """Return the most recent scoped record for deterministic lifecycle errors."""
+
+        statement = (
+            select(SalesConversationHandoff)
+            .where(
+                SalesConversationHandoff.workspace_id == workspace.id,
+                SalesConversationHandoff.lead_id == lead_id,
+            )
+            .order_by(SalesConversationHandoff.created_at.desc())
+        )
+        return self.session.exec(statement).first()
+
+    def list_sales_handoffs(
+        self,
+        workspace: Workspace,
+        lead_id: UUID,
+    ) -> list[SalesConversationHandoff]:
+        """Read scoped lifecycle history without making it a dashboard API."""
+
+        statement = (
+            select(SalesConversationHandoff)
+            .where(
+                SalesConversationHandoff.workspace_id == workspace.id,
+                SalesConversationHandoff.lead_id == lead_id,
+            )
+            .order_by(SalesConversationHandoff.created_at.asc())
+        )
+        return list(self.session.exec(statement).all())
 
     def ensure_sales_handoff(
         self,
@@ -109,7 +149,7 @@ class SalesRepository:
         reason_code: SalesHandoffReasonCode,
         explanation: str,
     ) -> SalesConversationHandoff:
-        """Persist a single active handoff state without touching approvals."""
+        """Persist one active handoff while preserving resolved history."""
 
         if lead.tenant_id != workspace.slug:
             raise NotFoundError("Lead not found")
@@ -122,6 +162,31 @@ class SalesRepository:
             reason_code=reason_code,
             explanation=explanation,
         )
+        self.session.add(handoff)
+        self.session.commit()
+        self.session.refresh(handoff)
+        return handoff
+
+    def resolve_sales_handoff(
+        self,
+        *,
+        workspace: Workspace,
+        lead: Lead,
+    ) -> SalesConversationHandoff:
+        """Resolve the current handoff without changing approvals or delivery state."""
+
+        if lead.tenant_id != workspace.slug:
+            raise NotFoundError("Lead not found")
+
+        handoff = self.get_sales_handoff(workspace, lead.id)
+        if handoff is None:
+            latest = self.get_latest_sales_handoff(workspace, lead.id)
+            if latest is not None and latest.status == SalesConversationHandoffStatus.RESOLVED:
+                raise HandoffLifecycleConflictError("Sales handoff is already resolved")
+            raise NotFoundError("Sales handoff not found")
+
+        handoff.status = SalesConversationHandoffStatus.RESOLVED
+        handoff.resolved_at = datetime.now(timezone.utc)
         self.session.add(handoff)
         self.session.commit()
         self.session.refresh(handoff)
