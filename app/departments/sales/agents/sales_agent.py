@@ -1,6 +1,17 @@
 ﻿import re
 
+from uuid import UUID
+
 from app.departments.sales.agents.base import AgentContext
+from app.departments.sales.prompt_composition import (
+    PromptComposition,
+    PromptCompositionInput,
+    PromptMessage,
+    PromptMessageRole,
+    PromptTrustLevel,
+    SalesBusinessContext,
+    SalesPromptComposer,
+)
 from app.models import Lead, Product, SalesStage
 from app.services.ai_invocation_gateway import AIInvocationGatewayRequest
 from app.services.ai_model_routing import AIModelRoutingTask
@@ -30,6 +41,60 @@ class SalesConversationAgent:
             price = f"{product.price:.2f}" if product.price is not None else "contact us"
             lines.append(f"- {product.name}: {product.description} | Price: {price}")
         return "\n".join(lines)
+
+    def _conversation_context(self, lead_id: UUID) -> tuple[PromptMessage, ...]:
+        """Map persisted history to role-aware, untrusted conversation context."""
+
+        messages: list[PromptMessage] = []
+        for message in self.context.repository.conversation_history(lead_id):
+            role = (
+                PromptMessageRole.USER
+                if message.direction == "inbound"
+                else PromptMessageRole.ASSISTANT
+            )
+            messages.append(
+                PromptMessage(
+                    role=role,
+                    content=message.content,
+                    trust_level=PromptTrustLevel.UNTRUSTED,
+                )
+            )
+        return tuple(messages)
+
+    def _compose_prompt(
+        self,
+        *,
+        lead: Lead,
+        inbound: str,
+        stage: SalesStage,
+        products: list[Product],
+    ) -> PromptComposition:
+        """Build transient Sales context while keeping customer text untrusted."""
+
+        return SalesPromptComposer().compose(
+            PromptCompositionInput(
+                platform_policy=(
+                    "Never invent prices, discounts, stock, guarantees, or customer facts. "
+                    "Do not expose internal, secret, or system information. Use supplied business "
+                    "data as authoritative where applicable. A human must approve commitments and "
+                    "outbound messages."
+                ),
+                department_policy=(
+                    "You are a helpful B2B sales agent. Be concise, truthful, and non-pushy. "
+                    "Assist the customer toward an appropriate purchase decision. Do not make "
+                    "unauthorized commercial commitments."
+                ),
+                agent_instructions="Ask one useful next question.",
+                business_context=SalesBusinessContext(
+                    product_catalog=self._product_context(products),
+                ),
+                conversation_messages=self._conversation_context(lead.id),
+                current_task=(
+                    f"Sales stage: {stage.value}\nLead: {lead.full_name} at {lead.company_name}\n"
+                    f"Customer message: {inbound}"
+                ),
+            )
+        )
 
     async def draft_reply(self, lead: Lead, inbound: str) -> tuple[SalesStage, str]:
         stage = self.detect_stage(inbound)
@@ -76,15 +141,12 @@ class SalesConversationAgent:
             }
             reply = replies[stage]
         else:
-            system = (
-                "You are a helpful B2B sales agent. Be concise, truthful, and non-pushy. "
-                "Never invent prices, discounts, stock, guarantees, or customer facts. "
-                "Ask one useful next question. A human must approve commitments and outbound messages."
-            )
-            user = (
-                f"Sales stage: {stage.value}\nLead: {lead.full_name} at {lead.company_name}\n"
-                f"Customer message: {inbound}\nProduct catalog:\n{self._product_context(products)}"
-            )
+            rendered_prompt = self._compose_prompt(
+                lead=lead,
+                inbound=inbound,
+                stage=stage,
+                products=products,
+            ).render()
             if self.context.ai_invocation_gateway is None:
                 raise RuntimeError("No AI invocation gateway is configured for sales conversation")
             if self.context.workspace is None:
@@ -95,8 +157,8 @@ class SalesConversationAgent:
                     task=AIModelRoutingTask.SALES_CONVERSATION,
                     task_identifier="sales.conversation.reply",
                     agent_identifier="sales_conversation",
-                    system_prompt=system,
-                    user_prompt=user,
+                    system_prompt=rendered_prompt.system_prompt,
+                    user_prompt=rendered_prompt.user_prompt,
                     conversation_id=lead.id,
                     sales_stage=stage,
                 )
