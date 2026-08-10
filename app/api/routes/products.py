@@ -1,7 +1,12 @@
 from fastapi import APIRouter
 from sqlmodel import select
 
-from app.api.dependencies import CurrentWorkspaceDep, SessionDep
+from app.api.dependencies import (
+    CurrentWorkspaceDep,
+    SalesDataReadPermissionDep,
+    SalesDataWritePermissionDep,
+    SessionDep,
+)
 from app.models import Product
 from app.schemas import ProductCreate
 
@@ -13,6 +18,7 @@ def create_product(
     payload: ProductCreate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: SalesDataWritePermissionDep,
 ) -> Product:
     product_data = payload.model_dump()
     product_data["tenant_id"] = workspace.slug
@@ -29,6 +35,7 @@ def create_product(
 def list_products(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: SalesDataReadPermissionDep,
 ) -> list[Product]:
     statement = select(Product).where(
         Product.tenant_id == workspace.slug,

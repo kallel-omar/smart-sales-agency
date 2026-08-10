@@ -3,7 +3,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from app.api.dependencies import CurrentWorkspaceDep, SessionDep, SettingsDep
+from app.api.dependencies import (
+    ConversationOperatePermissionDep,
+    CurrentWorkspaceDep,
+    SessionDep,
+    SettingsDep,
+)
 from app.departments.sales.services import (
     DirectConversationTurnIdempotencyConflictError,
     DirectConversationTurnIdempotencyValidationError,
@@ -34,6 +39,7 @@ def get_conversation_history(
     lead_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: ConversationOperatePermissionDep,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[ConversationMessage]:
     repository = SalesRepository(session)
@@ -68,6 +74,7 @@ async def draft_sales_reply(
     payload: InboundMessage,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: ConversationOperatePermissionDep,
     settings: SettingsDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> DirectSalesReply:
@@ -113,6 +120,7 @@ def resolve_sales_handoff(
     lead_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: ConversationOperatePermissionDep,
 ) -> SalesHandoffResolutionRead:
     """Explicitly resolve the current workspace-scoped Sales handoff."""
 

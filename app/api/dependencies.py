@@ -24,6 +24,11 @@ from app.services.webhook_authentication import (
     ProviderWebhookAuthenticationService,
     WebhookAuthenticationError,
 )
+from app.services.workspace_rbac import (
+    WorkspacePermission,
+    WorkspacePermissionDeniedError,
+    WorkspaceRBACPolicy,
+)
 from app.services.workspaces import (
     IntegrationContext,
     InvalidIntegrationContextError,
@@ -46,6 +51,7 @@ class AuthenticatedWorkspaceContext:
     principal: AuthenticatedPrincipal
     workspace: Workspace
     membership: WorkspaceMember
+
 
 WorkspaceSlugHeader = Annotated[
     str,
@@ -80,6 +86,13 @@ def _workspace_not_found_error() -> HTTPException:
     return HTTPException(
         status_code=404,
         detail="Workspace not found",
+    )
+
+
+def _workspace_permission_denied_error() -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail="Insufficient workspace permission",
     )
 
 
@@ -221,6 +234,91 @@ def get_authenticated_path_workspace_context(
 AuthenticatedPathWorkspaceContextDep = Annotated[
     AuthenticatedWorkspaceContext,
     Depends(get_authenticated_path_workspace_context),
+]
+
+
+def _authorize_workspace_context(
+    context: AuthenticatedWorkspaceContext,
+    permission: WorkspacePermission,
+) -> None:
+    try:
+        WorkspaceRBACPolicy.require_permission(context.membership.role, permission)
+    except WorkspacePermissionDeniedError as exc:
+        raise _workspace_permission_denied_error() from exc
+
+
+def _workspace_permission_dependency(permission: WorkspacePermission):
+    def dependency(context: AuthenticatedWorkspaceContextDep) -> None:
+        _authorize_workspace_context(context, permission)
+
+    dependency.__name__ = f"require_{permission.value}_permission"
+    return dependency
+
+
+def _workspace_readiness_permission_dependency(permission: WorkspacePermission):
+    def dependency(context: AuthenticatedWorkspaceReadinessContextDep) -> None:
+        _authorize_workspace_context(context, permission)
+
+    dependency.__name__ = f"require_{permission.value}_readiness_permission"
+    return dependency
+
+
+WorkspaceReadPermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.WORKSPACE_READ)),
+]
+WorkspaceSettingsManagePermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.WORKSPACE_SETTINGS_MANAGE)),
+]
+SalesDataReadPermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.SALES_DATA_READ)),
+]
+SalesDataWritePermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.SALES_DATA_WRITE)),
+]
+ConversationOperatePermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.CONVERSATION_OPERATE)),
+]
+ApprovalDecidePermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.APPROVAL_DECIDE)),
+]
+IntegrationReadPermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.INTEGRATION_READ)),
+]
+IntegrationReadinessReadPermissionDep = Annotated[
+    None,
+    Depends(_workspace_readiness_permission_dependency(WorkspacePermission.INTEGRATION_READ)),
+]
+IntegrationManagePermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.INTEGRATION_MANAGE)),
+]
+OutboundActionOperatePermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.OUTBOUND_ACTION_OPERATE)),
+]
+AIUsageReadPermissionDep = Annotated[
+    None,
+    Depends(_workspace_permission_dependency(WorkspacePermission.AI_USAGE_READ)),
+]
+
+
+def get_workspace_read_path_context(
+    context: AuthenticatedPathWorkspaceContextDep,
+) -> AuthenticatedWorkspaceContext:
+    _authorize_workspace_context(context, WorkspacePermission.WORKSPACE_READ)
+    return context
+
+
+WorkspaceReadPathContextDep = Annotated[
+    AuthenticatedWorkspaceContext,
+    Depends(get_workspace_read_path_context),
 ]
 
 

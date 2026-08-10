@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from  app.departments.sales.agents.base import AgentContext
 from app.api.dependencies import (
+    ConversationOperatePermissionDep,
     CurrentWorkspaceDep,
     SessionDep,
     SettingsDep,
@@ -27,6 +28,7 @@ async def run_lead_workflow(
     lead_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: ConversationOperatePermissionDep,
     settings: SettingsDep,
 ) -> WorkflowResult:
     repository = SalesRepository(session)

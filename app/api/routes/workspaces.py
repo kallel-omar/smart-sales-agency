@@ -2,10 +2,12 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
 from app.api.dependencies import (
-    AuthenticatedPathWorkspaceContextDep,
     AuthenticatedPrincipalDep,
     CurrentWorkspaceDep,
     SessionDep,
+    WorkspaceReadPathContextDep,
+    WorkspaceReadPermissionDep,
+    WorkspaceSettingsManagePermissionDep,
 )
 from app.models import Workspace, WorkspaceMember
 from app.schemas import (
@@ -92,6 +94,7 @@ def list_workspaces(
 )
 def get_workspace_sales_instructions(
     workspace: CurrentWorkspaceDep,
+    _: WorkspaceReadPermissionDep,
 ) -> WorkspaceSalesInstructionsRead:
     """Return only the current workspace's trusted Sales configuration."""
 
@@ -106,6 +109,7 @@ def replace_workspace_sales_instructions(
     payload: WorkspaceSalesInstructionsUpdate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: WorkspaceSettingsManagePermissionDep,
 ) -> WorkspaceSalesInstructionsRead:
     """Replace configuration selected solely by the current workspace context."""
 
@@ -126,6 +130,7 @@ def replace_workspace_sales_instructions(
 def clear_workspace_sales_instructions(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: WorkspaceSettingsManagePermissionDep,
 ) -> WorkspaceSalesInstructionsRead:
     """Clear only the current workspace's optional Sales configuration."""
 
@@ -139,6 +144,7 @@ def clear_workspace_sales_instructions(
 )
 def get_workspace_sales_communication(
     workspace: CurrentWorkspaceDep,
+    _: WorkspaceReadPermissionDep,
 ) -> WorkspaceSalesCommunicationRead:
     """Return only the current workspace's trusted Sales communication defaults."""
 
@@ -153,6 +159,7 @@ def update_workspace_sales_communication(
     payload: WorkspaceSalesCommunicationUpdate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: WorkspaceSettingsManagePermissionDep,
 ) -> WorkspaceSalesCommunicationRead:
     """Update typed defaults selected solely by the current workspace context."""
 
@@ -167,6 +174,6 @@ def update_workspace_sales_communication(
 
 @router.get("/{slug}", response_model=WorkspaceRead)
 def get_workspace(
-    context: AuthenticatedPathWorkspaceContextDep,
+    context: WorkspaceReadPathContextDep,
 ) -> Workspace:
     return context.workspace

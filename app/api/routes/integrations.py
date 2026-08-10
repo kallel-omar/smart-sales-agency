@@ -5,7 +5,12 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.dependencies import (
+    AIUsageReadPermissionDep,
     CurrentWorkspaceDep,
+    IntegrationManagePermissionDep,
+    IntegrationReadPermissionDep,
+    IntegrationReadinessReadPermissionDep,
+    OutboundActionOperatePermissionDep,
     SessionDep,
     SettingsDep,
     VerifiedIntegrationContextDep,
@@ -441,6 +446,7 @@ def integration_execution_trace_read(
 def list_outbound_integration_audit_events(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     action: OutboundIntegrationAuditAction | None = None,
     integration_account_id: UUID | None = None,
     outbound_integration_action_id: UUID | None = None,
@@ -473,6 +479,7 @@ def provision_integration_account(
     payload: IntegrationAccountProvision,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountCredentialRead:
     """Provision a workspace-owned account and return its credential once."""
     try:
@@ -494,6 +501,7 @@ def provision_integration_account(
 def list_integration_accounts(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
 ) -> list[IntegrationAccountRead]:
     accounts = IntegrationAccountService(session).list_for_workspace(workspace)
     return [account_read(account) for account in accounts]
@@ -503,6 +511,7 @@ def list_integration_accounts(
 def get_integration_operational_summary(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     settings: SettingsDep,
 ) -> IntegrationOperationalSummaryRead:
     """Read safe workspace aggregates without provider calls or mutation."""
@@ -521,6 +530,7 @@ def get_integration_operational_summary(
 def get_workspace_ai_invocation_usage_summary(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: AIUsageReadPermissionDep,
 ) -> AIInvocationUsageSummaryRead:
     """Read deterministic aggregate AI usage for the current workspace only."""
 
@@ -532,6 +542,7 @@ def get_workspace_ai_invocation_usage_summary(
 def list_workspace_ai_invocation_usage(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: AIUsageReadPermissionDep,
 ) -> list[AIInvocationUsageRead]:
     """Read safe AI usage metadata for the current workspace only."""
     return [
@@ -545,6 +556,7 @@ def get_integration_account_health(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     settings: SettingsDep,
 ) -> IntegrationAccountHealthRead:
     """Read persisted operational health without contacting an external provider."""
@@ -578,6 +590,7 @@ def get_integration_runtime_readiness(
     account_id: UUID,
     session: SessionDep,
     workspace: WorkspaceReadinessDep,
+    _: IntegrationReadinessReadPermissionDep,
     settings: SettingsDep,
 ) -> IntegrationRuntimeReadinessRead:
     """Read configuration readiness only; never contacts an external provider."""
@@ -612,6 +625,7 @@ def list_integration_account_audit_events(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     action: IntegrationAccountAuditAction | None = None,
     created_after: datetime | None = None,
     created_before: datetime | None = None,
@@ -645,6 +659,7 @@ def list_integration_account_audit_events(
 def list_workspace_integration_account_audit_events(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     action: IntegrationAccountAuditAction | None = None,
     created_after: datetime | None = None,
     created_before: datetime | None = None,
@@ -671,6 +686,7 @@ def list_workspace_integration_account_audit_events(
 def cleanup_workspace_integration_account_audit_events(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationManagePermissionDep,
     settings: SettingsDep,
 ) -> IntegrationAccountAuditRetentionCleanupRead:
     """Explicitly remove expired audit events for the current workspace only."""
@@ -693,6 +709,7 @@ def deactivate_integration_account(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountRead:
     try:
         account = IntegrationAccountService(session).deactivate(workspace, account_id)
@@ -706,6 +723,7 @@ def reactivate_integration_account(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountRead:
     try:
         account = IntegrationAccountService(session).reactivate(workspace, account_id)
@@ -722,6 +740,7 @@ def rotate_integration_account_credential(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountCredentialRead:
     try:
         account, credential = IntegrationAccountService(session).rotate_credential(
@@ -742,6 +761,7 @@ def update_integration_account_secret_reference(
     payload: IntegrationAccountSecretReferenceUpdate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountRead:
     """Update an account's internal secret reference without resolving it."""
     try:
@@ -770,6 +790,7 @@ def create_outbound_integration_action(
     payload: OutboundIntegrationActionCreate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
 ) -> OutboundIntegrationActionRead:
     """Persist a delivery intent for a future provider adapter; do not send it."""
     try:
@@ -802,6 +823,7 @@ def create_outbound_integration_action(
 def list_outbound_integration_actions(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     action_status: OutboundActionStatusFilter = None,
     priority: OutboundActionPriorityFilter = None,
     label: str | None = Query(default=None, min_length=1, max_length=64),
@@ -855,7 +877,9 @@ def list_outbound_integration_actions(
 
 @router.post("/outbound-actions/expiration-cleanup", response_model=OutboundActionExpirationCleanupRead)
 def cleanup_expired_outbound_actions(
-    session: SessionDep, workspace: CurrentWorkspaceDep
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: IntegrationManagePermissionDep,
 ) -> OutboundActionExpirationCleanupRead:
     cutoff = utc_now()
     deleted_count = OutboundIntegrationActionQueryService(session).cleanup_expired_for_workspace(
@@ -872,6 +896,7 @@ def get_outbound_integration_action_detail(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
 ) -> OutboundIntegrationActionDetailRead:
     """Read one safe outbound action view without delivering or mutating it."""
     try:
@@ -885,7 +910,7 @@ def get_outbound_integration_action_detail(
 
 
 @router.post("/outbound-actions/{action_id}/annotations", response_model=OutboundActionAnnotationRead, status_code=status.HTTP_201_CREATED)
-def create_outbound_action_annotation(action_id: UUID, payload: OutboundActionAnnotationCreate, session: SessionDep, workspace: CurrentWorkspaceDep) -> OutboundActionAnnotationRead:
+def create_outbound_action_annotation(action_id: UUID, payload: OutboundActionAnnotationCreate, session: SessionDep, workspace: CurrentWorkspaceDep, _: OutboundActionOperatePermissionDep) -> OutboundActionAnnotationRead:
     try:
         annotation = OutboundActionAnnotationService(session).create(workspace, action_id, payload.text)
     except OutboundIntegrationActionQueryNotFoundError as exc:
@@ -894,7 +919,7 @@ def create_outbound_action_annotation(action_id: UUID, payload: OutboundActionAn
 
 
 @router.get("/outbound-actions/{action_id}/annotations", response_model=list[OutboundActionAnnotationRead])
-def list_outbound_action_annotations(action_id: UUID, session: SessionDep, workspace: CurrentWorkspaceDep, limit: OutboundActionAnnotationLimit = 50) -> list[OutboundActionAnnotationRead]:
+def list_outbound_action_annotations(action_id: UUID, session: SessionDep, workspace: CurrentWorkspaceDep, _: IntegrationReadPermissionDep, limit: OutboundActionAnnotationLimit = 50) -> list[OutboundActionAnnotationRead]:
     try:
         rows = OutboundActionAnnotationService(session).list_for_action(workspace, action_id, limit=limit)
     except OutboundIntegrationActionQueryNotFoundError as exc:
@@ -912,6 +937,7 @@ def add_outbound_action_label(
     payload: OutboundActionLabelCreate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
 ) -> OutboundActionLabelRead:
     try:
         label = OutboundActionLabelService(session).add(workspace, action_id, payload.label)
@@ -930,6 +956,7 @@ def list_outbound_action_labels(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     limit: OutboundActionLabelLimit = MAX_OUTBOUND_ACTION_LABELS,
 ) -> list[OutboundActionLabelRead]:
     try:
@@ -950,6 +977,7 @@ def remove_outbound_action_label(
     label: str,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
 ) -> None:
     try:
         OutboundActionLabelService(session).remove(workspace, action_id, label)
@@ -962,7 +990,7 @@ def remove_outbound_action_label(
 
 
 @router.put("/outbound-actions/{action_id}/priority", response_model=OutboundIntegrationActionDetailRead)
-def update_outbound_action_priority(action_id: UUID, payload: OutboundActionPriorityUpdate, session: SessionDep, workspace: CurrentWorkspaceDep) -> OutboundIntegrationActionDetailRead:
+def update_outbound_action_priority(action_id: UUID, payload: OutboundActionPriorityUpdate, session: SessionDep, workspace: CurrentWorkspaceDep, _: OutboundActionOperatePermissionDep) -> OutboundIntegrationActionDetailRead:
     try:
         action = OutboundIntegrationActionQueryService(session).set_priority(workspace, action_id, payload.priority)
         _, provider = OutboundIntegrationActionQueryService(session).get_for_workspace(workspace, action_id)
@@ -980,6 +1008,7 @@ def update_outbound_action_owner_reference(
     payload: OutboundActionOwnerReferenceUpdate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
 ) -> OutboundIntegrationActionDetailRead:
     """Set an unverified opaque owner reference without affecting delivery behavior."""
     try:
@@ -1004,6 +1033,7 @@ def archive_outbound_integration_action(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
 ) -> OutboundIntegrationActionDetailRead:
     """Archive one terminal action without changing delivery state or history."""
     try:
@@ -1029,6 +1059,7 @@ def unarchive_outbound_integration_action(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
 ) -> OutboundIntegrationActionDetailRead:
     """Restore a previously archived action without changing its delivery state."""
     try:
@@ -1052,6 +1083,7 @@ def deliver_outbound_integration_action(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
     settings: SettingsDep,
 ) -> OutboundIntegrationActionRead:
     """Explicitly process one pending action through a neutral adapter."""
@@ -1083,7 +1115,11 @@ def deliver_outbound_integration_action(
     response_model=OutboundIntegrationActionRead,
 )
 def cancel_outbound_integration_action(
-    account_id: UUID, action_id: UUID, session: SessionDep, workspace: CurrentWorkspaceDep
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
 ) -> OutboundIntegrationActionRead:
     try:
         action, account = OutboundIntegrationDeliveryService(session).cancel_pending_action(
@@ -1107,6 +1143,7 @@ def retry_failed_outbound_integration_action(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: OutboundActionOperatePermissionDep,
     settings: SettingsDep,
 ) -> OutboundIntegrationActionRead:
     """Explicitly retry one failed action with the same persisted identity."""
@@ -1142,6 +1179,7 @@ def get_outbound_delivery_readiness(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     settings: SettingsDep,
 ) -> OutboundDeliveryReadinessRead:
     """Read readiness only; this endpoint never executes a delivery operation."""
@@ -1189,6 +1227,7 @@ def get_outbound_approval_status(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
 ) -> OutboundApprovalStatusRead:
     """Return safe approval state without approving, delivering, or mutating."""
     try:
@@ -1211,6 +1250,7 @@ def list_outbound_action_state_history(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     limit: OutboundStateHistoryLimit = DEFAULT_OUTBOUND_STATE_HISTORY_LIMIT,
 ) -> list[OutboundActionStateHistoryEntryRead]:
     """Read successful transitions only; this endpoint never changes an action."""
@@ -1236,6 +1276,7 @@ def list_outbound_action_timeline(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     category: OutboundActionTimelineCategoryFilter = None,
     event: OutboundActionTimelineEventFilter = None,
     created_after: datetime | None = None,
@@ -1273,6 +1314,7 @@ def validate_outbound_action_transition(
     target: OutboundIntegrationActionStatus,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
 ) -> OutboundActionTransitionValidationRead:
     """Validate a proposed state change without mutating or auditing the action."""
     try:
@@ -1312,6 +1354,7 @@ def get_outbound_integration_delivery_status(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     settings: SettingsDep,
 ) -> OutboundIntegrationDeliveryStatusRead:
     """Return one safe status summary without delivering or retrying the action."""
@@ -1341,6 +1384,7 @@ def list_outbound_integration_delivery_attempts(
     action_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
     attempt_status: OutboundActionStatusFilter = None,
     started_after: datetime | None = None,
     started_before: datetime | None = None,
@@ -1376,6 +1420,7 @@ def get_integration_execution_trace(
     correlation_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
 ) -> IntegrationExecutionTraceRead:
     """Read one safe execution trace from existing workspace-scoped records only."""
     try:

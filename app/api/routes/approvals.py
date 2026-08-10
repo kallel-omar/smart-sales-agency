@@ -4,7 +4,12 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from sqlmodel import select
 
-from app.api.dependencies import CurrentWorkspaceDep, SessionDep
+from app.api.dependencies import (
+    ApprovalDecidePermissionDep,
+    CurrentWorkspaceDep,
+    SalesDataReadPermissionDep,
+    SessionDep,
+)
 from app.channels.console import ConsoleChannel
 from app.models import (
     ApprovalRequest,
@@ -56,6 +61,7 @@ def get_workspace_approval(
 def list_approvals(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: SalesDataReadPermissionDep,
     status: ApprovalStatus | None = Query(default=None),
 ) -> list[ApprovalRequest]:
     return SalesRepository(session).list_approvals(
@@ -70,6 +76,7 @@ async def approve_action(
     payload: ApprovalDecision,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: ApprovalDecidePermissionDep,
 ) -> ApprovalRequest:
     approval = get_workspace_approval(
         approval_id,
@@ -143,6 +150,7 @@ def reject_action(
     payload: ApprovalDecision,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: ApprovalDecidePermissionDep,
 ) -> ApprovalRequest:
     approval = get_workspace_approval(
         approval_id,

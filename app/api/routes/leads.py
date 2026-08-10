@@ -3,7 +3,12 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
-from app.api.dependencies import CurrentWorkspaceDep, SessionDep
+from app.api.dependencies import (
+    CurrentWorkspaceDep,
+    SalesDataReadPermissionDep,
+    SalesDataWritePermissionDep,
+    SessionDep,
+)
 from app.models import Lead
 from app.schemas import LeadCreate, LeadRead
 
@@ -15,6 +20,7 @@ def create_lead(
     payload: LeadCreate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: SalesDataWritePermissionDep,
 ) -> Lead:
     lead_data = payload.model_dump()
     lead_data["tenant_id"] = workspace.slug
@@ -32,6 +38,7 @@ def create_lead(
 def list_leads(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: SalesDataReadPermissionDep,
 ) -> list[Lead]:
     statement = (
         select(Lead)
@@ -46,6 +53,7 @@ def get_lead(
     lead_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    _: SalesDataReadPermissionDep,
 ) -> Lead:
     lead = session.get(Lead, lead_id)
 
