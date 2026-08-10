@@ -126,7 +126,8 @@ def build_llm(settings: Settings, *, model: str | None = None) -> LLMClient:
     """Build the configured transport, optionally for a resolved model.
 
     The provider/model choice remains domain policy outside this transport
-    factory.  ``model`` is intentionally optional for legacy call sites.
+    factory.  ``AIInvocationGateway`` is the sole application-level consumer
+    of this construction seam; agents, routes, and domain services use it.
     """
 
     if model is not None:
