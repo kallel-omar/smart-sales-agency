@@ -9,6 +9,7 @@ def create_workspace(client, slug: str) -> None:
 def create_lead(client, workspace_slug: str) -> str:
     response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": workspace_slug},
         json={
             "tenant_id": workspace_slug,
             "full_name": "Sarra Ben Ali",

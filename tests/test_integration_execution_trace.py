@@ -31,6 +31,7 @@ def _account_id(client, slug: str) -> str:
 def _create_lead(client, slug: str) -> str:
     response = client.post(
         "/api/leads",
+        headers=_workspace_headers(slug),
         json={
             "tenant_id": slug,
             "full_name": "Sarra Ben Ali",

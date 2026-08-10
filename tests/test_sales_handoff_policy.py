@@ -29,9 +29,23 @@ from app.models import (
     Lead,
     SalesConversationHandoff,
     SalesHandoffReasonCode,
+    User,
     Workspace,
+    WorkspaceMember,
+    WorkspaceMemberRole,
 )
 from app.services.repository import SalesRepository
+
+
+def _add_fixture_membership(session, workspace: Workspace) -> None:
+    user = session.exec(select(User).where(User.email == "fixture-operator@example.com")).one()
+    session.add(
+        WorkspaceMember(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role=WorkspaceMemberRole.MEMBER,
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -164,6 +178,8 @@ async def test_handoff_state_is_workspace_scoped_and_body_cannot_supply_it(clien
         workspace_b = Workspace(slug="handoff-b", name="Handoff B")
         lead = Lead(tenant_id=workspace_a.slug, full_name="Sarra Ben Ali", company_name="Example")
         session.add_all([workspace_a, workspace_b, lead])
+        _add_fixture_membership(session, workspace_a)
+        _add_fixture_membership(session, workspace_b)
         session.commit()
         session.refresh(workspace_a)
         session.refresh(workspace_b)

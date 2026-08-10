@@ -56,6 +56,7 @@ class FakeLLM(LLMClient):
 
 def _settings(*, premium_enabled: bool = False, mappings: dict | None = None, pricing: list | None = None) -> Settings:
     return Settings(
+        auth_token_secret="test-auth-token-secret-32-byte-value",
         ai_model_routing_premium_enabled=premium_enabled,
         ai_model_tier_mappings=mappings
         or {
@@ -416,6 +417,7 @@ async def test_sales_reply_route_uses_the_gateway_for_non_demo_calls(client, mon
     workspace_response = client.post("/api/workspaces", json={"slug": "gateway-route", "name": "Gateway Route"})
     lead_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "gateway-route"},
         json={
             "tenant_id": "gateway-route",
             "full_name": "Customer",

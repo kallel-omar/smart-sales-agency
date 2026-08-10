@@ -16,6 +16,7 @@ def test_leads_are_isolated_between_workspaces(client):
 
     lead_a_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "company-a"},
         json={
             "tenant_id": "company-a",
             "full_name": "Lead A",
@@ -30,6 +31,7 @@ def test_leads_are_isolated_between_workspaces(client):
 
     lead_b_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "company-b"},
         json={
             "tenant_id": "company-b",
             "full_name": "Lead B",
@@ -73,6 +75,7 @@ def test_products_are_isolated_between_workspaces(client):
 
     product_a_response = client.post(
         "/api/products",
+        headers={"X-Workspace-Slug": "company-a"},
         json={
             "tenant_id": "company-a",
             "name": "Company A Product",
@@ -87,6 +90,7 @@ def test_products_are_isolated_between_workspaces(client):
 
     product_b_response = client.post(
         "/api/products",
+        headers={"X-Workspace-Slug": "company-b"},
         json={
             "tenant_id": "company-b",
             "name": "Company B Product",

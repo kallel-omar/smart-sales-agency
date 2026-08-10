@@ -69,6 +69,7 @@ def _provision_inbound_sales(client, integration_account_factory, slug: str = "i
     integration_account_factory(workspace_id, credential)
     lead_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": slug},
         json={
             "tenant_id": slug,
             "full_name": "Sarra Ben Ali",

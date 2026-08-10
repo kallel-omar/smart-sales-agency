@@ -179,6 +179,7 @@ def test_lead_api_does_not_accept_customer_controlled_sales_stage(client):
     )
     response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "stage-api"},
         json={
             "tenant_id": "stage-api",
             "full_name": "Sarra Ben Ali",

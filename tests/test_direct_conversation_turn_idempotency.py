@@ -35,6 +35,7 @@ def _create_workspace_and_lead(client, slug: str) -> tuple[UUID, UUID]:
     assert workspace.status_code == 201
     lead = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": slug},
         json={
             "tenant_id": slug,
             "full_name": "Sarra Ben Ali",

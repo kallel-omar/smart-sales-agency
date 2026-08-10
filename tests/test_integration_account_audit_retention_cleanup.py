@@ -163,6 +163,7 @@ def test_cleanup_honors_configured_retention_days(client):
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="test",
         database_url="sqlite://",
+        auth_token_secret="test-auth-token-secret-32-byte-value",
         llm_mode="demo",
         require_human_approval=True,
         integration_account_audit_retention_days=1,

@@ -84,6 +84,7 @@ def test_bidirectional_n8n_compatible_bridge_smoke_flow(
     outbound_account = _provision_account(client, "bridge-workspace", "generic_webhook")
     lead = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "bridge-workspace"},
         json={
             "tenant_id": "bridge-workspace",
             "full_name": "Sarra Ben Ali",

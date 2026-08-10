@@ -112,6 +112,7 @@ def test_valid_allowed_reference_continues_to_authenticate(
     )
     lead = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "company-a"},
         json={
             "tenant_id": "company-a",
             "full_name": "Sarra Ben Ali",

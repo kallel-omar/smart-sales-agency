@@ -1,14 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from sqlmodel import select
 
 from app.api.dependencies import CurrentWorkspaceDep, SessionDep
 from app.models import Product
 from app.schemas import ProductCreate
-from app.services.workspaces import (
-    WorkspaceInactiveError,
-    WorkspaceNotFoundError,
-    require_active_workspace,
-)
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -17,23 +12,8 @@ router = APIRouter(prefix="/products", tags=["products"])
 def create_product(
     payload: ProductCreate,
     session: SessionDep,
+    workspace: CurrentWorkspaceDep,
 ) -> Product:
-    try:
-        workspace = require_active_workspace(
-            session,
-            payload.tenant_id,
-        )
-    except WorkspaceNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail=str(exc),
-        ) from exc
-    except WorkspaceInactiveError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail=str(exc),
-        ) from exc
-
     product_data = payload.model_dump()
     product_data["tenant_id"] = workspace.slug
 

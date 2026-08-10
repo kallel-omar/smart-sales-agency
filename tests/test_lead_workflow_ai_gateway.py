@@ -41,6 +41,7 @@ class FakeLLM(LLMClient):
 
 def _settings() -> Settings:
     return Settings(
+        auth_token_secret="test-auth-token-secret-32-byte-value",
         llm_mode="openai_compatible",
         llm_api_key="test-key",
         ai_model_tier_mappings={
@@ -66,6 +67,7 @@ def _workspace_and_lead(client, slug: str = "lead-gateway") -> tuple[object, Wor
     assert workspace_response.status_code == 201
     lead_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": slug},
         json={
             "tenant_id": slug,
             "full_name": "Sarra Ben Ali",
@@ -202,6 +204,7 @@ async def test_lead_workflow_passes_server_resolved_workspace_to_gateway(client,
     )
     lead_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "lead-route"},
         json={
             "tenant_id": "lead-route",
             "full_name": "Customer",

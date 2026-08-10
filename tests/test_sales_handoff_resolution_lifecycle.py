@@ -22,7 +22,10 @@ from app.models import (
     SalesConversationHandoff,
     SalesConversationHandoffStatus,
     SalesHandoffReasonCode,
+    User,
     Workspace,
+    WorkspaceMember,
+    WorkspaceMemberRole,
 )
 from app.services.repository import NotFoundError, SalesRepository
 
@@ -53,6 +56,17 @@ def _workspace_and_lead(session, slug: str = "handoff-lifecycle") -> tuple[Works
     session.refresh(workspace)
     session.refresh(lead)
     return workspace, lead
+
+
+def _add_fixture_membership(session, workspace: Workspace) -> None:
+    user = session.exec(select(User).where(User.email == "fixture-operator@example.com")).one()
+    session.add(
+        WorkspaceMember(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role=WorkspaceMemberRole.MEMBER,
+        )
+    )
 
 
 @pytest.mark.asyncio
@@ -128,6 +142,7 @@ def test_resolution_is_explicit_scoped_and_repeated_transition_conflicts(client)
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         workspace, lead = _workspace_and_lead(session, "handoff-resolve")
+        _add_fixture_membership(session, workspace)
         repository = SalesRepository(session)
         active = repository.ensure_sales_handoff(
             workspace=workspace,
@@ -175,6 +190,8 @@ def test_missing_and_cross_workspace_handoff_resolution_return_safe_not_found(cl
         workspace_a, lead = _workspace_and_lead(session, "handoff-a")
         workspace_b = Workspace(slug="handoff-b", name="Handoff B")
         session.add(workspace_b)
+        _add_fixture_membership(session, workspace_a)
+        _add_fixture_membership(session, workspace_b)
         session.commit()
         session.refresh(workspace_b)
         repository = SalesRepository(session)

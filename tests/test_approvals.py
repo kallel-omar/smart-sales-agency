@@ -11,6 +11,7 @@ def test_approved_reply_preserves_sales_stage(client):
     
     product_response = client.post(
         "/api/products",
+        headers={"X-Workspace-Slug": "demo"},
         json={
             "tenant_id": "demo",
             "name": "AI Sales Assistant Starter",
@@ -27,6 +28,7 @@ def test_approved_reply_preserves_sales_stage(client):
 
     lead_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "demo"},
         json={
             "tenant_id": "demo",
             "full_name": "Sarra Ben Ali",

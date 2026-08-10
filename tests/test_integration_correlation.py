@@ -32,6 +32,7 @@ def _integration_account_id(client, workspace_slug: str) -> UUID:
 def _create_lead(client, workspace_slug: str) -> str:
     response = client.post(
         "/api/leads",
+        headers=_workspace_headers(workspace_slug),
         json={
             "tenant_id": workspace_slug,
             "full_name": "Sarra Ben Ali",

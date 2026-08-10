@@ -1,6 +1,7 @@
 def test_lead_and_product_require_existing_workspace(client):
     lead_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": "missing-workspace"},
         json={
             "tenant_id": "missing-workspace",
             "full_name": "Sarra Ben Ali",
@@ -11,10 +12,11 @@ def test_lead_and_product_require_existing_workspace(client):
     )
 
     assert lead_response.status_code == 404
-    assert "was not found" in lead_response.json()["detail"]
+    assert lead_response.json()["detail"] == "Workspace not found"
 
     product_response = client.post(
         "/api/products",
+        headers={"X-Workspace-Slug": "missing-workspace"},
         json={
             "tenant_id": "missing-workspace",
             "name": "AI Sales Assistant",
@@ -26,7 +28,7 @@ def test_lead_and_product_require_existing_workspace(client):
     )
 
     assert product_response.status_code == 404
-    assert "was not found" in product_response.json()["detail"]
+    assert product_response.json()["detail"] == "Workspace not found"
 
 
 def test_workspace_slug_is_normalized_for_leads_and_products(client):
@@ -42,8 +44,9 @@ def test_workspace_slug_is_normalized_for_leads_and_products(client):
 
     lead_response = client.post(
         "/api/leads",
+        headers={"X-Workspace-Slug": " Demo "},
         json={
-            "tenant_id": " Demo ",
+            "tenant_id": "body-is-not-authority",
             "full_name": "Sarra Ben Ali",
             "company_name": "Example Commerce",
             "email": "sarra@example.com",
@@ -56,8 +59,9 @@ def test_workspace_slug_is_normalized_for_leads_and_products(client):
 
     product_response = client.post(
         "/api/products",
+        headers={"X-Workspace-Slug": " DEMO "},
         json={
-            "tenant_id": " DEMO ",
+            "tenant_id": "body-is-not-authority",
             "name": "AI Sales Assistant",
             "description": "Sales automation product.",
             "price": 99,

@@ -1,8 +1,13 @@
 from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
-from app.api.dependencies import AuthenticatedPrincipalDep, CurrentWorkspaceDep, SessionDep
-from app.models import Workspace
+from app.api.dependencies import (
+    AuthenticatedPathWorkspaceContextDep,
+    AuthenticatedPrincipalDep,
+    CurrentWorkspaceDep,
+    SessionDep,
+)
+from app.models import Workspace, WorkspaceMember
 from app.schemas import (
     WorkspaceCreate,
     WorkspaceRead,
@@ -63,9 +68,19 @@ def create_workspace(
 
 
 @router.get("", response_model=list[WorkspaceRead])
-def list_workspaces(session: SessionDep) -> list[Workspace]:
-    statement = select(Workspace).order_by(
-        Workspace.created_at.desc()
+def list_workspaces(
+    session: SessionDep,
+    principal: AuthenticatedPrincipalDep,
+) -> list[Workspace]:
+    statement = (
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(
+            WorkspaceMember.user_id == principal.user_id,
+            WorkspaceMember.active.is_(True),
+            Workspace.active.is_(True),
+        )
+        .order_by(Workspace.created_at.desc())
     )
 
     return list(session.exec(statement).all())
@@ -152,19 +167,6 @@ def update_workspace_sales_communication(
 
 @router.get("/{slug}", response_model=WorkspaceRead)
 def get_workspace(
-    slug: str,
-    session: SessionDep,
+    context: AuthenticatedPathWorkspaceContextDep,
 ) -> Workspace:
-    workspace = session.exec(
-        select(Workspace).where(
-            Workspace.slug == slug.strip().lower()
-        )
-    ).first()
-
-    if not workspace:
-        raise HTTPException(
-            status_code=404,
-            detail="Workspace not found",
-        )
-
-    return workspace
+    return context.workspace
