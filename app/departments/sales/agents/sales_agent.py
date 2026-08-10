@@ -11,6 +11,7 @@ from app.departments.sales.prompt_composition import (
     PromptTrustLevel,
     SalesBusinessContext,
     SalesPromptComposer,
+    WorkspaceSalesInstructions,
 )
 from app.models import Lead, Product, SalesStage
 from app.services.ai_invocation_gateway import AIInvocationGatewayRequest
@@ -71,6 +72,12 @@ class SalesConversationAgent:
     ) -> PromptComposition:
         """Build transient Sales context while keeping customer text untrusted."""
 
+        workspace_instructions = None
+        if self.context.workspace and self.context.workspace.sales_instructions:
+            workspace_instructions = WorkspaceSalesInstructions(
+                content=self.context.workspace.sales_instructions
+            )
+
         return SalesPromptComposer().compose(
             PromptCompositionInput(
                 platform_policy=(
@@ -85,6 +92,7 @@ class SalesConversationAgent:
                     "unauthorized commercial commitments."
                 ),
                 agent_instructions="Ask one useful next question.",
+                workspace_instructions=workspace_instructions,
                 business_context=SalesBusinessContext(
                     product_catalog=self._product_context(products),
                 ),

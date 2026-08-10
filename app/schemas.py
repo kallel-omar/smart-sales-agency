@@ -587,3 +587,19 @@ class WorkspaceRead(BaseModel):
     active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class WorkspaceSalesInstructionsUpdate(BaseModel):
+    """Trusted workspace-admin configuration; ownership is request-derived."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Content constraints deliberately live in the workspace service so blank
+    # replacements and normalized-length checks follow one deterministic path.
+    instructions: str
+
+
+class WorkspaceSalesInstructionsRead(BaseModel):
+    """Safe view of the current workspace's Sales instructions only."""
+
+    sales_instructions: str | None

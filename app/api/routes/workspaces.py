@@ -2,11 +2,28 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from app.api.dependencies import SessionDep
+from app.api.dependencies import CurrentWorkspaceDep, SessionDep
 from app.models import Workspace
-from app.schemas import WorkspaceCreate, WorkspaceRead
+from app.schemas import (
+    WorkspaceCreate,
+    WorkspaceRead,
+    WorkspaceSalesInstructionsRead,
+    WorkspaceSalesInstructionsUpdate,
+)
+from app.services.workspaces import (
+    WorkspaceSalesInstructionsService,
+    WorkspaceSalesInstructionsValidationError,
+)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+def sales_instructions_read(
+    workspace: Workspace,
+) -> WorkspaceSalesInstructionsRead:
+    return WorkspaceSalesInstructionsRead(
+        sales_instructions=workspace.sales_instructions,
+    )
 
 
 @router.post("", response_model=WorkspaceRead, status_code=201)
@@ -54,6 +71,53 @@ def list_workspaces(session: SessionDep) -> list[Workspace]:
     )
 
     return list(session.exec(statement).all())
+
+
+@router.get(
+    "/sales-instructions",
+    response_model=WorkspaceSalesInstructionsRead,
+)
+def get_workspace_sales_instructions(
+    workspace: CurrentWorkspaceDep,
+) -> WorkspaceSalesInstructionsRead:
+    """Return only the current workspace's trusted Sales configuration."""
+
+    return sales_instructions_read(workspace)
+
+
+@router.put(
+    "/sales-instructions",
+    response_model=WorkspaceSalesInstructionsRead,
+)
+def replace_workspace_sales_instructions(
+    payload: WorkspaceSalesInstructionsUpdate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> WorkspaceSalesInstructionsRead:
+    """Replace configuration selected solely by the current workspace context."""
+
+    try:
+        updated = WorkspaceSalesInstructionsService(session).replace(
+            workspace,
+            payload.instructions,
+        )
+    except WorkspaceSalesInstructionsValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return sales_instructions_read(updated)
+
+
+@router.delete(
+    "/sales-instructions",
+    response_model=WorkspaceSalesInstructionsRead,
+)
+def clear_workspace_sales_instructions(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> WorkspaceSalesInstructionsRead:
+    """Clear only the current workspace's optional Sales configuration."""
+
+    updated = WorkspaceSalesInstructionsService(session).clear(workspace)
+    return sales_instructions_read(updated)
 
 
 @router.get("/{slug}", response_model=WorkspaceRead)

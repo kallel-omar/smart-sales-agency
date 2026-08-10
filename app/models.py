@@ -134,6 +134,10 @@ class Workspace(SQLModel, table=True):
         default_factory=dict,
         sa_column=Column(JSON, nullable=False),
     )
+    # Trusted workspace-administrator configuration used as one distinct
+    # Sales prompt section. It is not customer conversation content and never
+    # stores rendered prompts or provider data.
+    sales_instructions: str | None = Field(default=None, max_length=4_000)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

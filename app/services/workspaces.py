@@ -1,9 +1,22 @@
 from dataclasses import dataclass
 from hashlib import sha256
+import re
 
 from sqlmodel import Session, select
 
-from app.models import IntegrationAccount, Workspace
+from app.models import IntegrationAccount, Workspace, utc_now
+
+
+MAX_WORKSPACE_SALES_INSTRUCTIONS_LENGTH = 4_000
+
+
+class WorkspaceSalesInstructionsValidationError(ValueError):
+    """Raised when trusted workspace Sales configuration is unsafe to store."""
+
+
+_CREDENTIAL_ASSIGNMENT = re.compile(
+    r"(?im)^\s*(?:api[_ -]?key|password|secret|access[_ -]?token|authorization)\s*[:=]"
+)
 
 
 class WorkspaceNotFoundError(LookupError):
@@ -24,6 +37,72 @@ class IntegrationContext:
 
     account: IntegrationAccount
     workspace: Workspace
+
+
+def normalize_workspace_sales_instructions(value: str) -> str | None:
+    """Normalize plain-text administrator instructions deterministically.
+
+    The configuration is intentionally not a secret store or an HTML surface.
+    It accepts Unicode plain text only; a blank replacement clears the optional
+    field. This deterministic validation performs no model or network work.
+    """
+
+    if not isinstance(value, str):
+        raise WorkspaceSalesInstructionsValidationError(
+            "Sales instructions must be text"
+        )
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise WorkspaceSalesInstructionsValidationError(
+            "Sales instructions must be valid Unicode text"
+        ) from exc
+
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if any(
+        ord(character) < 32 and character not in "\n\t"
+        for character in normalized
+    ):
+        raise WorkspaceSalesInstructionsValidationError(
+            "Sales instructions contain unsupported control characters"
+        )
+
+    if not normalized:
+        return None
+    if len(normalized) > MAX_WORKSPACE_SALES_INSTRUCTIONS_LENGTH:
+        raise WorkspaceSalesInstructionsValidationError(
+            "Sales instructions exceed the maximum length"
+        )
+    if _CREDENTIAL_ASSIGNMENT.search(normalized):
+        raise WorkspaceSalesInstructionsValidationError(
+            "Sales instructions cannot contain credential assignments"
+        )
+    return normalized
+
+
+class WorkspaceSalesInstructionsService:
+    """Read and mutate Sales instructions for one already-resolved workspace."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def read(self, workspace: Workspace) -> str | None:
+        return workspace.sales_instructions
+
+    def replace(self, workspace: Workspace, instructions: str) -> Workspace:
+        workspace.sales_instructions = normalize_workspace_sales_instructions(instructions)
+        return self._save(workspace)
+
+    def clear(self, workspace: Workspace) -> Workspace:
+        workspace.sales_instructions = None
+        return self._save(workspace)
+
+    def _save(self, workspace: Workspace) -> Workspace:
+        workspace.updated_at = utc_now()
+        self.session.add(workspace)
+        self.session.commit()
+        self.session.refresh(workspace)
+        return workspace
 
 
 def require_active_workspace(
