@@ -571,6 +571,12 @@ class SalesReply(BaseModel):
     handoff_reason_code: SalesHandoffReasonCode | None = None
 
 
+class DirectSalesReply(SalesReply):
+    """Direct API reply with an optional retry-replay indicator."""
+
+    duplicate: bool | None = None
+
+
 class SalesHandoffResolutionRead(BaseModel):
     """Safe response for an explicit Sales handoff resolution."""
 

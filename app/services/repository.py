@@ -1,12 +1,15 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.models import (
     ApprovalRequest,
     ApprovalStatus,
     ConversationMessage,
+    DirectConversationTurnReceipt,
+    DirectConversationTurnReceiptStatus,
     Lead,
     LeadResearch,
     LeadStatus,
@@ -14,6 +17,7 @@ from app.models import (
     SalesConversationHandoff,
     SalesConversationHandoffStatus,
     SalesHandoffReasonCode,
+    SalesStage,
     Workspace,
 )
 
@@ -92,6 +96,75 @@ class SalesRepository:
         messages = list(self.session.exec(statement).all())
         messages.reverse()
         return messages
+
+    def reserve_direct_conversation_turn_receipt(
+        self,
+        *,
+        workspace: Workspace,
+        lead: Lead,
+        idempotency_key: str,
+        request_fingerprint: str,
+    ) -> tuple[DirectConversationTurnReceipt, bool]:
+        """Persist the authoritative reservation before direct turn execution."""
+
+        if lead.tenant_id != workspace.slug:
+            raise NotFoundError("Lead not found")
+        receipt = DirectConversationTurnReceipt(
+            workspace_id=workspace.id,
+            lead_id=lead.id,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+        )
+        self.session.add(receipt)
+        try:
+            self.session.commit()
+            self.session.refresh(receipt)
+            return receipt, True
+        except IntegrityError:
+            self.session.rollback()
+            existing = self.session.exec(
+                select(DirectConversationTurnReceipt).where(
+                    DirectConversationTurnReceipt.workspace_id == workspace.id,
+                    DirectConversationTurnReceipt.lead_id == lead.id,
+                    DirectConversationTurnReceipt.idempotency_key == idempotency_key,
+                )
+            ).first()
+            if existing is None:
+                raise
+            return existing, False
+
+    def complete_direct_conversation_turn_receipt(
+        self,
+        receipt: DirectConversationTurnReceipt,
+        *,
+        detected_stage: SalesStage,
+        draft_reply: str,
+        approval_id: UUID | None,
+        handoff_required: bool,
+        handoff_reason_code: SalesHandoffReasonCode | None,
+    ) -> DirectConversationTurnReceipt:
+        """Save a minimal safe completed result after canonical turn persistence."""
+
+        receipt.status = DirectConversationTurnReceiptStatus.COMPLETED
+        receipt.detected_stage = detected_stage
+        receipt.draft_reply = draft_reply
+        receipt.approval_id = approval_id
+        receipt.handoff_required = handoff_required
+        receipt.handoff_reason_code = handoff_reason_code
+        receipt.completed_at = datetime.now(timezone.utc)
+        self.session.add(receipt)
+        self.session.commit()
+        self.session.refresh(receipt)
+        return receipt
+
+    def discard_direct_conversation_turn_receipt(
+        self,
+        receipt: DirectConversationTurnReceipt,
+    ) -> None:
+        """Release an unfinished reservation after a failed turn for retry."""
+
+        self.session.delete(receipt)
+        self.session.commit()
 
     def get_sales_handoff(
         self,

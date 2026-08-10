@@ -70,6 +70,13 @@ class SalesConversationHandoffStatus(StrEnum):
     RESOLVED = "resolved"
 
 
+class DirectConversationTurnReceiptStatus(StrEnum):
+    """Durable lifecycle for a client-retried direct Sales turn."""
+
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -448,6 +455,39 @@ class ConversationMessage(SQLModel, table=True):
     stage: SalesStage = Field(default=SalesStage.INTRODUCTION)
     content: str = Field(sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class DirectConversationTurnReceipt(SQLModel, table=True):
+    """Safe retry receipt for a direct, workspace-scoped Sales API turn."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "lead_id",
+            "idempotency_key",
+            name="uq_direct_conversation_turn_receipt",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    lead_id: UUID = Field(foreign_key="lead.id", index=True)
+    idempotency_key: str = Field(max_length=200)
+    request_fingerprint: str = Field(max_length=64)
+    status: DirectConversationTurnReceiptStatus = Field(
+        default=DirectConversationTurnReceiptStatus.IN_PROGRESS,
+        index=True,
+    )
+    # The completed outcome is customer-safe API data, never prompts, provider
+    # metadata, credentials, or hidden reasoning. It lets an identical retry
+    # return the canonical result without re-running Sales business logic.
+    detected_stage: SalesStage | None = Field(default=None)
+    draft_reply: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    approval_id: UUID | None = Field(default=None, foreign_key="approvalrequest.id")
+    handoff_required: bool = Field(default=False)
+    handoff_reason_code: SalesHandoffReasonCode | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+    completed_at: datetime | None = Field(default=None, index=True)
 
 
 class SalesConversationHandoff(SQLModel, table=True):

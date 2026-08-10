@@ -1,22 +1,24 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from app.api.dependencies import CurrentWorkspaceDep, SessionDep, SettingsDep
 from app.departments.sales.services import (
+    DirectConversationTurnIdempotencyConflictError,
+    DirectConversationTurnIdempotencyValidationError,
+    DirectSalesConversationTurnService,
     SalesConversationHandoffService,
     SalesConversationTurnInput,
-    SalesConversationTurnService,
 )
 from app.models import ConversationMessage
 from app.schemas import (
     ConversationMessageRead,
+    DirectSalesReply,
     InboundMessage,
     SalesHandoffResolutionRead,
-    SalesReply,
 )
 from app.services.repository import HandoffLifecycleConflictError, NotFoundError, SalesRepository
-
 
 router = APIRouter(
     prefix="/conversations",
@@ -58,7 +60,8 @@ def get_conversation_history(
 
 @router.post(
     "/{lead_id}/reply",
-    response_model=SalesReply,
+    response_model=DirectSalesReply,
+    response_model_exclude_none=True,
 )
 async def draft_sales_reply(
     lead_id: UUID,
@@ -66,11 +69,12 @@ async def draft_sales_reply(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
     settings: SettingsDep,
-) -> SalesReply:
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> DirectSalesReply:
     repository = SalesRepository(session)
 
     try:
-        result = await SalesConversationTurnService(
+        outcome = await DirectSalesConversationTurnService(
             repository=repository,
             settings=settings,
             workspace=workspace,
@@ -79,18 +83,25 @@ async def draft_sales_reply(
                 lead_id=lead_id,
                 customer_message=payload.content,
                 channel=payload.channel,
-            )
+            ),
+            idempotency_key=idempotency_key,
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lead not found") from exc
+    except DirectConversationTurnIdempotencyValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DirectConversationTurnIdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    return SalesReply(
+    result = outcome.turn_result
+    return DirectSalesReply(
         lead_id=result.lead_id,
         detected_stage=result.detected_stage,
         draft_reply=result.draft_reply,
         approval_id=result.approval_id,
         handoff_required=result.handoff_required,
         handoff_reason_code=result.handoff_reason_code,
+        duplicate=True if outcome.duplicate else None,
     )
 
 
