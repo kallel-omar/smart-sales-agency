@@ -7,7 +7,7 @@ from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.services import SalesDepartmentService
 from app.models import ConversationMessage
 from app.schemas import ConversationMessageRead, InboundMessage, SalesReply
-from app.services.llm import build_llm
+from app.services.ai_invocation_gateway import AIInvocationGateway
 from app.services.repository import NotFoundError, SalesRepository
 
 
@@ -79,7 +79,9 @@ async def draft_sales_reply(
     context = AgentContext(
         settings=settings,
         repository=repository,
-        llm=build_llm(settings),
+        llm=None,
+        workspace=workspace,
+        ai_invocation_gateway=AIInvocationGateway(session, settings),
     )
 
     sales_department = SalesDepartmentService(context)
