@@ -35,6 +35,14 @@ class SalesStage(StrEnum):
     FOLLOW_UP = "follow_up"
 
 
+class SalesStageTransitionReasonCode(StrEnum):
+    """Stable, customer-safe outcomes for Sales-stage transition requests."""
+
+    TRANSITION_ALLOWED = "transition_allowed"
+    SELF_TRANSITION = "self_transition"
+    TRANSITION_NOT_ALLOWED = "transition_not_allowed"
+
+
 class SalesLanguage(StrEnum):
     """Supported deterministic language modes for customer-facing Sales replies."""
 
@@ -420,6 +428,9 @@ class Lead(SQLModel, table=True):
     website: str | None = Field(default=None, max_length=500)
     source: str = Field(default="manual", max_length=100)
     status: LeadStatus = Field(default=LeadStatus.NEW, index=True)
+    # The canonical Sales-conversation state is domain-owned. Individual
+    # messages retain their detected conversational stage separately.
+    sales_stage: SalesStage = Field(default=SalesStage.INTRODUCTION, index=True)
     score: int = Field(default=0, ge=0, le=100)
     notes: str | None = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utc_now)

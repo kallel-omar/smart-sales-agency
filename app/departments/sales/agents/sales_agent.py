@@ -1,7 +1,5 @@
 ﻿import re
 
-from uuid import UUID
-
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.language_policy import (
     render_sales_communication_instruction,
@@ -9,6 +7,11 @@ from app.departments.sales.language_policy import (
     select_sales_tone,
 )
 from app.departments.sales.prompt_composition import (
+    SALES_COMMERCIAL_GROUNDING_POLICY,
+    SALES_CONVERSATION_STRATEGY_POLICY,
+    SALES_DEPARTMENT_POLICY,
+    SALES_HANDOFF_POLICY,
+    SALES_PLATFORM_POLICY,
     PromptComposition,
     PromptCompositionInput,
     PromptMessage,
@@ -18,11 +21,6 @@ from app.departments.sales.prompt_composition import (
     SalesLanguageToneInstruction,
     SalesProductContext,
     SalesPromptComposer,
-    SALES_CONVERSATION_STRATEGY_POLICY,
-    SALES_COMMERCIAL_GROUNDING_POLICY,
-    SALES_DEPARTMENT_POLICY,
-    SALES_HANDOFF_POLICY,
-    SALES_PLATFORM_POLICY,
     WorkspaceSalesInstructions,
 )
 from app.models import ConversationMessage, Lead, Product, SalesStage
@@ -165,8 +163,10 @@ class SalesConversationAgent:
         inbound: str,
         *,
         conversation_history: list[ConversationMessage] | None = None,
+        current_stage: SalesStage | None = None,
     ) -> tuple[SalesStage, str]:
         stage = self.detect_stage(inbound)
+        canonical_stage = current_stage or stage
         products = self.context.repository.list_products(lead.tenant_id)
 
         if self.context.settings.llm_mode == "demo":
@@ -218,7 +218,7 @@ class SalesConversationAgent:
             rendered_prompt = self._compose_prompt(
                 lead=lead,
                 inbound=inbound,
-                stage=stage,
+                stage=canonical_stage,
                 products=products,
                 conversation_history=history,
             ).render()
@@ -235,7 +235,7 @@ class SalesConversationAgent:
                     system_prompt=rendered_prompt.system_prompt,
                     user_prompt=rendered_prompt.user_prompt,
                     conversation_id=lead.id,
-                    sales_stage=stage,
+                    sales_stage=canonical_stage,
                 )
             )
             if invocation.content is None:

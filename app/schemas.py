@@ -39,6 +39,7 @@ class LeadRead(LeadCreate):
 
     id: UUID
     status: LeadStatus
+    sales_stage: SalesStage
     score: int
     created_at: datetime
     updated_at: datetime

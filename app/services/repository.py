@@ -80,6 +80,16 @@ class SalesRepository:
         self.session.refresh(lead)
         return lead
 
+    def update_sales_stage(self, lead: Lead, stage: SalesStage) -> Lead:
+        """Persist a transition already validated by the Sales domain policy."""
+
+        lead.sales_stage = stage
+        lead.updated_at = datetime.now(timezone.utc)
+        self.session.add(lead)
+        self.session.commit()
+        self.session.refresh(lead)
+        return lead
+
     def add_message(self, message: ConversationMessage) -> ConversationMessage:
         self.session.add(message)
         self.session.commit()

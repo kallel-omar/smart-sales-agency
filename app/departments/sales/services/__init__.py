@@ -17,17 +17,25 @@ from app.departments.sales.services.handoff_service import (
     SalesConversationHandoffService,
     SalesHandoffResolutionResult,
 )
+from app.departments.sales.services.stage_transition_service import (
+    SalesStageTransitionInput,
+    SalesStageTransitionResult,
+    SalesStageTransitionService,
+)
 
 __all__ = [
-    "SalesDepartmentService",
-    "SalesReplyResult",
-    "SalesConversationTurnInput",
-    "SalesConversationTurnResult",
-    "SalesConversationTurnService",
     "DirectConversationTurnIdempotencyConflictError",
     "DirectConversationTurnIdempotencyValidationError",
     "DirectSalesConversationTurnOutcome",
     "DirectSalesConversationTurnService",
     "SalesConversationHandoffService",
+    "SalesConversationTurnInput",
+    "SalesConversationTurnResult",
+    "SalesConversationTurnService",
+    "SalesDepartmentService",
     "SalesHandoffResolutionResult",
+    "SalesReplyResult",
+    "SalesStageTransitionInput",
+    "SalesStageTransitionResult",
+    "SalesStageTransitionService",
 ]

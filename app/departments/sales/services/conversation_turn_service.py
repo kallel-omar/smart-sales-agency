@@ -14,6 +14,9 @@ from app.departments.sales.handoff_policy import (
     SalesHandoffSignals,
     render_sales_handoff_reply,
 )
+from app.departments.sales.services.stage_transition_service import (
+    SalesStageTransitionService,
+)
 from app.models import (
     ConversationMessage,
     SalesHandoffReasonCode,
@@ -87,6 +90,10 @@ class SalesConversationTurnService:
         # The repository's existing bounded, chronological history contract is
         # loaded once and supplied to the agent for all prompt-context uses.
         history = self.repository.conversation_history(lead.id)
+        canonical_stage = SalesStageTransitionService(
+            repository=self.repository,
+            workspace=self.workspace,
+        ).canonical_stage_for(lead)
         handoff = self._handoff_decision(lead.id, source.handoff_signals)
         agent = SalesConversationAgent(self._agent_context())
 
@@ -106,6 +113,7 @@ class SalesConversationTurnService:
                 lead,
                 source.customer_message,
                 conversation_history=history,
+                current_stage=canonical_stage,
             )
             ai_invoked = self.settings.llm_mode != "demo"
 
