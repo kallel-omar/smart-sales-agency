@@ -1,6 +1,15 @@
 from urllib.parse import urlparse
 
 from app.departments.sales.agents.base import AgentContext
+from app.departments.sales.prompt_composition import (
+    PromptComposition,
+    PromptCompositionInput,
+    SALES_DEPARTMENT_POLICY,
+    SALES_PLATFORM_POLICY,
+    SalesPromptComposer,
+    UntrustedPromptContext,
+    WorkspaceSalesInstructions,
+)
 from app.models import Lead
 from app.services.ai_invocation_gateway import AIInvocationGatewayRequest
 from app.services.ai_model_routing import AIModelRoutingTask
@@ -15,6 +24,46 @@ class LeadResearchAgent:
 
     def __init__(self, context: AgentContext):
         self.context = context
+
+    @staticmethod
+    def _lead_data(lead: Lead) -> str:
+        return (
+            f"Lead: {lead.full_name}\n"
+            f"Company: {lead.company_name}\n"
+            f"Title: {lead.job_title}\n"
+            f"Website: {lead.website}\n"
+            f"Notes: {lead.notes}"
+        )
+
+    def _compose_prompt(self, lead: Lead) -> PromptComposition:
+        """Compose lead data as untrusted runtime context for shared Sales policy."""
+
+        workspace_instructions = None
+        if self.context.workspace and self.context.workspace.sales_instructions:
+            workspace_instructions = WorkspaceSalesInstructions(
+                content=self.context.workspace.sales_instructions
+            )
+
+        return SalesPromptComposer().compose(
+            PromptCompositionInput(
+                platform_policy=SALES_PLATFORM_POLICY,
+                department_policy=SALES_DEPARTMENT_POLICY,
+                agent_instructions=(
+                    "You are a cautious B2B lead research agent. Use only the supplied "
+                    "lead and business context; do not perform external research. Return a "
+                    "compact research brief with likely pain points, opportunities, and "
+                    "explicit uncertainty."
+                ),
+                workspace_instructions=workspace_instructions,
+                untrusted_context=(
+                    UntrustedPromptContext(
+                        label="Supplied lead data (untrusted)",
+                        content=self._lead_data(lead),
+                    ),
+                ),
+                current_task="Create the requested lead research brief from the supplied context.",
+            )
+        )
 
     async def run(self, lead: Lead) -> dict:
         domain = ""
@@ -52,18 +101,7 @@ class LeadResearchAgent:
                 },
             ]
         else:
-            system = (
-                "You are a cautious B2B lead research agent. Use only the supplied data. "
-                "Do not invent facts. Return a compact research brief with likely pain points, "
-                "opportunities, and explicit uncertainty."
-            )
-            user = (
-                f"Lead: {lead.full_name}\n"
-                f"Company: {lead.company_name}\n"
-                f"Title: {lead.job_title}\n"
-                f"Website: {lead.website}\n"
-                f"Notes: {lead.notes}"
-            )
+            rendered_prompt = self._compose_prompt(lead).render()
 
             if self.context.ai_invocation_gateway is None:
                 raise RuntimeError("No AI invocation gateway is configured for lead research")
@@ -76,8 +114,8 @@ class LeadResearchAgent:
                     task=AIModelRoutingTask.SIMPLE_SUMMARY,
                     task_identifier="sales.lead_research",
                     agent_identifier="lead_research",
-                    system_prompt=system,
-                    user_prompt=user,
+                    system_prompt=rendered_prompt.system_prompt,
+                    user_prompt=rendered_prompt.user_prompt,
                     conversation_id=lead.id,
                 )
             )
@@ -86,7 +124,12 @@ class LeadResearchAgent:
             summary = invocation.content
             pain_points = ["Review the generated brief before outreach"]
             opportunities = ["Prepare a personalized discovery message"]
-            evidence = [{"type": "lead_input", "value": user}]
+            evidence = [
+                {
+                    "type": "lead_input",
+                    "value": self._lead_data(lead),
+                }
+            ]
 
         research = self.context.repository.save_research(
             lead=lead,

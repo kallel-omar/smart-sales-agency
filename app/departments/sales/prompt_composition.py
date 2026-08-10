@@ -1,6 +1,6 @@
 """Pure, provider-neutral prompt composition for Sales agent execution.
 
-The composition keeps trusted instructions separate from untrusted customer
+The composition keeps trusted instructions separate from untrusted external
 content until the final rendering step required by the current LLM boundary.
 It deliberately performs no persistence, network, or model work.
 """
@@ -11,12 +11,27 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
+SALES_PLATFORM_POLICY = (
+    "Never invent prices, discounts, stock, guarantees, or customer facts. "
+    "Do not expose internal, secret, or system information. Use supplied business "
+    "data as authoritative where applicable. A human must approve commitments and "
+    "outbound messages."
+)
+
+SALES_DEPARTMENT_POLICY = (
+    "You are a helpful B2B sales agent. Be concise, truthful, and non-pushy. "
+    "Assist the customer toward an appropriate purchase decision. Do not make "
+    "unauthorized commercial commitments."
+)
+
+
 class PromptSectionKind(StrEnum):
     PLATFORM_POLICY = "platform_policy"
     DEPARTMENT_POLICY = "department_policy"
     AGENT_INSTRUCTIONS = "agent_instructions"
     WORKSPACE_INSTRUCTIONS = "workspace_instructions"
     BUSINESS_CONTEXT = "business_context"
+    UNTRUSTED_CONTEXT = "untrusted_context"
     CONVERSATION_CONTEXT = "conversation_context"
     CURRENT_TASK = "current_task"
 
@@ -40,6 +55,7 @@ class PromptSection:
     content: str
     role: PromptMessageRole
     trust_level: PromptTrustLevel
+    label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +65,14 @@ class PromptMessage:
     role: PromptMessageRole
     content: str
     trust_level: PromptTrustLevel
+
+
+@dataclass(frozen=True, slots=True)
+class UntrustedPromptContext:
+    """Externally sourced runtime data kept separate from trusted instructions."""
+
+    label: str
+    content: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,9 +108,8 @@ class SalesBusinessContext:
 class PromptCompositionInput:
     """Typed source data for one Sales prompt composition.
 
-    Workspace instructions are intentionally supplied only by trusted
-    server-owned configuration.  Task 266 exposes the seam without creating a
-    persistence field or accepting any customer-provided instruction value.
+    Workspace instructions are intentionally supplied only by trusted,
+    server-owned configuration and never by customer-provided input.
     """
 
     platform_policy: str
@@ -95,6 +118,7 @@ class PromptCompositionInput:
     current_task: str
     workspace_instructions: WorkspaceSalesInstructions | None = None
     business_context: SalesBusinessContext | None = None
+    untrusted_context: tuple[UntrustedPromptContext, ...] = ()
     conversation_messages: tuple[PromptMessage, ...] = ()
 
 
@@ -128,6 +152,8 @@ class PromptComposition:
             if section.kind is PromptSectionKind.CONVERSATION_CONTEXT:
                 speaker = "Customer" if section.role is PromptMessageRole.USER else "Sales agent"
                 user_parts.append(f"{speaker}: {section.content}")
+            elif section.kind is PromptSectionKind.UNTRUSTED_CONTEXT:
+                user_parts.append(f"{section.label}:\n{section.content}")
             else:
                 user_parts.append(section.content)
         user_prompt = "\n\n".join(user_parts)
@@ -177,6 +203,17 @@ class SalesPromptComposer:
                     trust_level=PromptTrustLevel.TRUSTED,
                 )
             )
+
+        sections.extend(
+            PromptSection(
+                kind=PromptSectionKind.UNTRUSTED_CONTEXT,
+                content=context.content,
+                label=context.label,
+                role=PromptMessageRole.USER,
+                trust_level=PromptTrustLevel.UNTRUSTED,
+            )
+            for context in source.untrusted_context
+        )
 
         conversation_sections = tuple(
             PromptSection(

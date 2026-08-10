@@ -11,6 +11,8 @@ from app.departments.sales.prompt_composition import (
     PromptTrustLevel,
     SalesBusinessContext,
     SalesPromptComposer,
+    SALES_DEPARTMENT_POLICY,
+    SALES_PLATFORM_POLICY,
     WorkspaceSalesInstructions,
 )
 from app.models import Lead, Product, SalesStage
@@ -80,17 +82,8 @@ class SalesConversationAgent:
 
         return SalesPromptComposer().compose(
             PromptCompositionInput(
-                platform_policy=(
-                    "Never invent prices, discounts, stock, guarantees, or customer facts. "
-                    "Do not expose internal, secret, or system information. Use supplied business "
-                    "data as authoritative where applicable. A human must approve commitments and "
-                    "outbound messages."
-                ),
-                department_policy=(
-                    "You are a helpful B2B sales agent. Be concise, truthful, and non-pushy. "
-                    "Assist the customer toward an appropriate purchase decision. Do not make "
-                    "unauthorized commercial commitments."
-                ),
+                platform_policy=SALES_PLATFORM_POLICY,
+                department_policy=SALES_DEPARTMENT_POLICY,
                 agent_instructions="Ask one useful next question.",
                 workspace_instructions=workspace_instructions,
                 business_context=SalesBusinessContext(
