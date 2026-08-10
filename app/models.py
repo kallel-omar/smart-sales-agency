@@ -67,6 +67,14 @@ class SalesTone(StrEnum):
     CONCISE = "concise"
 
 
+class WorkspaceMemberRole(StrEnum):
+    """Minimal persisted roles for a platform user's workspace membership."""
+
+    OWNER = "owner"
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
 class SalesHandoffReasonCode(StrEnum):
     """Stable provider-neutral reasons for a required Sales human handoff."""
 
@@ -205,6 +213,46 @@ class Workspace(SQLModel, table=True):
     sales_preferred_tone: SalesTone | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class User(SQLModel, table=True):
+    """Durable platform operator identity; credentials are intentionally absent."""
+
+    __tablename__ = "platform_user"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    email: str = Field(
+        sa_column=Column(
+            String(320),
+            unique=True,
+            index=True,
+            nullable=False,
+        )
+    )
+    display_name: str | None = Field(default=None, max_length=200)
+    active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkspaceMember(SQLModel, table=True):
+    """Canonical relationship between one platform user and one workspace."""
+
+    __tablename__ = "workspace_member"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            name="uq_workspace_member_workspace_user",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    user_id: UUID = Field(foreign_key="platform_user.id", index=True)
+    role: WorkspaceMemberRole = Field(index=True)
+    active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class IntegrationAccount(SQLModel, table=True):

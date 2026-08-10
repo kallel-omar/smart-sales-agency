@@ -20,6 +20,7 @@ from app.models import (
     SalesStage,
     SalesTone,
     SalesWritingScript,
+    WorkspaceMemberRole,
 )
 
 
@@ -613,6 +614,50 @@ class WorkspaceRead(BaseModel):
     active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class UserCreate(BaseModel):
+    """Safe identity input; credentials are deliberately not part of this schema."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=1, max_length=320)
+    display_name: str | None = Field(default=None, max_length=200)
+
+
+class UserRead(BaseModel):
+    """Safe persisted user identity with no credentials or token material."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: str
+    display_name: str | None
+    active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkspaceMemberCreate(BaseModel):
+    """Membership data without workspace authority, which must come from the caller."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    role: WorkspaceMemberRole
+
+
+class WorkspaceMemberRead(BaseModel):
+    """Safe membership representation for future authenticated workspace views."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    user_id: UUID
+    role: WorkspaceMemberRole
+    active: bool
+    created_at: datetime
 
 
 class WorkspaceSalesInstructionsUpdate(BaseModel):
