@@ -16,6 +16,7 @@ from app.departments.sales.prompt_composition import (
     SalesProductContext,
     SalesPromptComposer,
     SALES_COMMERCIAL_GROUNDING_POLICY,
+    SALES_CONVERSATION_STRATEGY_POLICY,
     WorkspaceSalesInstructions,
 )
 from app.models import ConversationMessage, Lead, Product, Workspace
@@ -224,6 +225,7 @@ async def test_sales_conversation_agent_uses_composer_then_gateway_with_role_ord
     assert "Never invent prices, discounts, stock, guarantees, or customer facts" in request.system_prompt
     assert "helpful B2B sales agent" in request.system_prompt
     assert SALES_COMMERCIAL_GROUNDING_POLICY in request.system_prompt
+    assert SALES_CONVERSATION_STRATEGY_POLICY in request.system_prompt
     assert "Ask one useful next question" in request.system_prompt
     assert "Authoritative product catalog:" in request.user_prompt
     assert "Name: Starter" in request.user_prompt

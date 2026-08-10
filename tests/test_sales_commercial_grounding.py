@@ -11,6 +11,7 @@ from app.departments.sales.prompt_composition import (
     PromptTrustLevel,
     PromptCompositionInput,
     SALES_COMMERCIAL_GROUNDING_POLICY,
+    SALES_CONVERSATION_STRATEGY_POLICY,
     SalesBusinessContext,
     SalesProductContext,
     SalesPromptComposer,
@@ -121,6 +122,7 @@ def test_sales_agent_keeps_customer_price_claim_untrusted_and_uses_workspace_pro
         PromptSectionKind.DEPARTMENT_POLICY,
         PromptSectionKind.COMMERCIAL_GROUNDING_POLICY,
         PromptSectionKind.AGENT_INSTRUCTIONS,
+        PromptSectionKind.SALES_CONVERSATION_STRATEGY_POLICY,
         PromptSectionKind.LANGUAGE_TONE_POLICY,
         PromptSectionKind.WORKSPACE_INSTRUCTIONS,
         PromptSectionKind.BUSINESS_CONTEXT,
@@ -145,6 +147,8 @@ def test_sales_agent_keeps_customer_price_claim_untrusted_and_uses_workspace_pro
     assert "50 DT" in current_task.content
     assert "50 DT" not in rendered.system_prompt
     assert rendered.system_prompt.index(SALES_COMMERCIAL_GROUNDING_POLICY) < rendered.system_prompt.index(
+        SALES_CONVERSATION_STRATEGY_POLICY
+    ) < rendered.system_prompt.index(
         workspace_section.content
     )
 

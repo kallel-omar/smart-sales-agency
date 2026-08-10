@@ -18,6 +18,7 @@ from app.departments.sales.prompt_composition import (
     SalesLanguageToneInstruction,
     SalesProductContext,
     SalesPromptComposer,
+    SALES_CONVERSATION_STRATEGY_POLICY,
     SALES_COMMERCIAL_GROUNDING_POLICY,
     SALES_DEPARTMENT_POLICY,
     SALES_PLATFORM_POLICY,
@@ -123,6 +124,7 @@ class SalesConversationAgent:
                 department_policy=SALES_DEPARTMENT_POLICY,
                 commercial_grounding_policy=SALES_COMMERCIAL_GROUNDING_POLICY,
                 agent_instructions="Ask one useful next question.",
+                sales_conversation_strategy_policy=SALES_CONVERSATION_STRATEGY_POLICY,
                 language_tone_instruction=SalesLanguageToneInstruction(
                     content=render_sales_communication_instruction(
                         language=language,

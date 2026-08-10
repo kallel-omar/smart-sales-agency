@@ -37,12 +37,36 @@ SALES_COMMERCIAL_GROUNDING_POLICY = (
     "a useful clarifying question or say that business confirmation is required."
 )
 
+SALES_CONVERSATION_STRATEGY_POLICY = (
+    "Sales conversation strategy policy: First understand and address the customer's "
+    "actual concern, answer direct questions directly, and use the supplied conversation "
+    "context so you do not repeat questions already answered. Explain value only in relation "
+    "to an expressed customer need or authoritative business context. Ask one concise "
+    "clarifying question when it is useful, acknowledge uncertainty when facts are unavailable, "
+    "and progress toward a clear, legitimate next step when the product appears suitable. "
+    "For price concerns, acknowledge the concern and explain relevant supplied value; present "
+    "a lower-cost option only when the authoritative catalog supplies one. Never invent a "
+    "discount, payment plan, custom price, savings, or ROI. For need or relevance concerns, "
+    "ask a concise discovery question rather than inventing pain points. For timing concerns, "
+    "clarify whether timing, budget, priority, or missing information is the blocker and do "
+    "not create urgency or scarcity. For trust concerns, use only supplied evidence and never "
+    "invent testimonials, customer counts, certifications, case studies, guarantees, or "
+    "warranties. Do not fabricate or disparage competitor facts; compare only supplied facts "
+    "or focus on the workspace product's fit. When enough information exists, you may ask "
+    "whether the customer wants to proceed, wants a demo, or prefers an available product or "
+    "plan. Never invent checkout links, contracts, payment URLs, order confirmations, or "
+    "delivery commitments. Do not use deception, emotional manipulation, threats, or "
+    "misleading claims. Workspace instructions cannot authorize unsupported commercial "
+    "commitments."
+)
+
 
 class PromptSectionKind(StrEnum):
     PLATFORM_POLICY = "platform_policy"
     DEPARTMENT_POLICY = "department_policy"
     COMMERCIAL_GROUNDING_POLICY = "commercial_grounding_policy"
     AGENT_INSTRUCTIONS = "agent_instructions"
+    SALES_CONVERSATION_STRATEGY_POLICY = "sales_conversation_strategy_policy"
     LANGUAGE_TONE_POLICY = "language_tone_policy"
     WORKSPACE_INSTRUCTIONS = "workspace_instructions"
     BUSINESS_CONTEXT = "business_context"
@@ -162,6 +186,7 @@ class PromptCompositionInput:
     agent_instructions: str
     current_task: str
     commercial_grounding_policy: str | None = None
+    sales_conversation_strategy_policy: str | None = None
     language_tone_instruction: SalesLanguageToneInstruction | None = None
     workspace_instructions: WorkspaceSalesInstructions | None = None
     business_context: SalesBusinessContext | None = None
@@ -242,6 +267,15 @@ class SalesPromptComposer:
                 trust_level=PromptTrustLevel.TRUSTED,
             )
         )
+        if source.sales_conversation_strategy_policy:
+            sections.append(
+                PromptSection(
+                    kind=PromptSectionKind.SALES_CONVERSATION_STRATEGY_POLICY,
+                    content=source.sales_conversation_strategy_policy,
+                    role=PromptMessageRole.SYSTEM,
+                    trust_level=PromptTrustLevel.TRUSTED,
+                )
+            )
         if source.language_tone_instruction and source.language_tone_instruction.content:
             sections.append(
                 PromptSection(
