@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
 from app.models import SalesHandoffReasonCode
+
+_SEPARATOR = r"[\W_]+"
+_EXPLICIT_HUMAN_REQUEST_PATTERNS = (
+    re.compile(rf"\bhuman{_SEPARATOR}agent\b", re.IGNORECASE),
+    re.compile(
+        rf"\b(?:talk|speak){_SEPARATOR}(?:to|with){_SEPARATOR}"
+        rf"(?:a{_SEPARATOR})?(?:human|person)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(rf"\breal{_SEPARATOR}person\b", re.IGNORECASE),
+    re.compile(rf"\bcustomer{_SEPARATOR}support\b", re.IGNORECASE),
+    re.compile(rf"\bhuman{_SEPARATOR}support\b", re.IGNORECASE),
+    re.compile(r"\brepresentative\b", re.IGNORECASE),
+    re.compile(rf"\blive{_SEPARATOR}agent\b", re.IGNORECASE),
+)
 
 
 class SalesCommercialEscalationType(StrEnum):
@@ -20,15 +36,43 @@ class SalesCommercialEscalationType(StrEnum):
 class SalesHandoffSignals:
     """Typed, trusted facts used to decide whether a human must take over.
 
-    These inputs are intentionally not derived from customer prompt text.  An
-    inbound API payload cannot set them; future deterministic domain flows may
-    supply them after validating the relevant business condition.
+    These inputs are trusted application facts. An inbound API payload cannot
+    set them directly; server-side deterministic domain logic may derive them
+    after validating a relevant business condition.
     """
 
     human_requested: bool = False
     commercial_escalation: SalesCommercialEscalationType | None = None
     authoritative_information_unavailable: bool = False
     existing_approval_required: bool = False
+
+
+def derive_customer_handoff_signals(customer_message: str) -> SalesHandoffSignals:
+    """Derive trusted handoff signals from explicit customer assistance requests."""
+
+    if any(pattern.search(customer_message) for pattern in _EXPLICIT_HUMAN_REQUEST_PATTERNS):
+        return SalesHandoffSignals(human_requested=True)
+    return SalesHandoffSignals()
+
+
+def merge_sales_handoff_signals(
+    trusted_signals: SalesHandoffSignals | None,
+    derived_signals: SalesHandoffSignals,
+) -> SalesHandoffSignals:
+    """Combine server-trusted handoff facts without dropping existing signals."""
+
+    base = trusted_signals or SalesHandoffSignals()
+    return SalesHandoffSignals(
+        human_requested=base.human_requested or derived_signals.human_requested,
+        commercial_escalation=base.commercial_escalation,
+        authoritative_information_unavailable=(
+            base.authoritative_information_unavailable
+            or derived_signals.authoritative_information_unavailable
+        ),
+        existing_approval_required=(
+            base.existing_approval_required or derived_signals.existing_approval_required
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)

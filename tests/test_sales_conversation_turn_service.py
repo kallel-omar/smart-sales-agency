@@ -13,7 +13,14 @@ from app.departments.sales.services import (
     SalesConversationTurnService,
 )
 from app.main import app
-from app.models import ConversationMessage, Lead, SalesConversationHandoff, SalesStage, Workspace
+from app.models import (
+    AIInvocationUsage,
+    ConversationMessage,
+    Lead,
+    SalesConversationHandoff,
+    SalesStage,
+    Workspace,
+)
 from app.services.repository import NotFoundError, SalesRepository
 
 
@@ -133,6 +140,78 @@ async def test_active_handoff_skips_gateway_and_preserves_one_scoped_state(clien
     assert result.ai_invoked is False
     assert result.handoff_required is True
     assert result.handoff_reason_code == "human_requested"
+    assert len(handoffs) == 1
+
+
+@pytest.mark.asyncio
+async def test_explicit_customer_human_request_creates_handoff_without_gateway(client):
+    class ForbiddenGateway:
+        async def invoke(self, request):  # pragma: no cover - must not be reached
+            raise AssertionError(f"unexpected gateway request: {request}")
+
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        workspace, lead = _workspace_and_lead(session, "turn-human-request")
+        repository = SalesRepository(session)
+
+        result = await SalesConversationTurnService(
+            repository=repository,
+            settings=_settings(),
+            workspace=workspace,
+            ai_invocation_gateway=ForbiddenGateway(),
+        ).process(
+            SalesConversationTurnInput(
+                lead_id=lead.id,
+                channel="website",
+                customer_message="I need a human agent now - task287-live-5",
+            )
+        )
+        handoffs = list(session.exec(select(SalesConversationHandoff)).all())
+        usage = list(session.exec(select(AIInvocationUsage)).all())
+        history = repository.conversation_history(lead.id)
+
+    assert result.ai_invoked is False
+    assert result.handoff_required is True
+    assert result.handoff_reason_code == "human_requested"
+    assert len(handoffs) == 1
+    assert handoffs[0].reason_code == "human_requested"
+    assert usage == []
+    assert history[0].content == "I need a human agent now - task287-live-5"
+
+
+@pytest.mark.asyncio
+async def test_active_handoff_takes_precedence_over_customer_text_detection(client):
+    class ForbiddenGateway:
+        async def invoke(self, request):  # pragma: no cover - must not be reached
+            raise AssertionError(f"unexpected gateway request: {request}")
+
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        workspace, lead = _workspace_and_lead(session, "turn-existing-handoff")
+        repository = SalesRepository(session)
+        repository.ensure_sales_handoff(
+            workspace=workspace,
+            lead=lead,
+            reason_code="custom_pricing_required",
+            explanation="A team member needs to review the requested commercial terms.",
+        )
+
+        result = await SalesConversationTurnService(
+            repository=repository,
+            settings=_settings(),
+            workspace=workspace,
+            ai_invocation_gateway=ForbiddenGateway(),
+        ).process(
+            SalesConversationTurnInput(
+                lead_id=lead.id,
+                channel="website",
+                customer_message="Please connect me to a live agent.",
+            )
+        )
+        handoffs = list(session.exec(select(SalesConversationHandoff)).all())
+
+    assert result.handoff_required is True
+    assert result.handoff_reason_code == "custom_pricing_required"
     assert len(handoffs) == 1
 
 

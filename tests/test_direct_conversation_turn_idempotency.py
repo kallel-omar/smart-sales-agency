@@ -19,6 +19,7 @@ from app.models import (
     DirectConversationTurnReceipt,
     DirectConversationTurnReceiptStatus,
     Lead,
+    SalesConversationHandoff,
     SalesStage,
     Workspace,
 )
@@ -131,6 +132,23 @@ def test_same_key_is_independent_per_workspace_and_lead(client):
     assert second_a.json()["duplicate"] is True
     assert len(_rows(client, DirectConversationTurnReceipt)) == 2
     assert len(_rows(client, ConversationMessage)) == 2
+
+
+def test_direct_route_derives_handoff_from_explicit_customer_human_request(client):
+    _, lead_id = _create_workspace_and_lead(client, "direct-human-request")
+
+    response = _reply(
+        client,
+        "direct-human-request",
+        lead_id,
+        "Can I TALK, to a HUMAN agent now?",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["handoff_required"] is True
+    assert response.json()["handoff_reason_code"] == "human_requested"
+    assert len(_rows(client, SalesConversationHandoff)) == 1
+    assert _rows(client, AIInvocationUsage) == []
 
 
 def test_cross_workspace_cannot_reuse_a_direct_turn_receipt(client):

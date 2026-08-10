@@ -4,12 +4,19 @@ from sqlmodel import select
 
 from app.db import get_session
 from app.main import app
-from app.models import ConversationMessage, OutboundIntegrationAction, User
+from app.models import (
+    AIInvocationUsage,
+    ConversationMessage,
+    InboundIntegrationEventReceipt,
+    OutboundIntegrationAction,
+    SalesConversationHandoff,
+    User,
+)
 
 PHONE_NUMBER_ID = "555666777888999"
 WRONG_PHONE_NUMBER_ID = "999888777666555"
 CUSTOMER_EXTERNAL_ID = "15557654321"
-EVENT_ID = "wamid.HBgLMTU1NTc2NTQzMjEVAgASGBQzQUMzRjA0N0Y2MzY2QzA0AA"
+EVENT_ID = "wamid.HBgLMTU1NTc2NTQzMjEVAgASGBQzQUMzRjA0N0Y2MzY2QzA0AA=="
 ENDPOINT = "/api/integrations/inbound-events/whatsapp-cloud"
 
 
@@ -138,6 +145,40 @@ def test_duplicate_whatsapp_event_reuses_task251_receipt_without_second_turn(
         "correlation_id": first.json()["correlation_id"],
     }
     assert _message_count(lead_id) == 1
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        receipt = session.exec(select(InboundIntegrationEventReceipt)).one()
+        assert receipt.external_event_id == EVENT_ID
+
+
+def test_whatsapp_explicit_human_request_creates_handoff_without_ai(
+    client,
+    signed_webhook_request,
+):
+    _create_workspace(client, "company-a")
+    lead_id = _create_lead(client, "company-a")
+    account = _provision_account(client, "company-a")
+    payload = _normalized_payload(content="I need a human agent now - task287-live-5")
+    headers, body = _signed_request(signed_webhook_request, account, payload)
+
+    response = client.post(ENDPOINT, headers=headers, content=body)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["lead_id"] == lead_id
+    assert data["handoff_required"] is True
+    assert data["handoff_reason_code"] == "human_requested"
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        handoffs = list(session.exec(select(SalesConversationHandoff)).all())
+        usage = list(session.exec(select(AIInvocationUsage)).all())
+        messages = list(session.exec(select(ConversationMessage)).all())
+    assert len(handoffs) == 1
+    assert handoffs[0].reason_code == "human_requested"
+    assert usage == []
+    assert [message.content for message in messages] == [
+        "I need a human agent now - task287-live-5"
+    ]
 
 
 def test_workspace_fields_are_rejected_or_ignored_without_tenant_authority(

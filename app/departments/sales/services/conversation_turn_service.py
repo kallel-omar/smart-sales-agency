@@ -12,6 +12,8 @@ from app.departments.sales.handoff_policy import (
     SalesHandoffDecision,
     SalesHandoffPolicy,
     SalesHandoffSignals,
+    derive_customer_handoff_signals,
+    merge_sales_handoff_signals,
     render_sales_handoff_reply,
 )
 from app.departments.sales.services.stage_transition_service import (
@@ -94,7 +96,11 @@ class SalesConversationTurnService:
             repository=self.repository,
             workspace=self.workspace,
         ).canonical_stage_for(lead)
-        handoff = self._handoff_decision(lead.id, source.handoff_signals)
+        handoff = self._handoff_decision(
+            lead.id,
+            source.handoff_signals,
+            source.customer_message,
+        )
         agent = SalesConversationAgent(self._agent_context())
 
         if handoff.human_attention_required:
@@ -175,6 +181,7 @@ class SalesConversationTurnService:
         self,
         lead_id: UUID,
         signals: SalesHandoffSignals | None,
+        customer_message: str,
     ) -> SalesHandoffDecision:
         existing = self.repository.get_sales_handoff(self.workspace, lead_id)
         if existing is not None:
@@ -183,4 +190,9 @@ class SalesConversationTurnService:
                 reason_code=existing.reason_code,
                 explanation=existing.explanation,
             )
-        return SalesHandoffPolicy().decide(signals or SalesHandoffSignals())
+        return SalesHandoffPolicy().decide(
+            merge_sales_handoff_signals(
+                signals,
+                derive_customer_handoff_signals(customer_message),
+            )
+        )

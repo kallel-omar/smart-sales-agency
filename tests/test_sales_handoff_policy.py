@@ -11,6 +11,7 @@ from app.departments.sales.handoff_policy import (
     SalesCommercialEscalationType,
     SalesHandoffPolicy,
     SalesHandoffSignals,
+    derive_customer_handoff_signals,
 )
 from app.departments.sales.prompt_composition import (
     PromptCompositionInput,
@@ -86,6 +87,44 @@ def test_handoff_policy_has_stable_pure_trusted_trigger_decisions(signals, reaso
 
 def test_normal_sales_signals_require_no_handoff():
     assert SalesHandoffPolicy().decide(SalesHandoffSignals()).human_attention_required is False
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "I need a human agent now.",
+        "Can I talk to a human?",
+        "Please SPEAK, to a HUMAN!",
+        "Let me talk-to-a-person.",
+        "Can I speak with a person?",
+        "I want a real person.",
+        "Please connect me to customer support.",
+        "I need human support.",
+        "Get me a representative.",
+        "Need a LIVE AGENT now.",
+    ],
+)
+def test_explicit_customer_human_request_derives_handoff_signal(message):
+    signals = derive_customer_handoff_signals(message)
+
+    assert signals.human_requested is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "human",
+        "person",
+        "help",
+        "I am a human evaluating this product.",
+        "The person on my team asked about pricing.",
+        "Can you help with pricing?",
+    ],
+)
+def test_ambiguous_customer_text_does_not_derive_handoff_signal(message):
+    signals = derive_customer_handoff_signals(message)
+
+    assert signals.human_requested is False
 
 
 def test_handoff_prompt_policy_is_trusted_and_receives_only_safe_outcome():

@@ -93,7 +93,7 @@ class InboundIntegrationService:
     @staticmethod
     def _normalize_external_event_id(value: str) -> str:
         normalized = value.strip()
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}", normalized):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:=-]{0,199}", normalized):
             raise InboundIntegrationEventIdValidationError(
                 "External event identifier is invalid"
             )

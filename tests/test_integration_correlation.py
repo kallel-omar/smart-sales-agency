@@ -98,6 +98,41 @@ def test_idempotent_inbound_event_generates_persists_and_reuses_correlation(
         assert receipt.correlation_id == correlation_id
 
 
+def test_padded_whatsapp_provider_event_identifier_is_preserved_for_idempotency(
+    client,
+    integration_account_factory,
+    signed_webhook_request,
+):
+    _create_workspace(client, "company-a")
+    workspace_id = _workspace_id(client, "company-a")
+    integration_account_factory(workspace_id, "company-a-key")
+    account_id = _integration_account_id(client, "company-a")
+    lead_id = _create_lead(client, "company-a")
+    event_id = "wamid.HBgLMTU1NTc2NTQzMjEVAgASGBQzQUMzRjA0N0Y2MzY2QzA0AA=="
+    headers, body = signed_webhook_request("company-a-key", _inbound_payload(lead_id))
+    headers["X-Integration-Event-Id"] = event_id
+
+    first = client.post("/api/integrations/inbound-events", headers=headers, content=body)
+    duplicate = client.post("/api/integrations/inbound-events", headers=headers, content=body)
+
+    assert first.status_code == 200
+    correlation_id = UUID(first.json()["correlation_id"])
+    assert duplicate.status_code == 200
+    assert duplicate.json() == {"duplicate": True, "correlation_id": str(correlation_id)}
+
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        receipt = session.exec(
+            select(InboundIntegrationEventReceipt).where(
+                InboundIntegrationEventReceipt.workspace_id == workspace_id,
+                InboundIntegrationEventReceipt.integration_account_id == account_id,
+                InboundIntegrationEventReceipt.external_event_id == event_id,
+            )
+        ).one()
+        assert receipt.external_event_id == event_id
+        assert receipt.correlation_id == correlation_id
+
+
 def test_distinct_inbound_events_and_accounts_receive_independent_correlations(
     client,
     integration_account_factory,
