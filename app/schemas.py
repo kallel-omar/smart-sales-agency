@@ -455,6 +455,9 @@ class OutboundApprovalStatusRead(BaseModel):
     requires_approval: bool
     approval_request_id: UUID | None
     approval_status: ApprovalStatus | None
+    decided_by_user_id: UUID | None = None
+    decided_by_membership_id: UUID | None = None
+    decided_by_role: WorkspaceMemberRole | None = None
 
 
 class OutboundDeliveryReadinessRead(BaseModel):
@@ -563,6 +566,9 @@ class ApprovalRead(BaseModel):
     reviewer_note: str | None
     created_at: datetime
     decided_at: datetime | None
+    decided_by_user_id: UUID | None = None
+    decided_by_membership_id: UUID | None = None
+    decided_by_role: WorkspaceMemberRole | None = None
 
 
 class SalesReply(BaseModel):

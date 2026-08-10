@@ -602,6 +602,17 @@ class ApprovalRequest(SQLModel, table=True):
     reviewer_note: str | None = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utc_now)
     decided_at: datetime | None = None
+    decided_by_user_id: UUID | None = Field(
+        default=None,
+        foreign_key="platform_user.id",
+        index=True,
+    )
+    decided_by_membership_id: UUID | None = Field(
+        default=None,
+        foreign_key="workspace_member.id",
+        index=True,
+    )
+    decided_by_role: WorkspaceMemberRole | None = Field(default=None, index=True)
 
 
 class FollowUpTask(SQLModel, table=True):

@@ -5,7 +5,14 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.models import ApprovalRequest, ApprovalStatus, IntegrationAccount, OutboundIntegrationAction, Workspace
+from app.models import (
+    ApprovalRequest,
+    ApprovalStatus,
+    IntegrationAccount,
+    OutboundIntegrationAction,
+    Workspace,
+    WorkspaceMemberRole,
+)
 from app.services.integration_accounts import IntegrationAccountService
 
 
@@ -19,6 +26,9 @@ class OutboundApprovalStatusView:
     requires_approval: bool
     approval_request_id: UUID | None
     approval_status: ApprovalStatus | None
+    decided_by_user_id: UUID | None
+    decided_by_membership_id: UUID | None
+    decided_by_role: WorkspaceMemberRole | None
 
 
 class OutboundApprovalStatusService:
@@ -43,6 +53,9 @@ class OutboundApprovalStatusService:
             requires_approval=action.requires_approval,
             approval_request_id=action.approval_request_id,
             approval_status=approval.status if approval else None,
+            decided_by_user_id=approval.decided_by_user_id if approval else None,
+            decided_by_membership_id=approval.decided_by_membership_id if approval else None,
+            decided_by_role=approval.decided_by_role if approval else None,
         )
 
     def _get_action(

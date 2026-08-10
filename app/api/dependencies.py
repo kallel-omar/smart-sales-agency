@@ -12,6 +12,7 @@ from app.services.authentication import (
     AuthenticationService,
     InvalidAccessTokenError,
 )
+from app.services.approval_decisions import ApprovalDecisionActor
 from app.services.identity_memberships import (
     AuthenticatedPrincipal,
     IdentityMembershipService,
@@ -319,6 +320,23 @@ def get_workspace_read_path_context(
 WorkspaceReadPathContextDep = Annotated[
     AuthenticatedWorkspaceContext,
     Depends(get_workspace_read_path_context),
+]
+
+
+def get_approval_decision_actor(
+    context: AuthenticatedWorkspaceContextDep,
+) -> ApprovalDecisionActor:
+    return ApprovalDecisionActor(
+        user_id=context.principal.user_id,
+        membership_id=context.membership.id,
+        workspace_id=context.workspace.id,
+        role=context.membership.role,
+    )
+
+
+ApprovalDecisionActorDep = Annotated[
+    ApprovalDecisionActor,
+    Depends(get_approval_decision_actor),
 ]
 
 
