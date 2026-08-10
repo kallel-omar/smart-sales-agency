@@ -6,18 +6,17 @@ from uuid import UUID
 from app.core.event_types import EventType
 from app.core.events import BusinessEvent
 from app.departments.sales.agents.base import AgentContext
-from app.departments.sales.agents.sales_agent import SalesConversationAgent
-from app.departments.sales.handoff_policy import (
-    SalesHandoffPolicy,
-    SalesHandoffSignals,
-    render_sales_handoff_reply,
+from app.departments.sales.handoff_policy import SalesHandoffSignals
+from app.departments.sales.services.conversation_turn_service import (
+    SalesConversationTurnInput,
+    SalesConversationTurnService,
 )
 from app.departments.sales.supervisor import (
     SalesDepartmentSupervisor,
     SalesEvent,
 )
 from app.departments.sales.workflows import NewLeadWorkflow
-from app.models import ConversationMessage, Lead, SalesHandoffReasonCode, SalesStage
+from app.models import Lead, SalesHandoffReasonCode, SalesStage
 
 
 @dataclass(slots=True, frozen=True)
@@ -85,69 +84,28 @@ class SalesDepartmentService:
                 f"Unexpected Sales route for inbound message: {route}"
             )
 
-        handoff = SalesHandoffPolicy().decide(handoff_signals or SalesHandoffSignals())
-        if handoff.human_attention_required:
-            if self.context.workspace is None:
-                raise RuntimeError("A server-resolved workspace is required for sales handoff")
-            assert handoff.reason_code is not None and handoff.explanation is not None
-            self.context.repository.ensure_sales_handoff(
-                workspace=self.context.workspace,
-                lead=lead,
-                reason_code=handoff.reason_code,
-                explanation=handoff.explanation,
-            )
-            stage = SalesConversationAgent(self.context).detect_stage(content)
-            reply = render_sales_handoff_reply(handoff)
-        else:
-            agent = SalesConversationAgent(self.context)
-            stage, reply = await agent.draft_reply(lead, content)
-
-        self.context.repository.add_message(
-            ConversationMessage(
+        if self.context.workspace is None:
+            raise RuntimeError("A server-resolved workspace is required for a sales conversation turn")
+        result = await SalesConversationTurnService(
+            repository=self.context.repository,
+            settings=self.context.settings,
+            workspace=self.context.workspace,
+            ai_invocation_gateway=self.context.ai_invocation_gateway,
+        ).process(
+            SalesConversationTurnInput(
                 lead_id=lead.id,
-                direction="inbound",
                 channel=channel,
-                stage=stage,
-                content=content,
+                customer_message=content,
+                handoff_signals=handoff_signals,
             )
         )
 
-        approval_id: UUID | None = None
-
-        if self.context.settings.require_human_approval:
-            approval = self.context.repository.create_approval(
-                lead_id=lead.id,
-                channel=channel,
-                payload={
-                    "recipient": (
-                        lead.email
-                        or lead.phone
-                        or lead.full_name
-                    ),
-                    "content": reply,
-                    "stage": stage.value,
-                },
-            )
-
-            approval_id = approval.id
-
-        else:
-            self.context.repository.add_message(
-                ConversationMessage(
-                    lead_id=lead.id,
-                    direction="outbound",
-                    channel=channel,
-                    stage=stage,
-                    content=reply,
-                )
-            )
-
         return SalesReplyResult(
-            detected_stage=stage,
-            draft_reply=reply,
-            approval_id=approval_id,
-            handoff_required=handoff.human_attention_required,
-            handoff_reason_code=handoff.reason_code,
+            detected_stage=result.detected_stage,
+            draft_reply=result.draft_reply,
+            approval_id=result.approval_id,
+            handoff_required=result.handoff_required,
+            handoff_reason_code=result.handoff_reason_code,
         )
 
     async def handle_event(

@@ -20,6 +20,8 @@ async def test_sales_department_service_handles_inbound_message_with_approval(
     settings.require_human_approval = True
 
     repository = Mock()
+    repository.get_sales_handoff.return_value = None
+    repository.conversation_history.return_value = []
 
     approval_id = uuid4()
     approval = Mock()
@@ -27,17 +29,21 @@ async def test_sales_department_service_handles_inbound_message_with_approval(
 
     repository.create_approval.return_value = approval
 
-    context = AgentContext(
-        settings=settings,
-        repository=repository,
-        llm=Mock(),
-    )
-
     lead = Mock()
     lead.id = uuid4()
     lead.email = "customer@example.com"
     lead.phone = None
     lead.full_name = "Example Customer"
+    lead.tenant_id = "example"
+    repository.get_lead.return_value = lead
+
+    context = AgentContext(
+        settings=settings,
+        repository=repository,
+        llm=Mock(),
+        workspace=Mock(slug="example"),
+        ai_invocation_gateway=Mock(),
+    )
 
     draft_reply = AsyncMock(
         return_value=(
@@ -47,7 +53,7 @@ async def test_sales_department_service_handles_inbound_message_with_approval(
     )
 
     monkeypatch.setattr(
-        "app.departments.sales.services.department_service."
+        "app.departments.sales.services.conversation_turn_service."
         "SalesConversationAgent.draft_reply",
         draft_reply,
     )
@@ -76,18 +82,24 @@ async def test_sales_department_service_persists_outbound_when_approval_disabled
     settings.require_human_approval = False
 
     repository = Mock()
-
-    context = AgentContext(
-        settings=settings,
-        repository=repository,
-        llm=Mock(),
-    )
+    repository.get_sales_handoff.return_value = None
+    repository.conversation_history.return_value = []
 
     lead = Mock()
     lead.id = uuid4()
     lead.email = "customer@example.com"
     lead.phone = None
     lead.full_name = "Example Customer"
+    lead.tenant_id = "example"
+    repository.get_lead.return_value = lead
+
+    context = AgentContext(
+        settings=settings,
+        repository=repository,
+        llm=Mock(),
+        workspace=Mock(slug="example"),
+        ai_invocation_gateway=Mock(),
+    )
 
     draft_reply = AsyncMock(
         return_value=(
@@ -97,7 +109,7 @@ async def test_sales_department_service_persists_outbound_when_approval_disabled
     )
 
     monkeypatch.setattr(
-        "app.departments.sales.services.department_service."
+        "app.departments.sales.services.conversation_turn_service."
         "SalesConversationAgent.draft_reply",
         draft_reply,
     )

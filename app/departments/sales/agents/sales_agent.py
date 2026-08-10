@@ -25,7 +25,7 @@ from app.departments.sales.prompt_composition import (
     SALES_PLATFORM_POLICY,
     WorkspaceSalesInstructions,
 )
-from app.models import Lead, Product, SalesStage
+from app.models import ConversationMessage, Lead, Product, SalesStage
 from app.services.ai_invocation_gateway import AIInvocationGatewayRequest
 from app.services.ai_model_routing import AIModelRoutingTask
 
@@ -65,11 +65,14 @@ class SalesConversationAgent:
             )
         return tuple(product_context)
 
-    def _conversation_context(self, lead_id: UUID) -> tuple[PromptMessage, ...]:
+    def _conversation_context(
+        self,
+        history: list[ConversationMessage],
+    ) -> tuple[PromptMessage, ...]:
         """Map persisted history to role-aware, untrusted conversation context."""
 
         messages: list[PromptMessage] = []
-        for message in self.context.repository.conversation_history(lead_id):
+        for message in history:
             role = (
                 PromptMessageRole.USER
                 if message.direction == "inbound"
@@ -84,10 +87,13 @@ class SalesConversationAgent:
             )
         return tuple(messages)
 
-    def _prior_customer_messages(self, lead_id: UUID) -> tuple[str, ...]:
+    def _prior_customer_messages(
+        self,
+        history: list[ConversationMessage],
+    ) -> tuple[str, ...]:
         return tuple(
             message.content
-            for message in self.context.repository.conversation_history(lead_id)
+            for message in history
             if message.direction == "inbound"
         )
 
@@ -98,8 +104,15 @@ class SalesConversationAgent:
         inbound: str,
         stage: SalesStage,
         products: list[Product],
+        conversation_history: list[ConversationMessage] | None = None,
     ) -> PromptComposition:
         """Build transient Sales context while keeping customer text untrusted."""
+
+        history = (
+            conversation_history
+            if conversation_history is not None
+            else self.context.repository.conversation_history(lead.id)
+        )
 
         workspace_instructions = None
         if self.context.workspace and self.context.workspace.sales_instructions:
@@ -113,7 +126,7 @@ class SalesConversationAgent:
             workspace_preferred_language=(
                 workspace.sales_preferred_language if workspace else None
             ),
-            prior_customer_messages=self._prior_customer_messages(lead.id),
+            prior_customer_messages=self._prior_customer_messages(history),
         )
         tone = select_sales_tone(
             workspace.sales_preferred_tone if workspace else None
@@ -138,7 +151,7 @@ class SalesConversationAgent:
                     company_name=self.context.workspace.name if self.context.workspace else None,
                     products=self._product_context(products),
                 ),
-                conversation_messages=self._conversation_context(lead.id),
+                conversation_messages=self._conversation_context(history),
                 current_task=(
                     f"Sales stage: {stage.value}\nLead: {lead.full_name} at {lead.company_name}\n"
                     f"Customer message: {inbound}"
@@ -146,7 +159,13 @@ class SalesConversationAgent:
             )
         )
 
-    async def draft_reply(self, lead: Lead, inbound: str) -> tuple[SalesStage, str]:
+    async def draft_reply(
+        self,
+        lead: Lead,
+        inbound: str,
+        *,
+        conversation_history: list[ConversationMessage] | None = None,
+    ) -> tuple[SalesStage, str]:
         stage = self.detect_stage(inbound)
         products = self.context.repository.list_products(lead.tenant_id)
 
@@ -191,11 +210,17 @@ class SalesConversationAgent:
             }
             reply = replies[stage]
         else:
+            history = (
+                conversation_history
+                if conversation_history is not None
+                else self.context.repository.conversation_history(lead.id)
+            )
             rendered_prompt = self._compose_prompt(
                 lead=lead,
                 inbound=inbound,
                 stage=stage,
                 products=products,
+                conversation_history=history,
             ).render()
             if self.context.ai_invocation_gateway is None:
                 raise RuntimeError("No AI invocation gateway is configured for sales conversation")

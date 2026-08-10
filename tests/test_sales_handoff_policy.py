@@ -192,8 +192,8 @@ async def test_handoff_state_is_workspace_scoped_and_body_cannot_supply_it(clien
     )
 
     assert response.status_code == 200
-    assert response.json()["handoff_required"] is False
-    assert response.json()["handoff_reason_code"] is None
+    assert response.json()["handoff_required"] is True
+    assert response.json()["handoff_reason_code"] == "human_requested"
 
 
 @pytest.mark.asyncio

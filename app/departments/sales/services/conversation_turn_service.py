@@ -1,0 +1,178 @@
+"""Application boundary for one workspace-scoped Sales conversation turn."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from uuid import UUID
+
+from app.config import Settings
+from app.departments.sales.agents.base import AgentContext
+from app.departments.sales.agents.sales_agent import SalesConversationAgent
+from app.departments.sales.handoff_policy import (
+    SalesHandoffDecision,
+    SalesHandoffPolicy,
+    SalesHandoffSignals,
+    render_sales_handoff_reply,
+)
+from app.models import (
+    ConversationMessage,
+    SalesHandoffReasonCode,
+    SalesStage,
+    Workspace,
+)
+from app.services.ai_invocation_gateway import AIInvocationGateway
+from app.services.repository import NotFoundError, SalesRepository
+
+
+@dataclass(frozen=True, slots=True)
+class SalesConversationTurnInput:
+    """Trusted application input for one customer turn.
+
+    The workspace is an injected service dependency resolved by the server; it
+    is intentionally not accepted from this input or customer request body.
+    """
+
+    lead_id: UUID
+    channel: str
+    customer_message: str
+    handoff_signals: SalesHandoffSignals | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SalesConversationTurnResult:
+    """Safe, provider-neutral outcome for a persisted Sales conversation turn."""
+
+    lead_id: UUID
+    detected_stage: SalesStage
+    draft_reply: str
+    approval_id: UUID | None
+    handoff_required: bool = False
+    handoff_reason_code: SalesHandoffReasonCode | None = None
+    ai_invoked: bool = False
+
+
+class SalesConversationTurnService:
+    """Coordinate existing domain services for exactly one Sales customer turn.
+
+    It owns turn-level history loading and message persistence. The Sales agent
+    owns prompt composition and the central gateway remains the only AI boundary.
+    """
+
+    def __init__(
+        self,
+        *,
+        repository: SalesRepository,
+        settings: Settings,
+        workspace: Workspace,
+        ai_invocation_gateway: AIInvocationGateway | None = None,
+    ) -> None:
+        self.repository = repository
+        self.settings = settings
+        self.workspace = workspace
+        self.ai_invocation_gateway = ai_invocation_gateway or AIInvocationGateway(
+            repository.session,
+            settings,
+        )
+
+    async def process(
+        self,
+        source: SalesConversationTurnInput,
+    ) -> SalesConversationTurnResult:
+        """Resolve, prepare, execute, and persist one Sales turn once."""
+
+        lead = self.repository.get_lead(source.lead_id)
+        if lead.tenant_id != self.workspace.slug:
+            raise NotFoundError("Lead not found")
+
+        # The repository's existing bounded, chronological history contract is
+        # loaded once and supplied to the agent for all prompt-context uses.
+        history = self.repository.conversation_history(lead.id)
+        handoff = self._handoff_decision(lead.id, source.handoff_signals)
+        agent = SalesConversationAgent(self._agent_context())
+
+        if handoff.human_attention_required:
+            assert handoff.reason_code is not None and handoff.explanation is not None
+            self.repository.ensure_sales_handoff(
+                workspace=self.workspace,
+                lead=lead,
+                reason_code=handoff.reason_code,
+                explanation=handoff.explanation,
+            )
+            stage = agent.detect_stage(source.customer_message)
+            reply = render_sales_handoff_reply(handoff)
+            ai_invoked = False
+        else:
+            stage, reply = await agent.draft_reply(
+                lead,
+                source.customer_message,
+                conversation_history=history,
+            )
+            ai_invoked = self.settings.llm_mode != "demo"
+
+        # The turn service is the only owner of reply-message persistence.
+        # Existing approval behavior deliberately remains unchanged.
+        self.repository.add_message(
+            ConversationMessage(
+                lead_id=lead.id,
+                direction="inbound",
+                channel=source.channel,
+                stage=stage,
+                content=source.customer_message,
+            )
+        )
+
+        approval_id: UUID | None = None
+        if self.settings.require_human_approval:
+            approval = self.repository.create_approval(
+                lead_id=lead.id,
+                channel=source.channel,
+                payload={
+                    "recipient": lead.email or lead.phone or lead.full_name,
+                    "content": reply,
+                    "stage": stage.value,
+                },
+            )
+            approval_id = approval.id
+        else:
+            self.repository.add_message(
+                ConversationMessage(
+                    lead_id=lead.id,
+                    direction="outbound",
+                    channel=source.channel,
+                    stage=stage,
+                    content=reply,
+                )
+            )
+
+        return SalesConversationTurnResult(
+            lead_id=lead.id,
+            detected_stage=stage,
+            draft_reply=reply,
+            approval_id=approval_id,
+            handoff_required=handoff.human_attention_required,
+            handoff_reason_code=handoff.reason_code,
+            ai_invoked=ai_invoked,
+        )
+
+    def _agent_context(self) -> AgentContext:
+        return AgentContext(
+            settings=self.settings,
+            repository=self.repository,
+            llm=None,
+            workspace=self.workspace,
+            ai_invocation_gateway=self.ai_invocation_gateway,
+        )
+
+    def _handoff_decision(
+        self,
+        lead_id: UUID,
+        signals: SalesHandoffSignals | None,
+    ) -> SalesHandoffDecision:
+        existing = self.repository.get_sales_handoff(self.workspace, lead_id)
+        if existing is not None:
+            return SalesHandoffDecision(
+                human_attention_required=True,
+                reason_code=existing.reason_code,
+                explanation=existing.explanation,
+            )
+        return SalesHandoffPolicy().decide(signals or SalesHandoffSignals())
