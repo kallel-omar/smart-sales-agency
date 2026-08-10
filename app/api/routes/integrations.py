@@ -1433,6 +1433,8 @@ async def receive_inbound_event(
         "detected_stage": result.detected_stage,
         "draft_reply": result.draft_reply,
         "approval_id": result.approval_id,
+        "handoff_required": result.handoff_required,
+        "handoff_reason_code": result.handoff_reason_code,
     }
     if reservation is not None:
         return InboundIntegrationReplyRead(

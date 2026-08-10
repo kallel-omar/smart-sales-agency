@@ -7,12 +7,17 @@ from app.core.event_types import EventType
 from app.core.events import BusinessEvent
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.sales_agent import SalesConversationAgent
+from app.departments.sales.handoff_policy import (
+    SalesHandoffPolicy,
+    SalesHandoffSignals,
+    render_sales_handoff_reply,
+)
 from app.departments.sales.supervisor import (
     SalesDepartmentSupervisor,
     SalesEvent,
 )
 from app.departments.sales.workflows import NewLeadWorkflow
-from app.models import ConversationMessage, Lead, SalesStage
+from app.models import ConversationMessage, Lead, SalesHandoffReasonCode, SalesStage
 
 
 @dataclass(slots=True, frozen=True)
@@ -22,6 +27,8 @@ class SalesReplyResult:
     detected_stage: SalesStage
     draft_reply: str
     approval_id: UUID | None
+    handoff_required: bool = False
+    handoff_reason_code: SalesHandoffReasonCode | None = None
 
 
 class SalesDepartmentService:
@@ -59,6 +66,7 @@ class SalesDepartmentService:
         lead: Lead,
         channel: str,
         content: str,
+        handoff_signals: SalesHandoffSignals | None = None,
     ) -> SalesReplyResult:
         """
         Process an inbound customer message through the Sales Department.
@@ -77,14 +85,22 @@ class SalesDepartmentService:
                 f"Unexpected Sales route for inbound message: {route}"
             )
 
-        agent = SalesConversationAgent(
-            self.context
-        )
-
-        stage, reply = await agent.draft_reply(
-            lead,
-            content,
-        )
+        handoff = SalesHandoffPolicy().decide(handoff_signals or SalesHandoffSignals())
+        if handoff.human_attention_required:
+            if self.context.workspace is None:
+                raise RuntimeError("A server-resolved workspace is required for sales handoff")
+            assert handoff.reason_code is not None and handoff.explanation is not None
+            self.context.repository.ensure_sales_handoff(
+                workspace=self.context.workspace,
+                lead=lead,
+                reason_code=handoff.reason_code,
+                explanation=handoff.explanation,
+            )
+            stage = SalesConversationAgent(self.context).detect_stage(content)
+            reply = render_sales_handoff_reply(handoff)
+        else:
+            agent = SalesConversationAgent(self.context)
+            stage, reply = await agent.draft_reply(lead, content)
 
         self.context.repository.add_message(
             ConversationMessage(
@@ -130,6 +146,8 @@ class SalesDepartmentService:
             detected_stage=stage,
             draft_reply=reply,
             approval_id=approval_id,
+            handoff_required=handoff.human_attention_required,
+            handoff_reason_code=handoff.reason_code,
         )
 
     async def handle_event(

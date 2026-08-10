@@ -15,6 +15,7 @@ from app.models import (
     OutboundIntegrationActionType,
     OutboundIntegrationAuditAction,
     SalesLanguage,
+    SalesHandoffReasonCode,
     SalesStage,
     SalesTone,
 )
@@ -81,6 +82,8 @@ class InboundIntegrationReplyRead(BaseModel):
     detected_stage: SalesStage
     draft_reply: str
     approval_id: UUID | None = None
+    handoff_required: bool = False
+    handoff_reason_code: SalesHandoffReasonCode | None = None
     correlation_id: UUID
 
 
@@ -563,6 +566,8 @@ class SalesReply(BaseModel):
     detected_stage: SalesStage
     draft_reply: str
     approval_id: UUID | None = None
+    handoff_required: bool = False
+    handoff_reason_code: SalesHandoffReasonCode | None = None
 
 class ConversationMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)

@@ -11,6 +11,9 @@ from app.models import (
     LeadResearch,
     LeadStatus,
     Product,
+    SalesConversationHandoff,
+    SalesHandoffReasonCode,
+    Workspace,
 )
 
 
@@ -84,6 +87,45 @@ class SalesRepository:
         messages = list(self.session.exec(statement).all())
         messages.reverse()
         return messages
+
+    def get_sales_handoff(
+        self,
+        workspace: Workspace,
+        lead_id: UUID,
+    ) -> SalesConversationHandoff | None:
+        """Read handoff state only through its server-resolved workspace owner."""
+
+        statement = select(SalesConversationHandoff).where(
+            SalesConversationHandoff.workspace_id == workspace.id,
+            SalesConversationHandoff.lead_id == lead_id,
+        )
+        return self.session.exec(statement).first()
+
+    def ensure_sales_handoff(
+        self,
+        *,
+        workspace: Workspace,
+        lead: Lead,
+        reason_code: SalesHandoffReasonCode,
+        explanation: str,
+    ) -> SalesConversationHandoff:
+        """Persist a single active handoff state without touching approvals."""
+
+        if lead.tenant_id != workspace.slug:
+            raise NotFoundError("Lead not found")
+        existing = self.get_sales_handoff(workspace, lead.id)
+        if existing is not None:
+            return existing
+        handoff = SalesConversationHandoff(
+            workspace_id=workspace.id,
+            lead_id=lead.id,
+            reason_code=reason_code,
+            explanation=explanation,
+        )
+        self.session.add(handoff)
+        self.session.commit()
+        self.session.refresh(handoff)
+        return handoff
 
     def create_approval(
         self, lead_id: UUID, channel: str, payload: dict, action_type: str = "send_message"

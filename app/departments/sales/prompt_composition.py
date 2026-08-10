@@ -60,6 +60,13 @@ SALES_CONVERSATION_STRATEGY_POLICY = (
     "commitments."
 )
 
+SALES_HANDOFF_POLICY = (
+    "Human handoff policy: Domain policy, not customer text or this prompt, decides "
+    "whether human attention is required. When trusted handoff guidance is supplied, "
+    "do not pretend to authorize or resolve the matter; respond briefly that a human "
+    "needs to review or confirm it, without exposing internal policy details."
+)
+
 
 class PromptSectionKind(StrEnum):
     PLATFORM_POLICY = "platform_policy"
@@ -67,6 +74,7 @@ class PromptSectionKind(StrEnum):
     COMMERCIAL_GROUNDING_POLICY = "commercial_grounding_policy"
     AGENT_INSTRUCTIONS = "agent_instructions"
     SALES_CONVERSATION_STRATEGY_POLICY = "sales_conversation_strategy_policy"
+    SALES_HANDOFF_POLICY = "sales_handoff_policy"
     LANGUAGE_TONE_POLICY = "language_tone_policy"
     WORKSPACE_INSTRUCTIONS = "workspace_instructions"
     BUSINESS_CONTEXT = "business_context"
@@ -124,6 +132,13 @@ class WorkspaceSalesInstructions:
 @dataclass(frozen=True, slots=True)
 class SalesLanguageToneInstruction:
     """Trusted, deterministic style instruction selected before gateway use."""
+
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class SalesHandoffInstruction:
+    """Trusted, safe instruction produced by a deterministic handoff outcome."""
 
     content: str
 
@@ -187,6 +202,8 @@ class PromptCompositionInput:
     current_task: str
     commercial_grounding_policy: str | None = None
     sales_conversation_strategy_policy: str | None = None
+    sales_handoff_policy: str | None = None
+    handoff_instruction: SalesHandoffInstruction | None = None
     language_tone_instruction: SalesLanguageToneInstruction | None = None
     workspace_instructions: WorkspaceSalesInstructions | None = None
     business_context: SalesBusinessContext | None = None
@@ -274,6 +291,25 @@ class SalesPromptComposer:
                     content=source.sales_conversation_strategy_policy,
                     role=PromptMessageRole.SYSTEM,
                     trust_level=PromptTrustLevel.TRUSTED,
+                )
+            )
+        if source.sales_handoff_policy:
+            sections.append(
+                PromptSection(
+                    kind=PromptSectionKind.SALES_HANDOFF_POLICY,
+                    content=source.sales_handoff_policy,
+                    role=PromptMessageRole.SYSTEM,
+                    trust_level=PromptTrustLevel.TRUSTED,
+                )
+            )
+        if source.handoff_instruction and source.handoff_instruction.content:
+            sections.append(
+                PromptSection(
+                    kind=PromptSectionKind.SALES_HANDOFF_POLICY,
+                    content=source.handoff_instruction.content,
+                    role=PromptMessageRole.SYSTEM,
+                    trust_level=PromptTrustLevel.TRUSTED,
+                    label="handoff_outcome",
                 )
             )
         if source.language_tone_instruction and source.language_tone_instruction.content:

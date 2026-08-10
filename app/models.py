@@ -52,6 +52,17 @@ class SalesTone(StrEnum):
     CONCISE = "concise"
 
 
+class SalesHandoffReasonCode(StrEnum):
+    """Stable provider-neutral reasons for a required Sales human handoff."""
+
+    HUMAN_REQUESTED = "human_requested"
+    UNSUPPORTED_DISCOUNT_REQUEST = "unsupported_discount_request"
+    CUSTOM_PRICING_REQUIRED = "custom_pricing_required"
+    UNSUPPORTED_COMMERCIAL_COMMITMENT = "unsupported_commercial_commitment"
+    AUTHORITATIVE_INFORMATION_UNAVAILABLE = "authoritative_information_unavailable"
+    APPROVAL_REQUIRED = "approval_required"
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -430,6 +441,25 @@ class ConversationMessage(SQLModel, table=True):
     stage: SalesStage = Field(default=SalesStage.INTRODUCTION)
     content: str = Field(sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class SalesConversationHandoff(SQLModel, table=True):
+    """One active, safe human-attention state for a workspace Sales conversation."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "lead_id",
+            name="uq_sales_conversation_handoff_workspace_lead",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    lead_id: UUID = Field(foreign_key="lead.id", index=True)
+    reason_code: SalesHandoffReasonCode = Field(index=True)
+    explanation: str = Field(max_length=500)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
 class ApprovalRequest(SQLModel, table=True):
