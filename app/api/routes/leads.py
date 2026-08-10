@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from app.api.dependencies import (
     CurrentWorkspaceDep,
@@ -10,9 +10,16 @@ from app.api.dependencies import (
     SessionDep,
 )
 from app.models import Lead
-from app.schemas import LeadCreate, LeadRead
+from app.schemas import LeadCreate, LeadRead, OperatorAssignmentRead
+from app.services.operator_assignments import OperatorAssignmentService
 
 router = APIRouter(prefix="/leads", tags=["leads"])
+
+
+def lead_read(session: Session, lead: Lead) -> LeadRead:
+    snapshot = OperatorAssignmentService(session).resolve_lead_assignment(lead)
+    assignment = OperatorAssignmentRead(**snapshot.__dict__) if snapshot is not None else None
+    return LeadRead.model_validate(lead).model_copy(update={"assignment": assignment})
 
 
 @router.post("", response_model=LeadRead, status_code=201)
@@ -21,7 +28,7 @@ def create_lead(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
     _: SalesDataWritePermissionDep,
-) -> Lead:
+) -> LeadRead:
     lead_data = payload.model_dump()
     lead_data["tenant_id"] = workspace.slug
 
@@ -31,7 +38,7 @@ def create_lead(
     session.commit()
     session.refresh(lead)
 
-    return lead
+    return lead_read(session, lead)
 
 
 @router.get("", response_model=list[LeadRead])
@@ -39,14 +46,14 @@ def list_leads(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
     _: SalesDataReadPermissionDep,
-) -> list[Lead]:
+) -> list[LeadRead]:
     statement = (
         select(Lead)
         .where(Lead.tenant_id == workspace.slug)
         .order_by(Lead.created_at.desc())
     )
 
-    return list(session.exec(statement).all())
+    return [lead_read(session, lead) for lead in session.exec(statement).all()]
 
 @router.get("/{lead_id}", response_model=LeadRead)
 def get_lead(
@@ -54,7 +61,7 @@ def get_lead(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
     _: SalesDataReadPermissionDep,
-) -> Lead:
+) -> LeadRead:
     lead = session.get(Lead, lead_id)
 
     if not lead or lead.tenant_id != workspace.slug:
@@ -63,4 +70,4 @@ def get_lead(
             detail="Lead not found",
         )
 
-    return lead
+    return lead_read(session, lead)

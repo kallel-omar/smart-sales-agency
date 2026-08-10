@@ -36,6 +36,27 @@ class LeadCreate(BaseModel):
     notes: str | None = None
 
 
+class OperatorAssignmentUpdate(BaseModel):
+    """Target only; workspace and assigner authority come from trusted context."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_member_id: UUID
+
+
+class OperatorAssignmentRead(BaseModel):
+    """Compact safe view of the current human responsibility assignment."""
+
+    assigned_to_membership_id: UUID
+    assigned_to_user_id: UUID | None = None
+    assigned_to_display_name: str | None = None
+    assigned_at: datetime | None = None
+    assigned_by_user_id: UUID | None = None
+    assigned_by_membership_id: UUID | None = None
+    assignee_membership_active: bool | None = None
+    assignee_user_active: bool | None = None
+
+
 class LeadRead(LeadCreate):
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,6 +64,7 @@ class LeadRead(LeadCreate):
     status: LeadStatus
     sales_stage: SalesStage
     score: int
+    assignment: OperatorAssignmentRead | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -569,6 +591,7 @@ class ApprovalRead(BaseModel):
     decided_by_user_id: UUID | None = None
     decided_by_membership_id: UUID | None = None
     decided_by_role: WorkspaceMemberRole | None = None
+    assignment: OperatorAssignmentRead | None = None
 
 
 class SalesReply(BaseModel):

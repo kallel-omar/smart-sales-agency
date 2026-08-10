@@ -217,6 +217,10 @@ def test_role_permission_policy_matrix_is_deterministic():
     )
     assert not WorkspaceRBACPolicy.allows(
         WorkspaceMemberRole.MEMBER,
+        WorkspacePermission.OPERATOR_ASSIGNMENT_MANAGE,
+    )
+    assert not WorkspaceRBACPolicy.allows(
+        WorkspaceMemberRole.MEMBER,
         WorkspacePermission.INTEGRATION_MANAGE,
     )
     assert not WorkspaceRBACPolicy.allows(
@@ -547,10 +551,14 @@ def test_known_human_workspace_routes_declare_exact_permissions():
         ("GET", "/api/products"): "require_sales_data_read_permission",
         ("POST", "/api/products"): "require_sales_data_write_permission",
         ("GET", "/api/conversations/{lead_id}"): "require_conversation_operate_permission",
+        ("PUT", "/api/conversations/{lead_id}/assignment"): "require_operator_assignment_manage_permission",
+        ("DELETE", "/api/conversations/{lead_id}/assignment"): "require_operator_assignment_manage_permission",
         ("POST", "/api/conversations/{lead_id}/reply"): "require_conversation_operate_permission",
         ("POST", "/api/conversations/{lead_id}/handoff/resolve"): "require_conversation_operate_permission",
         ("POST", "/api/workflows/{lead_id}/run"): "require_conversation_operate_permission",
         ("GET", "/api/approvals"): "require_sales_data_read_permission",
+        ("PUT", "/api/approvals/{approval_id}/assignment"): "require_operator_assignment_manage_permission",
+        ("DELETE", "/api/approvals/{approval_id}/assignment"): "require_operator_assignment_manage_permission",
         ("POST", "/api/approvals/{approval_id}/approve"): "require_approval_decide_permission",
         ("POST", "/api/approvals/{approval_id}/reject"): "require_approval_decide_permission",
         ("GET", "/api/integrations/outbound-audit-events"): "require_integration_read_permission",

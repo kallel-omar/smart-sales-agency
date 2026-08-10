@@ -2,10 +2,13 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from sqlmodel import Session
 
 from app.api.dependencies import (
     ConversationOperatePermissionDep,
     CurrentWorkspaceDep,
+    OperatorAssignmentActorDep,
+    OperatorAssignmentManagePermissionDep,
     SessionDep,
     SettingsDep,
 )
@@ -16,12 +19,20 @@ from app.departments.sales.services import (
     SalesConversationHandoffService,
     SalesConversationTurnInput,
 )
-from app.models import ConversationMessage
+from app.models import ConversationMessage, Lead
 from app.schemas import (
     ConversationMessageRead,
     DirectSalesReply,
     InboundMessage,
+    LeadRead,
+    OperatorAssignmentRead,
+    OperatorAssignmentUpdate,
     SalesHandoffResolutionRead,
+)
+from app.services.operator_assignments import (
+    OperatorAssignmentActorWorkspaceMismatchError,
+    OperatorAssignmentNotFoundError,
+    OperatorAssignmentService,
 )
 from app.services.repository import HandoffLifecycleConflictError, NotFoundError, SalesRepository
 
@@ -29,6 +40,12 @@ router = APIRouter(
     prefix="/conversations",
     tags=["conversations"],
 )
+
+
+def lead_read(session: Session, lead: Lead) -> LeadRead:
+    snapshot = OperatorAssignmentService(session).resolve_lead_assignment(lead)
+    assignment = OperatorAssignmentRead(**snapshot.__dict__) if snapshot is not None else None
+    return LeadRead.model_validate(lead).model_copy(update={"assignment": assignment})
 
 
 @router.get(
@@ -62,6 +79,58 @@ def get_conversation_history(
         lead_id,
         limit=limit,
     )
+
+
+@router.put(
+    "/{lead_id}/assignment",
+    response_model=LeadRead,
+)
+def assign_conversation_operator(
+    lead_id: UUID,
+    payload: OperatorAssignmentUpdate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: OperatorAssignmentManagePermissionDep,
+    actor: OperatorAssignmentActorDep,
+) -> LeadRead:
+    try:
+        lead = OperatorAssignmentService(session).assign_lead(
+            workspace=workspace,
+            lead_id=lead_id,
+            target_membership_id=payload.workspace_member_id,
+            actor=actor,
+        )
+    except (
+        OperatorAssignmentNotFoundError,
+        OperatorAssignmentActorWorkspaceMismatchError,
+    ) as exc:
+        raise HTTPException(status_code=404, detail="Lead not found") from exc
+    return lead_read(session, lead)
+
+
+@router.delete(
+    "/{lead_id}/assignment",
+    response_model=LeadRead,
+)
+def clear_conversation_operator(
+    lead_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: OperatorAssignmentManagePermissionDep,
+    actor: OperatorAssignmentActorDep,
+) -> LeadRead:
+    try:
+        lead = OperatorAssignmentService(session).clear_lead(
+            workspace=workspace,
+            lead_id=lead_id,
+            actor=actor,
+        )
+    except (
+        OperatorAssignmentNotFoundError,
+        OperatorAssignmentActorWorkspaceMismatchError,
+    ) as exc:
+        raise HTTPException(status_code=404, detail="Lead not found") from exc
+    return lead_read(session, lead)
 
 
 @router.post(

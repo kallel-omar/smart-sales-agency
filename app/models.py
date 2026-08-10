@@ -506,6 +506,22 @@ class Lead(SQLModel, table=True):
     # The canonical Sales-conversation state is domain-owned. Individual
     # messages retain their detected conversational stage separately.
     sales_stage: SalesStage = Field(default=SalesStage.INTRODUCTION, index=True)
+    assigned_to_membership_id: UUID | None = Field(
+        default=None,
+        foreign_key="workspace_member.id",
+        index=True,
+    )
+    assigned_at: datetime | None = Field(default=None, index=True)
+    assigned_by_user_id: UUID | None = Field(
+        default=None,
+        foreign_key="platform_user.id",
+        index=True,
+    )
+    assigned_by_membership_id: UUID | None = Field(
+        default=None,
+        foreign_key="workspace_member.id",
+        index=True,
+    )
     score: int = Field(default=0, ge=0, le=100)
     notes: str | None = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utc_now)
@@ -599,6 +615,22 @@ class ApprovalRequest(SQLModel, table=True):
     channel: str = Field(default="console", max_length=50)
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     status: ApprovalStatus = Field(default=ApprovalStatus.PENDING, index=True)
+    assigned_to_membership_id: UUID | None = Field(
+        default=None,
+        foreign_key="workspace_member.id",
+        index=True,
+    )
+    assigned_at: datetime | None = Field(default=None, index=True)
+    assigned_by_user_id: UUID | None = Field(
+        default=None,
+        foreign_key="platform_user.id",
+        index=True,
+    )
+    assigned_by_membership_id: UUID | None = Field(
+        default=None,
+        foreign_key="workspace_member.id",
+        index=True,
+    )
     reviewer_note: str | None = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=utc_now)
     decided_at: datetime | None = None

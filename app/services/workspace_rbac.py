@@ -12,6 +12,7 @@ class WorkspacePermission(StrEnum):
     SALES_DATA_WRITE = "sales_data_write"
     CONVERSATION_OPERATE = "conversation_operate"
     APPROVAL_DECIDE = "approval_decide"
+    OPERATOR_ASSIGNMENT_MANAGE = "operator_assignment_manage"
     INTEGRATION_READ = "integration_read"
     INTEGRATION_MANAGE = "integration_manage"
     OUTBOUND_ACTION_OPERATE = "outbound_action_operate"

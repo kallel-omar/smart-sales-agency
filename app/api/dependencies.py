@@ -12,6 +12,7 @@ from app.services.authentication import (
     AuthenticationService,
     InvalidAccessTokenError,
 )
+from app.services.operator_assignments import OperatorAssignmentActor
 from app.services.approval_decisions import ApprovalDecisionActor
 from app.services.identity_memberships import (
     AuthenticatedPrincipal,
@@ -288,6 +289,14 @@ ApprovalDecidePermissionDep = Annotated[
     None,
     Depends(_workspace_permission_dependency(WorkspacePermission.APPROVAL_DECIDE)),
 ]
+OperatorAssignmentManagePermissionDep = Annotated[
+    None,
+    Depends(
+        _workspace_permission_dependency(
+            WorkspacePermission.OPERATOR_ASSIGNMENT_MANAGE,
+        )
+    ),
+]
 IntegrationReadPermissionDep = Annotated[
     None,
     Depends(_workspace_permission_dependency(WorkspacePermission.INTEGRATION_READ)),
@@ -337,6 +346,23 @@ def get_approval_decision_actor(
 ApprovalDecisionActorDep = Annotated[
     ApprovalDecisionActor,
     Depends(get_approval_decision_actor),
+]
+
+
+def get_operator_assignment_actor(
+    context: AuthenticatedWorkspaceContextDep,
+) -> OperatorAssignmentActor:
+    return OperatorAssignmentActor(
+        user_id=context.principal.user_id,
+        membership_id=context.membership.id,
+        workspace_id=context.workspace.id,
+        role=context.membership.role,
+    )
+
+
+OperatorAssignmentActorDep = Annotated[
+    OperatorAssignmentActor,
+    Depends(get_operator_assignment_actor),
 ]
 
 
