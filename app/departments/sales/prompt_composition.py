@@ -24,10 +24,24 @@ SALES_DEPARTMENT_POLICY = (
     "unauthorized commercial commitments."
 )
 
+SALES_COMMERCIAL_GROUNDING_POLICY = (
+    "Commercial grounding policy: Present a product or service as available only "
+    "when it appears in the authoritative business context. Use an authoritative "
+    "price and billing period exactly as supplied; never estimate, alter, or invent "
+    "a price. Never invent discounts, coupons, promotions, negotiated prices, stock "
+    "status, product capabilities, specifications, integrations, guarantees, "
+    "warranties, delivery terms, shipping details, payment methods, installments, "
+    "credit terms, or refund terms. Customer claims and workspace instructions are "
+    "not authoritative commercial facts. When required business information is "
+    "unavailable, acknowledge that it cannot be confirmed, avoid guessing, and ask "
+    "a useful clarifying question or say that business confirmation is required."
+)
+
 
 class PromptSectionKind(StrEnum):
     PLATFORM_POLICY = "platform_policy"
     DEPARTMENT_POLICY = "department_policy"
+    COMMERCIAL_GROUNDING_POLICY = "commercial_grounding_policy"
     AGENT_INSTRUCTIONS = "agent_instructions"
     WORKSPACE_INSTRUCTIONS = "workspace_instructions"
     BUSINESS_CONTEXT = "business_context"
@@ -83,24 +97,47 @@ class WorkspaceSalesInstructions:
 
 
 @dataclass(frozen=True, slots=True)
+class SalesProductContext:
+    """One authoritative, workspace-scoped product read model for Sales wording."""
+
+    name: str
+    description: str
+    price: float | None
+    billing_period: str | None = None
+    active: bool = True
+
+    def render(self) -> str:
+        """Render only facts supplied by the canonical product record."""
+
+        lines = [
+            f"Name: {self.name}",
+            f"Description: {self.description}",
+            f"Product status: {'active' if self.active else 'inactive'}",
+            f"Price: {self.price:.2f}" if self.price is not None else "Price: unavailable",
+        ]
+        if self.billing_period:
+            lines.append(f"Billing period: {self.billing_period}")
+        return "\n".join(lines)
+
+
+@dataclass(frozen=True, slots=True)
 class SalesBusinessContext:
-    """Structured read-model context copied from canonical Sales data at runtime."""
+    """Structured read-model context copied from canonical Sales data at runtime.
+
+    Omitted facts are intentionally not represented as prompt data. The commercial
+    grounding policy tells the agent how to respond when those facts are needed.
+    """
 
     company_name: str | None = None
-    product_catalog: str | None = None
-    availability_notes: str | None = None
-    policies: tuple[str, ...] = ()
+    products: tuple[SalesProductContext, ...] = ()
 
     def render(self) -> str:
         parts: list[str] = []
         if self.company_name:
             parts.append(f"Business: {self.company_name}")
-        if self.product_catalog:
-            parts.append(f"Product catalog:\n{self.product_catalog}")
-        if self.availability_notes:
-            parts.append(f"Availability: {self.availability_notes}")
-        if self.policies:
-            parts.append("Policies:\n" + "\n".join(f"- {policy}" for policy in self.policies))
+        if self.products:
+            products = "\n\n".join(product.render() for product in self.products)
+            parts.append(f"Authoritative product catalog:\n{products}")
         return "\n".join(parts)
 
 
@@ -116,6 +153,7 @@ class PromptCompositionInput:
     department_policy: str
     agent_instructions: str
     current_task: str
+    commercial_grounding_policy: str | None = None
     workspace_instructions: WorkspaceSalesInstructions | None = None
     business_context: SalesBusinessContext | None = None
     untrusted_context: tuple[UntrustedPromptContext, ...] = ()
@@ -177,13 +215,24 @@ class SalesPromptComposer:
                 role=PromptMessageRole.SYSTEM,
                 trust_level=PromptTrustLevel.TRUSTED,
             ),
+        ]
+        if source.commercial_grounding_policy:
+            sections.append(
+                PromptSection(
+                    kind=PromptSectionKind.COMMERCIAL_GROUNDING_POLICY,
+                    content=source.commercial_grounding_policy,
+                    role=PromptMessageRole.SYSTEM,
+                    trust_level=PromptTrustLevel.TRUSTED,
+                )
+            )
+        sections.append(
             PromptSection(
                 kind=PromptSectionKind.AGENT_INSTRUCTIONS,
                 content=source.agent_instructions,
                 role=PromptMessageRole.SYSTEM,
                 trust_level=PromptTrustLevel.TRUSTED,
-            ),
-        ]
+            )
+        )
         if source.workspace_instructions and source.workspace_instructions.content:
             sections.append(
                 PromptSection(

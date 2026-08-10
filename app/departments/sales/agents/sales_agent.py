@@ -10,7 +10,9 @@ from app.departments.sales.prompt_composition import (
     PromptMessageRole,
     PromptTrustLevel,
     SalesBusinessContext,
+    SalesProductContext,
     SalesPromptComposer,
+    SALES_COMMERCIAL_GROUNDING_POLICY,
     SALES_DEPARTMENT_POLICY,
     SALES_PLATFORM_POLICY,
     WorkspaceSalesInstructions,
@@ -36,14 +38,24 @@ class SalesConversationAgent:
             return SalesStage.DISCOVERY
         return SalesStage.VALUE_PROPOSITION
 
-    def _product_context(self, products: list[Product]) -> str:
-        if not products:
-            return "No product catalog is configured."
-        lines = []
+    @staticmethod
+    def _product_context(products: list[Product]) -> tuple[SalesProductContext, ...]:
+        """Copy only authoritative product facts into transient prompt context."""
+
+        product_context: list[SalesProductContext] = []
         for product in products[:10]:
-            price = f"{product.price:.2f}" if product.price is not None else "contact us"
-            lines.append(f"- {product.name}: {product.description} | Price: {price}")
-        return "\n".join(lines)
+            billing = product.metadata_json.get("billing")
+            billing_period = billing.strip() if isinstance(billing, str) and billing.strip() else None
+            product_context.append(
+                SalesProductContext(
+                    name=product.name,
+                    description=product.description,
+                    price=product.price,
+                    billing_period=billing_period,
+                    active=product.active,
+                )
+            )
+        return tuple(product_context)
 
     def _conversation_context(self, lead_id: UUID) -> tuple[PromptMessage, ...]:
         """Map persisted history to role-aware, untrusted conversation context."""
@@ -84,10 +96,12 @@ class SalesConversationAgent:
             PromptCompositionInput(
                 platform_policy=SALES_PLATFORM_POLICY,
                 department_policy=SALES_DEPARTMENT_POLICY,
+                commercial_grounding_policy=SALES_COMMERCIAL_GROUNDING_POLICY,
                 agent_instructions="Ask one useful next question.",
                 workspace_instructions=workspace_instructions,
                 business_context=SalesBusinessContext(
-                    product_catalog=self._product_context(products),
+                    company_name=self.context.workspace.name if self.context.workspace else None,
+                    products=self._product_context(products),
                 ),
                 conversation_messages=self._conversation_context(lead.id),
                 current_task=(

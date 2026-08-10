@@ -7,6 +7,7 @@ from app.config import Settings
 from app.db import get_session
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.sales_agent import SalesConversationAgent
+from app.departments.sales.prompt_composition import PromptSectionKind
 from app.main import app
 from app.models import Lead, Workspace
 from app.schemas import InboundIntegrationEvent
@@ -229,7 +230,7 @@ async def test_sales_agent_without_workspace_instructions_preserves_prompt_shape
         session.refresh(lead)
         gateway = RecordingGateway()
 
-        await SalesConversationAgent(
+        agent = SalesConversationAgent(
             AgentContext(
                 settings=Settings(llm_mode="openai_compatible", llm_api_key="test-key"),
                 repository=SalesRepository(session),
@@ -237,8 +238,18 @@ async def test_sales_agent_without_workspace_instructions_preserves_prompt_shape
                 workspace=workspace,
                 ai_invocation_gateway=gateway,
             )
-        ).draft_reply(lead, "What is the monthly price?")
+        )
+        inbound = "What is the monthly price?"
+        composition = agent._compose_prompt(
+            lead=lead,
+            inbound=inbound,
+            stage=agent.detect_stage(inbound),
+            products=agent.context.repository.list_products(lead.tenant_id),
+        )
+        await agent.draft_reply(lead, inbound)
 
         request = gateway.requests[0]
         assert "Ask one useful next question" in request.system_prompt
-        assert "workspace instruction" not in request.system_prompt.lower()
+        assert PromptSectionKind.WORKSPACE_INSTRUCTIONS not in {
+            section.kind for section in composition.sections
+        }

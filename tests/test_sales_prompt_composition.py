@@ -13,7 +13,9 @@ from app.departments.sales.prompt_composition import (
     PromptSectionKind,
     PromptTrustLevel,
     SalesBusinessContext,
+    SalesProductContext,
     SalesPromptComposer,
+    SALES_COMMERCIAL_GROUNDING_POLICY,
     WorkspaceSalesInstructions,
 )
 from app.models import ConversationMessage, Lead, Product, Workspace
@@ -39,8 +41,13 @@ def test_prompt_sections_compose_in_deterministic_order_with_trust_boundaries():
             workspace_instructions=WorkspaceSalesInstructions("Trusted workspace rule"),
             business_context=SalesBusinessContext(
                 company_name="Acme Sales",
-                product_catalog="- Starter: 99.00",
-                policies=("Human approval is required.",),
+                products=(
+                    SalesProductContext(
+                        name="Starter",
+                        description="Sales automation",
+                        price=99.0,
+                    ),
+                ),
             ),
             conversation_messages=(
                 PromptMessage(
@@ -92,8 +99,8 @@ def test_prompt_sections_compose_in_deterministic_order_with_trust_boundaries():
         "\n\nTrusted workspace rule"
     )
     assert rendered.user_prompt == (
-        "Business: Acme Sales\nProduct catalog:\n- Starter: 99.00\n"
-        "Policies:\n- Human approval is required.\n\n"
+        "Business: Acme Sales\nAuthoritative product catalog:\n"
+        "Name: Starter\nDescription: Sales automation\nProduct status: active\nPrice: 99.00\n\n"
         "Customer: Earlier customer question\n\nSales agent: Earlier sales reply\n\n"
         "Customer message: untrusted request"
     )
@@ -124,14 +131,23 @@ def test_workspace_and_business_context_are_explicit_runtime_inputs_without_muta
         _source(
             workspace_instructions=WorkspaceSalesInstructions("Use the approved company voice."),
             business_context=SalesBusinessContext(
-                product_catalog=f"- {product.name}: {product.description} | Price: {product.price:.2f}"
+                products=(
+                    SalesProductContext(
+                        name=product.name,
+                        description=product.description,
+                        price=product.price,
+                        billing_period="monthly",
+                    ),
+                )
             ),
         )
     )
 
     assert product.model_dump() == before
     assert "Use the approved company voice." in composition.render().system_prompt
-    assert "Starter: Sales automation | Price: 99.00" in composition.render().user_prompt
+    assert "Name: Starter" in composition.render().user_prompt
+    assert "Description: Sales automation" in composition.render().user_prompt
+    assert "Price: 99.00" in composition.render().user_prompt
 
 
 def test_current_customer_input_is_never_promoted_to_trusted_system_content():
@@ -171,6 +187,7 @@ async def test_sales_conversation_agent_uses_composer_then_gateway_with_role_ord
             name="Starter",
             description="Sales automation",
             price=99.0,
+            metadata_json={"billing": "monthly"},
         )
         session.add_all([workspace, lead, product])
         session.commit()
@@ -206,7 +223,13 @@ async def test_sales_conversation_agent_uses_composer_then_gateway_with_role_ord
     assert gateway.workspace_ids == [workspace_id]
     assert "Never invent prices, discounts, stock, guarantees, or customer facts" in request.system_prompt
     assert "helpful B2B sales agent" in request.system_prompt
+    assert SALES_COMMERCIAL_GROUNDING_POLICY in request.system_prompt
     assert "Ask one useful next question" in request.system_prompt
+    assert "Authoritative product catalog:" in request.user_prompt
+    assert "Name: Starter" in request.user_prompt
+    assert "Description: Sales automation" in request.user_prompt
+    assert "Price: 99.00" in request.user_prompt
+    assert "Billing period: monthly" in request.user_prompt
     assert "Customer: Previous question" in request.user_prompt
     assert "Sales agent: Previous reply" in request.user_prompt
     assert "What is the monthly price?" in request.user_prompt
