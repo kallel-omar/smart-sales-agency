@@ -165,6 +165,7 @@ def test_unknown_pricing_and_workspace_scoped_aggregate(client):
         "input_tokens": 1_000_007,
         "output_tokens": 500_003,
         "total_tokens": 1_500_010,
+        "unknown_token_usage_invocation_count": 0,
         "known_estimated_spend": "3.60000000",
         "unknown_pricing_invocation_count": 1,
     }

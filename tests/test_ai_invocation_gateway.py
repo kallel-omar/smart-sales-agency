@@ -11,9 +11,11 @@ from app.db import get_session
 from app.main import app
 from app.models import AIInvocationStatus, AIInvocationUsage, Workspace
 from app.services.ai_invocation_gateway import (
+    AIInvocationAccountingError,
     AIInvocationBlockedError,
     AIInvocationGateway,
     AIInvocationGatewayRequest,
+    AIInvocationProviderMetadataError,
 )
 from app.services.ai_model_routing import AIPremiumJustification, AIModelRoutingTask
 from app.services.ai_model_tiers import AIModelTierResolutionError
@@ -25,13 +27,15 @@ class FakeLLM(LLMClient):
         self,
         *,
         content: str = "generated reply",
-        input_tokens: int | None = 12,
-        output_tokens: int | None = 8,
+        input_tokens: object = 12,
+        output_tokens: object = 8,
+        total_tokens: object = None,
         error: Exception | None = None,
     ) -> None:
         self.content = content
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
+        self.total_tokens = total_tokens
         self.error = error
         self.calls: list[tuple[str, str]] = []
 
@@ -46,6 +50,7 @@ class FakeLLM(LLMClient):
             content=self.content,
             input_tokens=self.input_tokens,
             output_tokens=self.output_tokens,
+            total_tokens=self.total_tokens,
         )
 
 
@@ -118,6 +123,7 @@ async def test_deterministic_route_does_not_build_or_invoke_an_llm(client):
     assert built_models == []
     assert fake.calls == []
     assert result.usage is None
+    assert list(session.exec(select(AIInvocationUsage))) == []
 
 
 @pytest.mark.asyncio
@@ -190,6 +196,7 @@ async def test_blocked_limit_never_builds_or_invokes_an_llm(client):
 
     assert models == []
     assert fake.calls == []
+    assert list(session.exec(select(AIInvocationUsage))) == []
 
 
 @pytest.mark.asyncio
@@ -248,6 +255,8 @@ async def test_successful_usage_records_actual_tokens_cost_and_no_sensitive_cont
     assert stored.status is AIInvocationStatus.SUCCESSFUL
     assert (stored.input_tokens, stored.output_tokens, stored.total_tokens) == (10, 5, 15)
     assert stored.estimated_cost == Decimal("0.000040")
+    assert stored.latency_ms >= 0
+    assert len(list(session.exec(select(AIInvocationUsage)))) == 1
     serialized = stored.model_dump()
     assert "system_prompt" not in serialized
     assert "user_prompt" not in serialized
@@ -278,8 +287,106 @@ async def test_unknown_pricing_and_provider_failure_are_recorded_safely(client):
         session.close()
 
     assert unknown.usage.estimated_cost is None
-    failed = next(row for row in rows if row.status is AIInvocationStatus.FAILED)
-    assert (failed.input_tokens, failed.output_tokens, failed.total_tokens) == (0, 0, 0)
+    failed_rows = [row for row in rows if row.status is AIInvocationStatus.FAILED]
+    assert len(failed_rows) == 1
+    failed = failed_rows[0]
+    assert (failed.input_tokens, failed.output_tokens, failed.total_tokens) == (None, None, None)
+
+
+@pytest.mark.asyncio
+async def test_unavailable_provider_usage_is_persisted_as_unknown_not_zero(client):
+    session, workspace = _stored_workspace(client, "gateway-unknown-token-usage")
+    try:
+        result = await _gateway(
+            session,
+            _settings(),
+            FakeLLM(input_tokens=None, output_tokens=None),
+            [],
+        ).invoke(_request(workspace))
+        assert result.usage is not None
+        stored = result.usage
+    finally:
+        session.close()
+
+    assert (stored.input_tokens, stored.output_tokens, stored.total_tokens) == (None, None, None)
+    assert stored.estimated_cost is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("input_tokens", "output_tokens", "total_tokens"),
+    [(-1, 1, None), (1, "invalid", None), (1, 2, 99), (True, 2, None)],
+)
+async def test_malformed_provider_usage_metadata_is_rejected_and_recorded_as_failed(
+    client,
+    input_tokens,
+    output_tokens,
+    total_tokens,
+):
+    session, workspace = _stored_workspace(
+        client,
+        f"gateway-malformed-{str(input_tokens).lower()}-{str(output_tokens).lower()}-{total_tokens}",
+    )
+    try:
+        fake = FakeLLM(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
+        with pytest.raises(AIInvocationProviderMetadataError, match="invalid usage metadata"):
+            await _gateway(session, _settings(), fake, []).invoke(_request(workspace))
+        rows = list(session.exec(select(AIInvocationUsage)))
+    finally:
+        session.close()
+
+    assert fake.calls
+    assert len(rows) == 1
+    assert rows[0].status is AIInvocationStatus.FAILED
+    assert (rows[0].input_tokens, rows[0].output_tokens, rows[0].total_tokens) == (
+        None,
+        None,
+        None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_successful_provider_call_raises_if_exactly_once_accounting_write_fails(client, monkeypatch):
+    session, workspace = _stored_workspace(client, "gateway-accounting-write-failure")
+    try:
+        fake = FakeLLM()
+        gateway = _gateway(session, _settings(), fake, [])
+        record = Mock(side_effect=RuntimeError("database unavailable"))
+        monkeypatch.setattr(gateway._usage_service, "record", record)
+
+        with pytest.raises(AIInvocationAccountingError, match="accounting could not be completed"):
+            await gateway.invoke(_request(workspace))
+        assert list(session.exec(select(AIInvocationUsage))) == []
+    finally:
+        session.close()
+
+    assert len(fake.calls) == 1
+    assert record.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_provider_call_preserves_original_error_when_failure_accounting_fails(
+    client,
+    monkeypatch,
+):
+    session, workspace = _stored_workspace(client, "gateway-failure-accounting-write-failure")
+    try:
+        fake = FakeLLM(error=RuntimeError("provider unavailable"))
+        gateway = _gateway(session, _settings(), fake, [])
+        record = Mock(side_effect=RuntimeError("database unavailable"))
+        monkeypatch.setattr(gateway._usage_service, "record", record)
+
+        with pytest.raises(RuntimeError, match="provider unavailable"):
+            await gateway.invoke(_request(workspace))
+    finally:
+        session.close()
+
+    assert len(fake.calls) == 1
+    assert record.call_count == 1
 
 
 @pytest.mark.asyncio

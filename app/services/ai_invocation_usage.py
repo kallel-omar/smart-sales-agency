@@ -29,6 +29,7 @@ class AIInvocationUsageSummary:
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    unknown_token_usage_invocation_count: int
     known_estimated_spend: Decimal
     unknown_pricing_invocation_count: int
 
@@ -57,11 +58,12 @@ class AIInvocationUsageService:
         agent_identifier: str,
         provider: str,
         model: str,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
         latency_ms: int,
         status: AIInvocationStatus,
         conversation_id: UUID | None = None,
+        total_tokens: int | None = None,
         estimated_cost: Decimal | str | int | None = None,
         created_at: datetime | None = None,
     ) -> AIInvocationUsage:
@@ -71,8 +73,13 @@ class AIInvocationUsageService:
             "provider": self._identifier(provider, "Provider"),
             "model": self._identifier(model, "Model"),
         }
-        self._non_negative(input_tokens, "Input tokens")
-        self._non_negative(output_tokens, "Output tokens")
+        input_tokens = self._optional_non_negative(input_tokens, "Input tokens")
+        output_tokens = self._optional_non_negative(output_tokens, "Output tokens")
+        total_tokens = self._canonical_total_tokens(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
         self._non_negative(latency_ms, "Latency")
         cost = self._estimated_cost(
             provider=normalized["provider"],
@@ -86,7 +93,7 @@ class AIInvocationUsageService:
             conversation_id=conversation_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            total_tokens=input_tokens + output_tokens,
+            total_tokens=total_tokens,
             latency_ms=latency_ms,
             estimated_cost=cost,
             status=status,
@@ -94,8 +101,14 @@ class AIInvocationUsageService:
             **normalized,
         )
         self.session.add(usage)
-        self.session.commit()
-        self.session.refresh(usage)
+        try:
+            self.session.commit()
+            self.session.refresh(usage)
+        except Exception:
+            # Keep the caller's session usable after a failed accounting write.
+            # The gateway decides which application-level error is safe to show.
+            self.session.rollback()
+            raise
         return usage
 
     def list_for_workspace(self, workspace: Workspace) -> list[AIInvocationUsage]:
@@ -119,9 +132,12 @@ class AIInvocationUsageService:
             failed_invocation_count=sum(
                 usage.status is AIInvocationStatus.FAILED for usage in usages
             ),
-            input_tokens=sum(usage.input_tokens for usage in usages),
-            output_tokens=sum(usage.output_tokens for usage in usages),
-            total_tokens=sum(usage.total_tokens for usage in usages),
+            input_tokens=sum(usage.input_tokens or 0 for usage in usages),
+            output_tokens=sum(usage.output_tokens or 0 for usage in usages),
+            total_tokens=sum(usage.total_tokens or 0 for usage in usages),
+            unknown_token_usage_invocation_count=sum(
+                usage.total_tokens is None for usage in usages
+            ),
             known_estimated_spend=sum(known_costs, Decimal("0")),
             unknown_pricing_invocation_count=sum(
                 usage.estimated_cost is None for usage in usages
@@ -139,6 +155,31 @@ class AIInvocationUsageService:
     def _non_negative(value: int, label: str) -> None:
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise AIInvocationUsageValidationError(f"{label} must be a non-negative integer")
+
+    @classmethod
+    def _optional_non_negative(cls, value: int | None, label: str) -> int | None:
+        if value is None:
+            return None
+        cls._non_negative(value, label)
+        return value
+
+    @classmethod
+    def _canonical_total_tokens(
+        cls,
+        *,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None,
+    ) -> int | None:
+        total_tokens = cls._optional_non_negative(total_tokens, "Total tokens")
+        if input_tokens is None or output_tokens is None:
+            return total_tokens
+        calculated_total = input_tokens + output_tokens
+        if total_tokens is not None and total_tokens != calculated_total:
+            raise AIInvocationUsageValidationError(
+                "Total tokens must equal input tokens plus output tokens"
+            )
+        return calculated_total
 
     @staticmethod
     def _cost(value: Decimal | str | int | None) -> Decimal | None:
@@ -159,10 +200,14 @@ class AIInvocationUsageService:
         *,
         provider: str,
         model: str,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
         estimated_cost: Decimal | str | int | None,
     ) -> Decimal | None:
+        # A configured price cannot produce a safe actual cost without both
+        # provider-reported token components.
+        if input_tokens is None or output_tokens is None:
+            return None
         if self._pricing_catalog is None:
             return self._cost(estimated_cost)
         if estimated_cost is not None:

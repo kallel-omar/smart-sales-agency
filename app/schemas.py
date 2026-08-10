@@ -147,9 +147,9 @@ class AIInvocationUsageRead(BaseModel):
     agent_identifier: str
     provider: str
     model: str
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
     latency_ms: int
     estimated_cost: Decimal | None
     pricing_known: bool
@@ -166,6 +166,7 @@ class AIInvocationUsageSummaryRead(BaseModel):
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    unknown_token_usage_invocation_count: int
     known_estimated_spend: Decimal
     unknown_pricing_invocation_count: int
 

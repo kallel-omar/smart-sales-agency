@@ -205,9 +205,11 @@ class AIInvocationUsage(SQLModel, table=True):
     agent_identifier: str = Field(max_length=100, index=True)
     provider: str = Field(max_length=100, index=True)
     model: str = Field(max_length=200, index=True)
-    input_tokens: int = Field(ge=0)
-    output_tokens: int = Field(ge=0)
-    total_tokens: int = Field(ge=0)
+    # Null means that the provider did not make that usage value available.
+    # It is deliberately distinct from a provider-reported zero.
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
     latency_ms: int = Field(ge=0)
     estimated_cost: Decimal | None = Field(
         default=None,
@@ -218,7 +220,7 @@ class AIInvocationUsage(SQLModel, table=True):
 
     @property
     def pricing_known(self) -> bool:
-        """A null cost explicitly means no configured price was available."""
+        """A null cost explicitly means no safe cost estimate is available."""
 
         return self.estimated_cost is not None
 

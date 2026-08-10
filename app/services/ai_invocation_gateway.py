@@ -47,6 +47,14 @@ class AIInvocationBlockedError(RuntimeError):
         super().__init__(decision.explanation)
 
 
+class AIInvocationProviderMetadataError(RuntimeError):
+    """Raised after a real call returns malformed provider usage metadata."""
+
+
+class AIInvocationAccountingError(RuntimeError):
+    """Raised when a completed provider call cannot be safely accounted for."""
+
+
 @dataclass(frozen=True)
 class AIInvocationGatewayRequest:
     """Trusted invocation context plus transient prompts for the LLM boundary.
@@ -152,24 +160,39 @@ class AIInvocationGateway:
                 request.user_prompt,
             )
         except Exception:
-            self._record(
+            self._record_failed_without_masking_provider_error(
                 request=request,
                 selection=selection,
-                input_tokens=0,
-                output_tokens=0,
                 latency_ms=self._elapsed_ms(started_at),
-                status=AIInvocationStatus.FAILED,
             )
             raise
 
-        usage = self._record(
-            request=request,
-            selection=selection,
-            input_tokens=completion.input_tokens or 0,
-            output_tokens=completion.output_tokens or 0,
-            latency_ms=self._elapsed_ms(started_at),
-            status=AIInvocationStatus.SUCCESSFUL,
-        )
+        try:
+            input_tokens, output_tokens, total_tokens = self._canonical_usage_metadata(completion)
+        except Exception as exc:
+            self._record_failed_without_masking_provider_error(
+                request=request,
+                selection=selection,
+                latency_ms=self._elapsed_ms(started_at),
+            )
+            raise AIInvocationProviderMetadataError(
+                "LLM provider returned invalid usage metadata"
+            ) from exc
+
+        try:
+            usage = self._record(
+                request=request,
+                selection=selection,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                latency_ms=self._elapsed_ms(started_at),
+                status=AIInvocationStatus.SUCCESSFUL,
+            )
+        except Exception as exc:
+            raise AIInvocationAccountingError(
+                "AI invocation accounting could not be completed"
+            ) from exc
         return AIInvocationGatewayResult(
             invoked=True,
             content=completion.content,
@@ -184,8 +207,9 @@ class AIInvocationGateway:
         *,
         request: AIInvocationGatewayRequest,
         selection: AIModelSelection,
-        input_tokens: int,
-        output_tokens: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None,
         latency_ms: int,
         status: AIInvocationStatus,
     ) -> AIInvocationUsage:
@@ -198,10 +222,61 @@ class AIInvocationGateway:
             model=selection.model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            total_tokens=total_tokens,
             latency_ms=latency_ms,
             status=status,
             conversation_id=request.conversation_id,
         )
+
+    def _record_failed_without_masking_provider_error(
+        self,
+        *,
+        request: AIInvocationGatewayRequest,
+        selection: AIModelSelection,
+        latency_ms: int,
+    ) -> None:
+        try:
+            self._record(
+                request=request,
+                selection=selection,
+                input_tokens=None,
+                output_tokens=None,
+                total_tokens=None,
+                latency_ms=latency_ms,
+                status=AIInvocationStatus.FAILED,
+            )
+        except Exception:
+            # The provider error remains the application-visible failure.  A
+            # second persistence attempt could duplicate a row, so never retry.
+            return
+
+    @staticmethod
+    def _canonical_usage_metadata(
+        completion: object,
+    ) -> tuple[int | None, int | None, int | None]:
+        try:
+            input_tokens = getattr(completion, "input_tokens")
+            output_tokens = getattr(completion, "output_tokens")
+            reported_total = getattr(completion, "total_tokens", None)
+        except Exception as exc:
+            raise ValueError("LLM completion did not contain usage metadata") from exc
+
+        def token(value: object) -> int | None:
+            if value is None:
+                return None
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError("LLM completion usage metadata is invalid")
+            return value
+
+        input_tokens = token(input_tokens)
+        output_tokens = token(output_tokens)
+        reported_total = token(reported_total)
+        if input_tokens is not None and output_tokens is not None:
+            calculated_total = input_tokens + output_tokens
+            if reported_total is not None and reported_total != calculated_total:
+                raise ValueError("LLM completion usage total is inconsistent")
+            return input_tokens, output_tokens, calculated_total
+        return input_tokens, output_tokens, reported_total
 
     @staticmethod
     def _elapsed_ms(started_at: float) -> int:

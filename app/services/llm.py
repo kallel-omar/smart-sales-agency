@@ -12,6 +12,10 @@ class LLMError(RuntimeError):
     pass
 
 
+class LLMProviderMetadataError(LLMError):
+    """Raised when a provider reports unusable invocation usage metadata."""
+
+
 @dataclass(frozen=True)
 class LLMCompletion:
     """Provider-neutral completion text and optional provider-reported usage.
@@ -24,6 +28,7 @@ class LLMCompletion:
     content: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class LLMClient(ABC):
@@ -102,24 +107,41 @@ class OpenAICompatibleLLM(LLMClient):
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMError("Unexpected response format from LLM provider") from exc
 
-        usage = body.get("usage") if isinstance(body, dict) else None
-        input_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
-        output_tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
-        if not (
-            isinstance(input_tokens, int)
-            and not isinstance(input_tokens, bool)
-            and input_tokens >= 0
-            and isinstance(output_tokens, int)
-            and not isinstance(output_tokens, bool)
-            and output_tokens >= 0
-        ):
-            input_tokens = None
-            output_tokens = None
+        input_tokens, output_tokens, total_tokens = self._usage_metadata(body)
         return LLMCompletion(
             content=content,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            total_tokens=total_tokens,
         )
+
+    @staticmethod
+    def _usage_metadata(body: object) -> tuple[int | None, int | None, int | None]:
+        if not isinstance(body, dict) or "usage" not in body or body["usage"] is None:
+            return None, None, None
+        usage = body["usage"]
+        if not isinstance(usage, dict):
+            raise LLMProviderMetadataError("LLM provider returned invalid usage metadata")
+
+        def token(name: str) -> int | None:
+            value = usage.get(name)
+            if value is None:
+                return None
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise LLMProviderMetadataError("LLM provider returned invalid usage metadata")
+            return value
+
+        input_tokens = token("prompt_tokens")
+        output_tokens = token("completion_tokens")
+        total_tokens = token("total_tokens")
+        if (
+            input_tokens is not None
+            and output_tokens is not None
+            and total_tokens is not None
+            and total_tokens != input_tokens + output_tokens
+        ):
+            raise LLMProviderMetadataError("LLM provider returned inconsistent usage metadata")
+        return input_tokens, output_tokens, total_tokens
 
 
 def build_llm(settings: Settings, *, model: str | None = None) -> LLMClient:
