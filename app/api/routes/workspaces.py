@@ -6,12 +6,15 @@ from app.api.dependencies import CurrentWorkspaceDep, SessionDep
 from app.models import Workspace
 from app.schemas import (
     WorkspaceCreate,
+    WorkspaceSalesCommunicationRead,
+    WorkspaceSalesCommunicationUpdate,
     WorkspaceRead,
     WorkspaceSalesInstructionsRead,
     WorkspaceSalesInstructionsUpdate,
 )
 from app.services.workspaces import (
     WorkspaceSalesInstructionsService,
+    WorkspaceSalesCommunicationService,
     WorkspaceSalesInstructionsValidationError,
 )
 
@@ -23,6 +26,15 @@ def sales_instructions_read(
 ) -> WorkspaceSalesInstructionsRead:
     return WorkspaceSalesInstructionsRead(
         sales_instructions=workspace.sales_instructions,
+    )
+
+
+def sales_communication_read(
+    workspace: Workspace,
+) -> WorkspaceSalesCommunicationRead:
+    return WorkspaceSalesCommunicationRead(
+        preferred_language=workspace.sales_preferred_language,
+        preferred_tone=workspace.sales_preferred_tone,
     )
 
 
@@ -118,6 +130,37 @@ def clear_workspace_sales_instructions(
 
     updated = WorkspaceSalesInstructionsService(session).clear(workspace)
     return sales_instructions_read(updated)
+
+
+@router.get(
+    "/sales-communication",
+    response_model=WorkspaceSalesCommunicationRead,
+)
+def get_workspace_sales_communication(
+    workspace: CurrentWorkspaceDep,
+) -> WorkspaceSalesCommunicationRead:
+    """Return only the current workspace's trusted Sales communication defaults."""
+
+    return sales_communication_read(workspace)
+
+
+@router.put(
+    "/sales-communication",
+    response_model=WorkspaceSalesCommunicationRead,
+)
+def update_workspace_sales_communication(
+    payload: WorkspaceSalesCommunicationUpdate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+) -> WorkspaceSalesCommunicationRead:
+    """Update typed defaults selected solely by the current workspace context."""
+
+    updated = WorkspaceSalesCommunicationService(session).update(
+        workspace,
+        preferred_language=payload.preferred_language,
+        preferred_tone=payload.preferred_tone,
+    )
+    return sales_communication_read(updated)
 
 
 @router.get("/{slug}", response_model=WorkspaceRead)

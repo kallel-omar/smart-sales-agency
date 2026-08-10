@@ -43,6 +43,7 @@ class PromptSectionKind(StrEnum):
     DEPARTMENT_POLICY = "department_policy"
     COMMERCIAL_GROUNDING_POLICY = "commercial_grounding_policy"
     AGENT_INSTRUCTIONS = "agent_instructions"
+    LANGUAGE_TONE_POLICY = "language_tone_policy"
     WORKSPACE_INSTRUCTIONS = "workspace_instructions"
     BUSINESS_CONTEXT = "business_context"
     UNTRUSTED_CONTEXT = "untrusted_context"
@@ -92,6 +93,13 @@ class UntrustedPromptContext:
 @dataclass(frozen=True, slots=True)
 class WorkspaceSalesInstructions:
     """Trusted, server-owned workspace Sales instructions when configured."""
+
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class SalesLanguageToneInstruction:
+    """Trusted, deterministic style instruction selected before gateway use."""
 
     content: str
 
@@ -154,6 +162,7 @@ class PromptCompositionInput:
     agent_instructions: str
     current_task: str
     commercial_grounding_policy: str | None = None
+    language_tone_instruction: SalesLanguageToneInstruction | None = None
     workspace_instructions: WorkspaceSalesInstructions | None = None
     business_context: SalesBusinessContext | None = None
     untrusted_context: tuple[UntrustedPromptContext, ...] = ()
@@ -233,6 +242,15 @@ class SalesPromptComposer:
                 trust_level=PromptTrustLevel.TRUSTED,
             )
         )
+        if source.language_tone_instruction and source.language_tone_instruction.content:
+            sections.append(
+                PromptSection(
+                    kind=PromptSectionKind.LANGUAGE_TONE_POLICY,
+                    content=source.language_tone_instruction.content,
+                    role=PromptMessageRole.SYSTEM,
+                    trust_level=PromptTrustLevel.TRUSTED,
+                )
+            )
         if source.workspace_instructions and source.workspace_instructions.content:
             sections.append(
                 PromptSection(

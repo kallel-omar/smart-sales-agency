@@ -14,7 +14,9 @@ from app.models import (
     OutboundActionPriority,
     OutboundIntegrationActionType,
     OutboundIntegrationAuditAction,
+    SalesLanguage,
     SalesStage,
+    SalesTone,
 )
 
 
@@ -603,3 +605,19 @@ class WorkspaceSalesInstructionsRead(BaseModel):
     """Safe view of the current workspace's Sales instructions only."""
 
     sales_instructions: str | None
+
+
+class WorkspaceSalesCommunicationUpdate(BaseModel):
+    """Trusted workspace-admin language and tone preferences; ownership is request-derived."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    preferred_language: SalesLanguage | None = None
+    preferred_tone: SalesTone | None = None
+
+
+class WorkspaceSalesCommunicationRead(BaseModel):
+    """Safe view of the current workspace's Sales communication preferences only."""
+
+    preferred_language: SalesLanguage | None
+    preferred_tone: SalesTone | None

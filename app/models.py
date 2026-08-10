@@ -35,6 +35,23 @@ class SalesStage(StrEnum):
     FOLLOW_UP = "follow_up"
 
 
+class SalesLanguage(StrEnum):
+    """Supported deterministic language modes for customer-facing Sales replies."""
+
+    ENGLISH = "english"
+    FRENCH = "french"
+    ARABIC = "arabic"
+    TUNISIAN_ARABIC = "tunisian_arabic"
+
+
+class SalesTone(StrEnum):
+    """Small, provider-neutral tone choices for customer-facing Sales replies."""
+
+    PROFESSIONAL = "professional"
+    FRIENDLY = "friendly"
+    CONCISE = "concise"
+
+
 class ApprovalStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -138,6 +155,11 @@ class Workspace(SQLModel, table=True):
     # Sales prompt section. It is not customer conversation content and never
     # stores rendered prompts or provider data.
     sales_instructions: str | None = Field(default=None, max_length=4_000)
+    # Optional trusted administrator defaults. The current customer message is
+    # otherwise classified deterministically at runtime; no conversation data
+    # is persisted as workspace configuration.
+    sales_preferred_language: SalesLanguage | None = Field(default=None)
+    sales_preferred_tone: SalesTone | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

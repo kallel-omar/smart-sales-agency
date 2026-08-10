@@ -4,7 +4,7 @@ import re
 
 from sqlmodel import Session, select
 
-from app.models import IntegrationAccount, Workspace, utc_now
+from app.models import IntegrationAccount, SalesLanguage, SalesTone, Workspace, utc_now
 
 
 MAX_WORKSPACE_SALES_INSTRUCTIONS_LENGTH = 4_000
@@ -98,6 +98,28 @@ class WorkspaceSalesInstructionsService:
         return self._save(workspace)
 
     def _save(self, workspace: Workspace) -> Workspace:
+        workspace.updated_at = utc_now()
+        self.session.add(workspace)
+        self.session.commit()
+        self.session.refresh(workspace)
+        return workspace
+
+
+class WorkspaceSalesCommunicationService:
+    """Mutate typed Sales language/tone defaults for one resolved workspace only."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def update(
+        self,
+        workspace: Workspace,
+        *,
+        preferred_language: SalesLanguage | None,
+        preferred_tone: SalesTone | None,
+    ) -> Workspace:
+        workspace.sales_preferred_language = preferred_language
+        workspace.sales_preferred_tone = preferred_tone
         workspace.updated_at = utc_now()
         self.session.add(workspace)
         self.session.commit()

@@ -121,6 +121,7 @@ def test_sales_agent_keeps_customer_price_claim_untrusted_and_uses_workspace_pro
         PromptSectionKind.DEPARTMENT_POLICY,
         PromptSectionKind.COMMERCIAL_GROUNDING_POLICY,
         PromptSectionKind.AGENT_INSTRUCTIONS,
+        PromptSectionKind.LANGUAGE_TONE_POLICY,
         PromptSectionKind.WORKSPACE_INSTRUCTIONS,
         PromptSectionKind.BUSINESS_CONTEXT,
         PromptSectionKind.CURRENT_TASK,

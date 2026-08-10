@@ -3,6 +3,11 @@
 from uuid import UUID
 
 from app.departments.sales.agents.base import AgentContext
+from app.departments.sales.language_policy import (
+    render_sales_communication_instruction,
+    select_sales_language,
+    select_sales_tone,
+)
 from app.departments.sales.prompt_composition import (
     PromptComposition,
     PromptCompositionInput,
@@ -10,6 +15,7 @@ from app.departments.sales.prompt_composition import (
     PromptMessageRole,
     PromptTrustLevel,
     SalesBusinessContext,
+    SalesLanguageToneInstruction,
     SalesProductContext,
     SalesPromptComposer,
     SALES_COMMERCIAL_GROUNDING_POLICY,
@@ -76,6 +82,13 @@ class SalesConversationAgent:
             )
         return tuple(messages)
 
+    def _prior_customer_messages(self, lead_id: UUID) -> tuple[str, ...]:
+        return tuple(
+            message.content
+            for message in self.context.repository.conversation_history(lead_id)
+            if message.direction == "inbound"
+        )
+
     def _compose_prompt(
         self,
         *,
@@ -92,12 +105,30 @@ class SalesConversationAgent:
                 content=self.context.workspace.sales_instructions
             )
 
+        workspace = self.context.workspace
+        language = select_sales_language(
+            customer_message=inbound,
+            workspace_preferred_language=(
+                workspace.sales_preferred_language if workspace else None
+            ),
+            prior_customer_messages=self._prior_customer_messages(lead.id),
+        )
+        tone = select_sales_tone(
+            workspace.sales_preferred_tone if workspace else None
+        )
+
         return SalesPromptComposer().compose(
             PromptCompositionInput(
                 platform_policy=SALES_PLATFORM_POLICY,
                 department_policy=SALES_DEPARTMENT_POLICY,
                 commercial_grounding_policy=SALES_COMMERCIAL_GROUNDING_POLICY,
                 agent_instructions="Ask one useful next question.",
+                language_tone_instruction=SalesLanguageToneInstruction(
+                    content=render_sales_communication_instruction(
+                        language=language,
+                        tone=tone,
+                    )
+                ),
                 workspace_instructions=workspace_instructions,
                 business_context=SalesBusinessContext(
                     company_name=self.context.workspace.name if self.context.workspace else None,
