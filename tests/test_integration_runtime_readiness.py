@@ -154,12 +154,13 @@ def test_runtime_readiness_reports_unregistered_adapter_and_generic_webhook_conf
         app.dependency_overrides,
         get_settings,
         lambda: Settings(
-            environment="test",
-            database_url="sqlite://",
-            llm_mode="demo",
-            outbound_webhook_url="not a URL",
-        ),
-    )
+                environment="test",
+                database_url="sqlite://",
+                llm_mode="demo",
+                auth_token_secret="test-auth-token-secret-32-byte-value",
+                outbound_webhook_url="not a URL",
+            ),
+        )
     invalid_configuration = _provision(client, "webhook-invalid", provider="generic_webhook")
     invalid_response = _readiness(client, "webhook-invalid", invalid_configuration["id"])
     assert "outbound_configuration_invalid" in _codes(invalid_response)

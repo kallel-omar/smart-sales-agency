@@ -1,17 +1,25 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.services.ai_model_tiers import AIModelTier, AIModelTierMapping
 from app.services.ai_model_pricing import AIModelPricing
+from app.services.ai_model_tiers import AIModelTier, AIModelTierMapping
 
 
 class Settings(BaseSettings):
     app_name: str = "Smart Sales Agency"
     environment: Literal["development", "test", "production"] = "development"
     database_url: str = "sqlite:///./sales_agency.db"
+
+    # Authentication is opt-in until Task 280 introduces the first human
+    # credential flow. An empty development value cannot issue or verify a
+    # token; production settings fail closed during validation.
+    auth_token_secret: SecretStr = SecretStr("")
+    auth_token_algorithm: Literal["HS256"] = "HS256"
+    auth_token_expiration_seconds: int = Field(default=1_800, ge=60, le=3_600)
+    auth_token_issuer: str = "smart-sales-agency"
 
     llm_mode: Literal["demo", "openai_compatible"] = "demo"
     llm_api_key: str = ""
@@ -93,6 +101,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_ai_model_tier_mappings(self) -> "Settings":
+        if self.environment == "production" and not self.auth_token_secret.get_secret_value():
+            raise ValueError("AUTH_TOKEN_SECRET must be configured in production")
         if AIModelTier.NONE in self.ai_model_tier_mappings:
             raise ValueError("The none AI model tier must not have a provider/model mapping")
         pricing_keys = [(entry.provider, entry.model) for entry in self.ai_model_pricing]

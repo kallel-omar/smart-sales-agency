@@ -235,6 +235,23 @@ class User(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class UserPasswordCredential(SQLModel, table=True):
+    """One Argon2 password verifier for a platform user, never an API resource."""
+
+    __tablename__ = "user_password_credential"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_user_password_credential_user"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(foreign_key="platform_user.id", index=True)
+    password_hash: str = Field(
+        sa_column=Column(String(255), nullable=False),
+    )
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class WorkspaceMember(SQLModel, table=True):
     """Canonical relationship between one platform user and one workspace."""
 

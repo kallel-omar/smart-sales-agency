@@ -152,6 +152,7 @@ def test_failed_status_denies_retry_after_the_configured_maximum(client):
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="test",
         database_url="sqlite://",
+        auth_token_secret="test-auth-token-secret-32-byte-value",
         outbound_delivery_max_attempts=2,
     )
     create_workspace(client, "company-a")
@@ -172,6 +173,7 @@ def test_failed_status_denies_a_configured_non_retryable_failure_code(client):
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="test",
         database_url="sqlite://",
+        auth_token_secret="test-auth-token-secret-32-byte-value",
         outbound_delivery_non_retryable_failure_codes="adapter_not_configured",
     )
     create_workspace(client, "company-a")

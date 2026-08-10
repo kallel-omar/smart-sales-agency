@@ -11,6 +11,7 @@ def test_failed_status_exposes_future_retry_time_without_mutating_action(client)
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="test",
         database_url="sqlite://",
+        auth_token_secret="test-auth-token-secret-32-byte-value",
         outbound_delivery_retry_delay_seconds=300,
         outbound_delivery_retry_delay_max_seconds=300,
     )

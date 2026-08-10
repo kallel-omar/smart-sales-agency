@@ -228,13 +228,20 @@ def test_integration_account_remains_distinct_and_approval_has_no_retrofitted_ac
     session, service = _service(client)
     try:
         user = service.register_user(email="operator@example.com")
+        user_id = user.id
         membership = service.add_membership(
             workspace=workspace,
-            user_id=user.id,
+            user_id=user_id,
             role=WorkspaceMemberRole.OWNER,
         )
         assert session.get(IntegrationAccount, membership.id) is None
         assert session.get(ApprovalRequest, membership.id) is None
-        assert list(session.exec(select(WorkspaceMember))).pop().user_id == user.id
+        memberships = list(
+            session.exec(
+                select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace.id)
+            )
+        )
     finally:
         session.close()
+
+    assert any(membership.user_id == user_id for membership in memberships)

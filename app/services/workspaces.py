@@ -1,7 +1,9 @@
 import re
 from dataclasses import dataclass
 from hashlib import sha256
+from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.models import (
@@ -9,9 +11,15 @@ from app.models import (
     SalesLanguage,
     SalesTone,
     SalesWritingScript,
+    User,
     Workspace,
+    WorkspaceMember,
+    WorkspaceMemberRole,
     utc_now,
 )
+
+if TYPE_CHECKING:
+    from app.services.identity_memberships import AuthenticatedPrincipal
 
 MAX_WORKSPACE_SALES_INSTRUCTIONS_LENGTH = 4_000
 
@@ -33,6 +41,14 @@ class WorkspaceInactiveError(ValueError):
     pass
 
 
+class WorkspaceCreationPrincipalError(PermissionError):
+    """Raised when a stale authenticated identity cannot own a new workspace."""
+
+
+class DuplicateWorkspaceSlugError(ValueError):
+    """Raised when an attempted workspace slug already exists."""
+
+
 class InvalidIntegrationContextError(PermissionError):
     """Raised when an external integration cannot be mapped safely."""
 
@@ -43,6 +59,48 @@ class IntegrationContext:
 
     account: IntegrationAccount
     workspace: Workspace
+
+
+class WorkspaceCreationService:
+    """Create a new workspace and its server-assigned owner as one unit."""
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create_for_principal(
+        self,
+        *,
+        slug: str,
+        name: str,
+        principal: "AuthenticatedPrincipal",
+    ) -> Workspace:
+        user = self.session.get(User, principal.user_id)
+        if user is None or not user.active or not principal.active:
+            raise WorkspaceCreationPrincipalError("Authenticated user is unavailable")
+
+        if self.session.exec(select(Workspace.id).where(Workspace.slug == slug)).first():
+            raise DuplicateWorkspaceSlugError("A workspace with this slug already exists")
+
+        workspace = Workspace(slug=slug, name=name)
+        self.session.add(workspace)
+        try:
+            # Flush allocates the server-owned workspace ID before its owner
+            # relationship is constructed. A later failure rolls both back.
+            self.session.flush()
+            self.session.add(
+                WorkspaceMember(
+                    workspace_id=workspace.id,
+                    user_id=principal.user_id,
+                    role=WorkspaceMemberRole.OWNER,
+                )
+            )
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            raise DuplicateWorkspaceSlugError("A workspace with this slug already exists") from exc
+
+        self.session.refresh(workspace)
+        return workspace
 
 
 def normalize_workspace_sales_instructions(value: str) -> str | None:

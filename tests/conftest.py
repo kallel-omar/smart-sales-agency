@@ -13,6 +13,7 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.main import app
 from app.models import IntegrationAccount
+from app.services.authentication import AuthenticationService
 
 
 @pytest.fixture
@@ -33,18 +34,32 @@ def client(monkeypatch) -> Generator[TestClient, None, None]:
         with Session(test_engine) as session:
             yield session
 
+    test_settings = Settings(
+        environment="test",
+        database_url="sqlite://",
+        llm_mode="demo",
+        require_human_approval=True,
+        auth_token_secret="test-auth-token-secret-32-byte-value",
+    )
+
     def get_test_settings() -> Settings:
-        return Settings(
-            environment="test",
-            database_url="sqlite://",
-            llm_mode="demo",
-            require_human_approval=True,
-        )
+        return test_settings
 
     app.dependency_overrides[get_session] = get_test_session
     app.dependency_overrides[get_settings] = get_test_settings
 
-    test_client = TestClient(app)
+    with Session(test_engine) as session:
+        fixture_user = AuthenticationService(session, test_settings).register(
+            email="fixture-operator@example.com",
+            password="fixture-password",
+            display_name="Fixture Operator",
+        )
+        fixture_token = AuthenticationService(session, test_settings).issue_access_token(fixture_user)
+
+    test_client = TestClient(
+        app,
+        headers={"Authorization": f"Bearer {fixture_token}"},
+    )
 
     try:
         yield test_client

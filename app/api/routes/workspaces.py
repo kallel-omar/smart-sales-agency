@@ -1,8 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from app.api.dependencies import CurrentWorkspaceDep, SessionDep
+from app.api.dependencies import AuthenticatedPrincipalDep, CurrentWorkspaceDep, SessionDep
 from app.models import Workspace
 from app.schemas import (
     WorkspaceCreate,
@@ -13,6 +12,8 @@ from app.schemas import (
     WorkspaceSalesInstructionsUpdate,
 )
 from app.services.workspaces import (
+    DuplicateWorkspaceSlugError,
+    WorkspaceCreationService,
     WorkspaceSalesCommunicationService,
     WorkspaceSalesInstructionsService,
     WorkspaceSalesInstructionsValidationError,
@@ -43,38 +44,22 @@ def sales_communication_read(
 def create_workspace(
     payload: WorkspaceCreate,
     session: SessionDep,
+    principal: AuthenticatedPrincipalDep,
 ) -> Workspace:
     slug = payload.slug.strip().lower()
     name = payload.name.strip()
 
-    existing_workspace = session.exec(
-        select(Workspace).where(Workspace.slug == slug)
-    ).first()
-
-    if existing_workspace:
-        raise HTTPException(
-            status_code=409,
-            detail="A workspace with this slug already exists",
-        )
-
-    workspace = Workspace(
-        slug=slug,
-        name=name,
-    )
-
-    session.add(workspace)
-
     try:
-        session.commit()
-    except IntegrityError as exc:
-        session.rollback()
+        return WorkspaceCreationService(session).create_for_principal(
+            slug=slug,
+            name=name,
+            principal=principal,
+        )
+    except DuplicateWorkspaceSlugError as exc:
         raise HTTPException(
             status_code=409,
             detail="A workspace with this slug already exists",
         ) from exc
-
-    session.refresh(workspace)
-    return workspace
 
 
 @router.get("", response_model=list[WorkspaceRead])

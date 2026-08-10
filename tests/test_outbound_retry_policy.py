@@ -96,6 +96,7 @@ def test_retry_is_denied_after_configured_maximum_without_a_new_attempt(client):
     app.dependency_overrides[get_settings] = lambda: Settings(
         environment="test",
         database_url="sqlite://",
+        auth_token_secret="test-auth-token-secret-32-byte-value",
         outbound_delivery_max_attempts=2,
     )
     create_workspace(client, "company-a")

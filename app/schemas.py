@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from app.models import (
     AIInvocationStatus,
@@ -601,6 +601,8 @@ class ConversationMessageRead(BaseModel):
     created_at: datetime
 
 class WorkspaceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     slug: str
     name: str
 
@@ -636,6 +638,33 @@ class UserRead(BaseModel):
     active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class AuthRegistrationCreate(BaseModel):
+    """Registration payload; Pydantic's secret wrapper reduces accidental repr leakage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=1, max_length=320)
+    password: SecretStr
+    display_name: str | None = Field(default=None, max_length=200)
+
+
+class AuthLoginCreate(BaseModel):
+    """Credential input for the human access-token exchange."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=1, max_length=320)
+    password: SecretStr
+
+
+class AccessTokenRead(BaseModel):
+    """Safe short-lived bearer-token response with no credential metadata."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
 
 
 class WorkspaceMemberCreate(BaseModel):

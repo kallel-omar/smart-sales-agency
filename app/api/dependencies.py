@@ -1,11 +1,17 @@
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session
 
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import Workspace
+from app.services.authentication import (
+    AuthenticationService,
+    InvalidAccessTokenError,
+)
+from app.services.identity_memberships import AuthenticatedPrincipal
 from app.services.webhook_authentication import (
     ProviderWebhookAuthenticationService,
     WebhookAuthenticationError,
@@ -23,6 +29,8 @@ from app.services.workspaces import (
 
 SessionDep = Annotated[Session, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 WorkspaceSlugHeader = Annotated[
     str,
@@ -119,4 +127,38 @@ async def get_verified_integration_context(
 VerifiedIntegrationContextDep = Annotated[
     IntegrationContext,
     Depends(get_verified_integration_context),
+]
+
+
+def get_authenticated_principal(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(_bearer_scheme),
+    ],
+    session: SessionDep,
+    settings: SettingsDep,
+) -> AuthenticatedPrincipal:
+    """Resolve human identity only from a verified, current bearer credential."""
+
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid bearer authentication",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        return AuthenticationService(session, settings).resolve_principal_from_access_token(
+            credentials.credentials
+        )
+    except InvalidAccessTokenError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid bearer authentication",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+
+AuthenticatedPrincipalDep = Annotated[
+    AuthenticatedPrincipal,
+    Depends(get_authenticated_principal),
 ]
