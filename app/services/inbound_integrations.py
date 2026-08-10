@@ -15,7 +15,7 @@ from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.services import SalesDepartmentService, SalesReplyResult
 from app.models import IntegrationAccount, InboundIntegrationEventReceipt, Workspace
 from app.schemas import InboundIntegrationEvent
-from app.services.llm import build_llm
+from app.services.ai_invocation_gateway import AIInvocationGateway
 from app.services.repository import NotFoundError, SalesRepository
 
 
@@ -92,7 +92,12 @@ class InboundIntegrationService:
             AgentContext(
                 settings=self.settings,
                 repository=self.repository,
-                llm=build_llm(self.settings),
+                llm=None,
+                workspace=workspace,
+                ai_invocation_gateway=AIInvocationGateway(
+                    self.repository.session,
+                    self.settings,
+                ),
             )
         )
 

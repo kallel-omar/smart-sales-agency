@@ -20,16 +20,9 @@ from app.services.delivery_adapters import (
     GenericWebhookDeliveryAdapter,
     WebhookHttpResponse,
 )
+from app.services.ai_invocation_gateway import AIInvocationGateway
 from app.services.inbound_integrations import InboundIntegrationService
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
-
-
-class NoNetworkLlm:
-    """Fail if the deterministic demo Sales handoff ever invokes an LLM."""
-
-    async def complete(self, system_prompt: str, user_prompt: str) -> str:
-        del system_prompt, user_prompt
-        raise AssertionError("The n8n bridge smoke flow must not invoke an LLM")
 
 
 class RecordingN8nTransport:
@@ -101,12 +94,13 @@ def test_bidirectional_n8n_compatible_bridge_smoke_flow(
     )
     assert lead.status_code == 201
 
-    # Demo mode keeps the Sales handoff deterministic. This test boundary raises
-    # if that path ever attempts an LLM completion.
-    monkeypatch.setattr(
-        "app.services.inbound_integrations.build_llm",
-        lambda settings: NoNetworkLlm(),
-    )
+    # Demo mode keeps the Sales handoff deterministic. The inbound path now
+    # owns no LLM factory; this boundary raises if it ever invokes the gateway.
+    async def fail_gateway_invocation(self, request):
+        del self, request
+        raise AssertionError("The n8n bridge smoke flow must not invoke an LLM")
+
+    monkeypatch.setattr(AIInvocationGateway, "invoke", fail_gateway_invocation)
     original_handle_event = InboundIntegrationService.handle_event
     handoff_count = 0
 

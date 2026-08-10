@@ -85,30 +85,24 @@ class SalesConversationAgent:
                 f"Sales stage: {stage.value}\nLead: {lead.full_name} at {lead.company_name}\n"
                 f"Customer message: {inbound}\nProduct catalog:\n{self._product_context(products)}"
             )
-            if self.context.ai_invocation_gateway is not None:
-                if self.context.workspace is None:
-                    raise RuntimeError("A server-resolved workspace is required for AI invocation")
-                invocation = await self.context.ai_invocation_gateway.invoke(
-                    AIInvocationGatewayRequest(
-                        workspace=self.context.workspace,
-                        task=AIModelRoutingTask.SALES_CONVERSATION,
-                        task_identifier="sales.conversation.reply",
-                        agent_identifier="sales_conversation",
-                        system_prompt=system,
-                        user_prompt=user,
-                        conversation_id=lead.id,
-                        sales_stage=stage,
-                    )
+            if self.context.ai_invocation_gateway is None:
+                raise RuntimeError("No AI invocation gateway is configured for sales conversation")
+            if self.context.workspace is None:
+                raise RuntimeError("A server-resolved workspace is required for AI invocation")
+            invocation = await self.context.ai_invocation_gateway.invoke(
+                AIInvocationGatewayRequest(
+                    workspace=self.context.workspace,
+                    task=AIModelRoutingTask.SALES_CONVERSATION,
+                    task_identifier="sales.conversation.reply",
+                    agent_identifier="sales_conversation",
+                    system_prompt=system,
+                    user_prompt=user,
+                    conversation_id=lead.id,
+                    sales_stage=stage,
                 )
-                if invocation.content is None:
-                    raise RuntimeError("Sales conversation requires an LLM completion")
-                reply = invocation.content
-            elif self.context.llm is not None:
-                # Legacy flows remain until their direct call sites migrate in
-                # Tasks 262–265. The representative API reply path supplies
-                # the gateway and cannot take this branch.
-                reply = await self.context.llm.complete(system, user)
-            else:
-                raise RuntimeError("No LLM invocation dependency is configured")
+            )
+            if invocation.content is None:
+                raise RuntimeError("Sales conversation requires an LLM completion")
+            reply = invocation.content
 
         return stage, reply
