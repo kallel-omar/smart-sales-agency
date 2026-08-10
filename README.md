@@ -300,6 +300,8 @@ optionally verify the HMAC headers, then translate this generic action into a
 provider-specific delivery. n8n does not own tenants, retry policy, audit
 history, action state, or authorization. FastAPI remains the source of truth,
 and any other HTTP consumer can replace n8n without changing the domain model.
+The local self-hosted runtime bridge and Docker smoke harness are documented in
+`docs/N8N_RUNTIME_BRIDGE.md`.
 
 /health
 

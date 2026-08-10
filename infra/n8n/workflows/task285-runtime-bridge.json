@@ -1,0 +1,237 @@
+{
+  "id": "task285runtimebridge",
+  "name": "Task 285 Runtime Bridge",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "task285-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -820,
+        -180
+      ],
+      "id": "0f87d108-00a8-4d36-9d96-3c4b4154cf1c",
+      "name": "Inbound Transport Webhook",
+      "webhookId": "task285-inbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst bodyObject = $json.body ?? {};\nconst body = JSON.stringify(bodyObject);\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst secret = $env.SSA_INBOUND_HMAC_SECRET;\nconst integrationKey = $env.SSA_INBOUND_INTEGRATION_KEY;\nconst baseUrl = ($env.SSA_FASTAPI_BASE_URL_FROM_N8N || '').replace(/\\/$/, '');\nif (!secret || !integrationKey || !baseUrl) {\n  throw new Error('Task 285 n8n runtime environment is incomplete');\n}\nconst incomingHeaders = $json.headers ?? {};\nconst eventId = incomingHeaders['x-integration-event-id'] || incomingHeaders['X-Integration-Event-Id'] || bodyObject.external_event_id || `task285-${$execution.id}`;\nconst signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');\nreturn [{\n  json: {\n    url: `${baseUrl}/api/integrations/inbound-events`,\n    body,\n    headers: {\n      'Content-Type': 'application/json',\n      'X-Integration-Key': integrationKey,\n      'X-Webhook-Timestamp': timestamp,\n      'X-Webhook-Signature': signature,\n      'X-Integration-Event-Id': eventId\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        -180
+      ],
+      "id": "7d6aa968-d36d-4765-a2ee-8f3041361f21",
+      "name": "Build FastAPI Inbound Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "={{ $json.headers['Content-Type'] }}"
+            },
+            {
+              "name": "X-Integration-Key",
+              "value": "={{ $json.headers['X-Integration-Key'] }}"
+            },
+            {
+              "name": "X-Webhook-Timestamp",
+              "value": "={{ $json.headers['X-Webhook-Timestamp'] }}"
+            },
+            {
+              "name": "X-Webhook-Signature",
+              "value": "={{ $json.headers['X-Webhook-Signature'] }}"
+            },
+            {
+              "name": "X-Integration-Event-Id",
+              "value": "={{ $json.headers['X-Integration-Event-Id'] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -260,
+        -180
+      ],
+      "id": "f6e8f5b1-a724-44f6-a0ae-bb4bca915fea",
+      "name": "Call FastAPI Inbound Boundary"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        20,
+        -180
+      ],
+      "id": "2d13124b-ad85-49c2-8914-8fcbf7b4d4f5",
+      "name": "Respond With FastAPI Result"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "task285-outbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -820,
+        180
+      ],
+      "id": "090b1d2f-5d73-4f5f-b1d3-33842d2415af",
+      "name": "Outbound Transport Webhook",
+      "webhookId": "task285-outbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst bodyObject = $json.body ?? {};\nconst rawBody = JSON.stringify(bodyObject);\nconst headers = $json.headers ?? {};\nconst timestamp = headers['x-webhook-timestamp'] || headers['X-Webhook-Timestamp'];\nconst signature = headers['x-webhook-signature'] || headers['X-Webhook-Signature'];\nconst signing = headers['x-webhook-signing'] || headers['X-Webhook-Signing'];\nconst secret = $env.SSA_OUTBOUND_HMAC_SECRET;\nif (signing !== 'hmac-sha256' || !timestamp || !signature || !secret) {\n  throw new Error('Outbound webhook signature is missing');\n}\nconst expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex');\nif (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {\n  throw new Error('Outbound webhook signature mismatch');\n}\nreturn [{\n  json: {\n    accepted: true,\n    transport: 'n8n',\n    delivery_id: `n8n-task285-${bodyObject.action_id}`,\n    action_id: bodyObject.action_id,\n    action_type: bodyObject.action_type,\n    external_target_id: bodyObject.external_target_id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        180
+      ],
+      "id": "a3073125-9d5e-4fef-a7eb-c00a19c9333e",
+      "name": "Verify FastAPI Outbound Request"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 202,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "x-delivery-id",
+                "value": "={{ $json.delivery_id }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -260,
+        180
+      ],
+      "id": "c677f07d-1b78-45fd-9a12-303f9df3fe39",
+      "name": "Acknowledge Outbound Delivery"
+    }
+  ],
+  "connections": {
+    "Inbound Transport Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build FastAPI Inbound Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build FastAPI Inbound Request": {
+      "main": [
+        [
+          {
+            "node": "Call FastAPI Inbound Boundary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call FastAPI Inbound Boundary": {
+      "main": [
+        [
+          {
+            "node": "Respond With FastAPI Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outbound Transport Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify FastAPI Outbound Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify FastAPI Outbound Request": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Outbound Delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "versionId": "9e2e0589-2a1f-493c-a7f6-6ab3a4cc1e74",
+  "triggerCount": 2
+}
