@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./sales_agency.db"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "text"] = "json"
+    metrics_enabled: bool = True
 
     # Authentication is opt-in until Task 280 introduces the first human
     # credential flow. An empty development value cannot issue or verify a

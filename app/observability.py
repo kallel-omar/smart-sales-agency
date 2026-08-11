@@ -10,12 +10,17 @@ from contextvars import ContextVar, Token
 from typing import Any
 from uuid import uuid4
 
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram
+from prometheus_client import generate_latest as generate_prometheus_latest
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+METRICS_PATH = "/metrics"
+METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST
 REQUEST_ID_HEADER = "X-Request-ID"
 REQUEST_ID_HEADER_BYTES = b"x-request-id"
 REQUEST_ID_MAX_LENGTH = 100
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$")
+_HTTP_METHOD_PATTERN = re.compile(r"^[A-Z]{1,16}$")
 _current_request_id: ContextVar[str | None] = ContextVar(
     "current_http_request_id",
     default=None,
@@ -78,7 +83,7 @@ def log_structured_event(
 
     try:
         logger.info(event, extra=extra)
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Observability must never alter request behavior.
         return
 
@@ -109,6 +114,53 @@ class JsonLogFormatter(logging.Formatter):
         return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
+class HttpMetrics:
+    """Per-application Prometheus metrics for safe HTTP visibility."""
+
+    def __init__(self, registry: CollectorRegistry | None = None) -> None:
+        self.registry = registry or CollectorRegistry(auto_describe=True)
+        self.requests_total = Counter(
+            "http_requests_total",
+            "Total HTTP requests processed.",
+            ("method", "route", "status_code"),
+            registry=self.registry,
+        )
+        self.request_duration_seconds = Histogram(
+            "http_request_duration_seconds",
+            "HTTP request duration in seconds.",
+            ("method", "route"),
+            registry=self.registry,
+        )
+        self.requests_in_flight = Gauge(
+            "http_requests_in_flight",
+            "HTTP requests currently in flight.",
+            registry=self.registry,
+        )
+
+    def increment_in_flight(self) -> None:
+        self.requests_in_flight.inc()
+
+    def decrement_in_flight(self) -> None:
+        self.requests_in_flight.dec()
+
+    def observe_request(
+        self,
+        *,
+        method: str,
+        route: str,
+        status_code: int,
+        duration_seconds: float,
+    ) -> None:
+        method_label = _safe_method_label(method)
+        status_label = str(int(status_code))
+        safe_duration = max(duration_seconds, 0.0)
+        self.requests_total.labels(method_label, route, status_label).inc()
+        self.request_duration_seconds.labels(method_label, route).observe(safe_duration)
+
+    def render_latest(self) -> bytes:
+        return generate_prometheus_latest(self.registry)
+
+
 def configure_logging(*, level: str = "INFO", log_format: str = "json") -> None:
     """Configure standard logging with deterministic local defaults."""
     logging_level = getattr(logging, level.upper(), logging.INFO)
@@ -131,18 +183,29 @@ def configure_logging(*, level: str = "INFO", log_format: str = "json") -> None:
 class RequestObservabilityMiddleware:
     """Attach request IDs, duration measurement, and one completion log."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        metrics: HttpMetrics | None = None,
+        metrics_excluded_paths: set[str] | None = None,
+    ) -> None:
         self.app = app
+        self.metrics = metrics
+        self.metrics_excluded_paths = metrics_excluded_paths or {METRICS_PATH}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
+        should_record_metrics = self._should_record_metrics(scope)
         request_id = request_id_from_header(_request_id_header_from_scope(scope))
         token = set_current_request_id(request_id)
         start = time.perf_counter()
         status_code = 500
+        if should_record_metrics:
+            _call_metric_safely(self.metrics.increment_in_flight)
 
         async def send_wrapper(message: Message) -> None:
             nonlocal status_code
@@ -160,16 +223,32 @@ class RequestObservabilityMiddleware:
         try:
             await self.app(scope, receive, send_wrapper)
         finally:
-            duration_ms = round((time.perf_counter() - start) * 1000, 3)
+            duration_seconds = max(time.perf_counter() - start, 0.0)
+            duration_ms = round(duration_seconds * 1000, 3)
+            route = safe_route_template(scope)
             log_structured_event(
                 http_request_logger,
                 "http_request_completed",
                 method=str(scope.get("method", "")),
-                route=safe_route_template(scope),
+                route=route,
                 status_code=status_code,
                 duration_ms=max(duration_ms, 0.0),
             )
+            if should_record_metrics:
+                _call_metric_safely(
+                    self.metrics.observe_request,
+                    method=str(scope.get("method", "")),
+                    route=route,
+                    status_code=status_code,
+                    duration_seconds=duration_seconds,
+                )
+                _call_metric_safely(self.metrics.decrement_in_flight)
             reset_current_request_id(token)
+
+    def _should_record_metrics(self, scope: Scope) -> bool:
+        if self.metrics is None:
+            return False
+        return str(scope.get("path", "")) not in self.metrics_excluded_paths
 
 
 def safe_route_template(scope: Scope) -> str:
@@ -189,6 +268,20 @@ def _request_id_header_from_scope(scope: Scope) -> str | None:
             except UnicodeDecodeError:
                 return None
     return None
+
+
+def _safe_method_label(method: str) -> str:
+    normalized = method.upper()
+    if _HTTP_METHOD_PATTERN.fullmatch(normalized):
+        return normalized
+    return "OTHER"
+
+
+def _call_metric_safely(function, *args, **kwargs) -> None:
+    try:
+        function(*args, **kwargs)
+    except Exception:  # noqa: BLE001
+        return
 
 
 def _prepend_verified_static_prefix(route_path: str, concrete_path: str) -> str:

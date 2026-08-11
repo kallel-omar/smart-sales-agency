@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from app.api.routes import (
     approvals_router,
@@ -15,10 +15,17 @@ from app.api.routes import (
 )
 from app.config import get_settings
 from app.db import create_db_and_tables
-from app.observability import RequestObservabilityMiddleware, configure_logging
+from app.observability import (
+    METRICS_CONTENT_TYPE,
+    METRICS_PATH,
+    HttpMetrics,
+    RequestObservabilityMiddleware,
+    configure_logging,
+)
 
 settings = get_settings()
 configure_logging(level=settings.log_level, log_format=settings.log_format)
+http_metrics = HttpMetrics() if settings.metrics_enabled else None
 
 
 @asynccontextmanager
@@ -50,4 +57,15 @@ def health() -> dict[str, str]:
     return {"status": "ok", "mode": settings.llm_mode}
 
 
-app.add_middleware(RequestObservabilityMiddleware)
+if http_metrics is not None:
+
+    @app.get(METRICS_PATH, include_in_schema=False)
+    def metrics() -> Response:
+        return Response(
+            content=http_metrics.render_latest(),
+            media_type=METRICS_CONTENT_TYPE,
+        )
+
+
+app.state.http_metrics = http_metrics
+app.add_middleware(RequestObservabilityMiddleware, metrics=http_metrics)
