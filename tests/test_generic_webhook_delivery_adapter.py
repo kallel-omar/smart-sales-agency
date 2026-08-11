@@ -37,7 +37,8 @@ def test_generic_webhook_adapter_posts_safe_serialized_action():
     transport = RecordingTransport(WebhookHttpResponse(202, {"x-delivery-id": "accepted-1"}))
     adapter = GenericWebhookDeliveryAdapter("https://example.test/deliver", transport=transport)
     action = _action()
-    result = adapter.deliver(action, IntegrationAccount(provider="generic_webhook"))
+    account = IntegrationAccount(provider="generic_webhook")
+    result = adapter.deliver(action, account)
 
     assert result.delivered is True
     assert result.provider_delivery_id == "accepted-1"
@@ -45,12 +46,47 @@ def test_generic_webhook_adapter_posts_safe_serialized_action():
     assert request["url"] == "https://example.test/deliver"
     assert request["headers"] == {"Content-Type": "application/json", "X-Webhook-Signing": "none"}
     assert json.loads(request["content"]) == {
+        "provider": "generic_webhook",
+        "integration_account_id": str(account.id),
+        "external_account_id": None,
         "action_id": str(action.id),
         "action_type": "send_message",
         "external_target_id": "recipient",
         "content": "hello",
     }
     assert b"private-key" not in request["content"]
+
+
+def test_whatsapp_cloud_adapter_posts_safe_account_context_without_credentials():
+    transport = RecordingTransport(
+        WebhookHttpResponse(202, {"x-delivery-id": "wamid.outbound-message-id"})
+    )
+    adapter = GenericWebhookDeliveryAdapter("https://n8n.test/webhook/whatsapp", transport=transport)
+    action = _action()
+    account = IntegrationAccount(
+        provider="whatsapp_cloud",
+        external_account_id="555666777888999",
+        secret_reference="INTEGRATION_SECRET_WHATSAPP_CLOUD",
+    )
+
+    result = adapter.deliver(action, account)
+
+    assert result.delivered is True
+    assert result.provider_delivery_id == "wamid.outbound-message-id"
+    body = json.loads(transport.calls[0]["content"])
+    assert body == {
+        "provider": "whatsapp_cloud",
+        "integration_account_id": str(account.id),
+        "external_account_id": "555666777888999",
+        "action_id": str(action.id),
+        "action_type": "send_message",
+        "external_target_id": "recipient",
+        "content": "hello",
+    }
+    serialized = json.dumps(body).lower()
+    assert "access_token" not in serialized
+    assert "authorization" not in serialized
+    assert "secret" not in serialized
 
 
 def test_generic_webhook_adapter_handles_missing_configuration_and_network_failures_safely():
@@ -118,6 +154,19 @@ def test_generic_webhook_response_normalization_uses_safe_http_semantics():
             result.failure_classification.value if result.failure_classification else None
         ) == classification
         assert "body" not in result.__dict__
+
+
+def test_whatsapp_cloud_provider_success_and_failure_map_through_webhook_boundary():
+    success = normalize_webhook_response(
+        WebhookHttpResponse(202, {"x-delivery-id": "wamid.meta-outbound-id"})
+    )
+    assert success.delivered is True
+    assert success.provider_delivery_id == "wamid.meta-outbound-id"
+
+    missing_token = normalize_webhook_response(WebhookHttpResponse(503, {}))
+    assert missing_token.delivered is False
+    assert missing_token.failure_code == "webhook_server_error"
+    assert missing_token.failure_classification.value == "temporary"
 
 
 class StaticSecretResolver:

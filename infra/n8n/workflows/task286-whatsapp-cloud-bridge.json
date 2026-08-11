@@ -1,6 +1,6 @@
 {
   "id": "task286whatsappcloudbridge",
-  "name": "Task 286 WhatsApp Cloud Bridge",
+  "name": "Task 288 WhatsApp Cloud Bridge",
   "active": true,
   "nodes": [
     {
@@ -222,7 +222,9 @@
         "httpMethod": "POST",
         "path": "whatsapp-cloud-outbound",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "rawBody": true
+        }
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -236,7 +238,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const crypto = require('crypto');\nconst bodyObject = $json.body ?? {};\nconst rawBody = JSON.stringify(bodyObject);\nconst headers = $json.headers ?? {};\nconst timestamp = headers['x-webhook-timestamp'] || headers['X-Webhook-Timestamp'];\nconst signature = headers['x-webhook-signature'] || headers['X-Webhook-Signature'];\nconst signing = headers['x-webhook-signing'] || headers['X-Webhook-Signing'];\nconst secret = $env.SSA_WHATSAPP_CLOUD_HMAC_SECRET;\nfunction secureEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left || ''));\n  const rightBuffer = Buffer.from(String(right || ''));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\nif (signing !== 'hmac-sha256' || !timestamp || !signature || !secret) {\n  throw new Error('Outbound webhook signature is missing');\n}\nconst expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex');\nif (!secureEqual(signature, expected)) {\n  throw new Error('Outbound webhook signature mismatch');\n}\nif (bodyObject.action_type !== 'send_message' || !bodyObject.external_target_id || !bodyObject.content) {\n  throw new Error('Unsupported outbound action');\n}\nconst baseUrl = ($env.WHATSAPP_CLOUD_GRAPH_API_BASE_URL || 'https://graph.facebook.com').replace(/\\/$/, '');\nconst version = $env.WHATSAPP_CLOUD_GRAPH_API_VERSION;\nconst phoneNumberId = $env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;\nif (!version || !phoneNumberId) {\n  throw new Error('WhatsApp Cloud send request configuration is incomplete');\n}\nreturn [{\n  json: {\n    accepted: true,\n    delivery_id: `whatsapp-cloud-prepared-${bodyObject.action_id}`,\n    prepared_request: {\n      method: 'POST',\n      url: `${baseUrl}/${version}/${phoneNumberId}/messages`,\n      body: {\n        messaging_product: 'whatsapp',\n        recipient_type: 'individual',\n        to: bodyObject.external_target_id,\n        type: 'text',\n        text: {\n          preview_url: false,\n          body: bodyObject.content\n        }\n      }\n    }\n  }\n}];"
+        "jsCode": "const crypto = require('crypto');\nconst headers = $json.headers ?? {};\nconst timestamp = headers['x-webhook-timestamp'] || headers['X-Webhook-Timestamp'];\nconst signature = headers['x-webhook-signature'] || headers['X-Webhook-Signature'];\nconst signing = headers['x-webhook-signing'] || headers['X-Webhook-Signing'];\nconst secret = $env.SSA_WHATSAPP_CLOUD_HMAC_SECRET;\nfunction fail(statusCode, error, message, extra = {}) {\n  return [{ json: { sendToMeta: false, accepted: false, statusCode, error, message, ...extra } }];\n}\nfunction secureEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left || ''));\n  const rightBuffer = Buffer.from(String(right || ''));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\nif (signing !== 'hmac-sha256' || !timestamp || !signature || !secret) {\n  return fail(401, 'webhook_signature_missing', 'Outbound webhook signature is missing');\n}\nlet rawBodyBuffer;\ntry {\n  rawBodyBuffer = await this.helpers.getBinaryDataBuffer(0, 'data');\n} catch (error) {\n  return fail(400, 'webhook_raw_body_missing', 'Outbound webhook raw body is missing');\n}\nconst signedPayload = Buffer.concat([Buffer.from(String(timestamp) + '.', 'utf8'), rawBodyBuffer]);\nconst expected = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');\nif (!secureEqual(signature, expected)) {\n  return fail(401, 'webhook_signature_mismatch', 'Outbound webhook signature mismatch');\n}\nlet bodyObject;\ntry {\n  bodyObject = JSON.parse(rawBodyBuffer.toString('utf8'));\n} catch (error) {\n  return fail(400, 'webhook_malformed_json', 'Outbound webhook body is not valid JSON');\n}\nconst recipient = String(bodyObject.external_target_id || '').trim();\nconst text = String(bodyObject.content || '');\nif (bodyObject.provider !== 'whatsapp_cloud' || bodyObject.action_type !== 'send_message' || !recipient || !text) {\n  return fail(422, 'unsupported_outbound_action', 'Unsupported outbound action');\n}\nconst baseUrl = ($env.WHATSAPP_CLOUD_GRAPH_API_BASE_URL || 'https://graph.facebook.com').replace(/\\/$/, '');\nconst version = $env.WHATSAPP_CLOUD_GRAPH_API_VERSION;\nconst configuredPhoneNumberId = $env.WHATSAPP_CLOUD_PHONE_NUMBER_ID;\nconst actionPhoneNumberId = bodyObject.external_account_id;\nconst phoneNumberId = actionPhoneNumberId || configuredPhoneNumberId;\nif (configuredPhoneNumberId && actionPhoneNumberId && configuredPhoneNumberId !== actionPhoneNumberId) {\n  return fail(422, 'whatsapp_account_mismatch', 'WhatsApp Cloud account context does not match runtime configuration');\n}\nif (!version || !phoneNumberId) {\n  return fail(503, 'whatsapp_configuration_missing', 'WhatsApp Cloud send request configuration is incomplete');\n}\nreturn [{\n  json: {\n    sendToMeta: true,\n    provider: 'whatsapp_cloud',\n    action_id: String(bodyObject.action_id || ''),\n    meta_request: {\n      method: 'POST',\n      url: baseUrl + '/' + version + '/' + phoneNumberId + '/messages',\n      body: {\n        messaging_product: 'whatsapp',\n        to: recipient,\n        type: 'text',\n        text: {\n          body: text\n        }\n      }\n    }\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -252,7 +254,7 @@
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify($json) }}",
         "options": {
-          "responseCode": 202,
+          "responseCode": "={{ $json.statusCode }}",
           "responseHeaders": {
             "entries": [
               {
@@ -261,7 +263,7 @@
               },
               {
                 "name": "x-delivery-id",
-                "value": "={{ $json.delivery_id }}"
+                "value": "={{ $json.delivery_id || '' }}"
               }
             ]
           }
@@ -270,11 +272,98 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        -480,
+        380,
         340
       ],
       "id": "83437911-581d-4ddf-9656-ee6d3e3ccb1e",
-      "name": "Acknowledge Prepared Delivery"
+      "name": "Acknowledge WhatsApp Delivery Result"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dfffeae1-60e7-4e06-ae17-1e2532614595",
+              "leftValue": "={{ $json.sendToMeta }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        340
+      ],
+      "id": "4acebd24-c8c6-4614-9af9-050ac54b9d2f",
+      "name": "Should Send WhatsApp Cloud Message"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.meta_request.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.WHATSAPP_CLOUD_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.meta_request.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -180,
+        280
+      ],
+      "id": "a9d12d91-93c9-42c9-9cef-b2ba5f069e60",
+      "name": "Send WhatsApp Cloud Message",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function fail(statusCode, error, message, extra = {}) {\n  return [{ json: { accepted: false, statusCode, error, message, ...extra } }];\n}\nif ($json.error) {\n  return fail(503, 'whatsapp_meta_request_failed', 'WhatsApp Cloud request failed');\n}\nconst providerStatus = Number($json.statusCode ?? $json.response?.statusCode ?? $json.status ?? 0);\nlet responseBody = $json.body ?? $json.data ?? null;\nif (typeof responseBody === 'string' && responseBody) {\n  try {\n    responseBody = JSON.parse(responseBody);\n  } catch (error) {\n    responseBody = null;\n  }\n}\nif (providerStatus >= 200 && providerStatus < 300) {\n  const messageId = responseBody?.messages?.[0]?.id;\n  if (!messageId) {\n    return fail(502, 'whatsapp_meta_message_id_missing', 'WhatsApp Cloud response did not include a message identifier', {\n      provider_status: providerStatus\n    });\n  }\n  return [{\n    json: {\n      accepted: true,\n      delivered: true,\n      statusCode: 202,\n      delivery_id: String(messageId),\n      provider_status: providerStatus\n    }\n  }];\n}\nconst providerError = responseBody?.error ?? {};\nconst failureStatus = providerStatus >= 400 ? providerStatus : 502;\nreturn fail(failureStatus, 'whatsapp_meta_send_failed', 'WhatsApp Cloud rejected the send request', {\n  provider_status: providerStatus || undefined,\n  provider_error_code: providerError.code,\n  provider_error_type: providerError.type\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        100,
+        280
+      ],
+      "id": "39111956-12b2-45f7-8139-aa1a4c2a0261",
+      "name": "Normalize WhatsApp Delivery Result"
     }
   ],
   "connections": {
@@ -366,7 +455,47 @@
       "main": [
         [
           {
-            "node": "Acknowledge Prepared Delivery",
+            "node": "Should Send WhatsApp Cloud Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Send WhatsApp Cloud Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Cloud Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Acknowledge WhatsApp Delivery Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Cloud Message": {
+      "main": [
+        [
+          {
+            "node": "Normalize WhatsApp Delivery Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize WhatsApp Delivery Result": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge WhatsApp Delivery Result",
             "type": "main",
             "index": 0
           }

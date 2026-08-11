@@ -166,7 +166,7 @@ class GenericWebhookDeliveryAdapter:
                 "Generic webhook endpoint is not configured",
                 OutboundDeliveryFailureClassification.VALIDATION,
             )
-        body = self._serialize_action(action)
+        body = self._serialize_action(action, account)
         headers, signing_failure = self._headers(body, account)
         if signing_failure is not None:
             return signing_failure
@@ -213,11 +213,16 @@ class GenericWebhookDeliveryAdapter:
         return headers, None
 
     @staticmethod
-    def _serialize_action(action: OutboundIntegrationAction) -> bytes:
+    def _serialize_action(
+        action: OutboundIntegrationAction, account: IntegrationAccount
+    ) -> bytes:
         import json
 
         return json.dumps(
             {
+                "provider": account.provider,
+                "integration_account_id": str(account.id),
+                "external_account_id": account.external_account_id,
                 "action_id": str(action.id),
                 "action_type": action.action_type.value,
                 "external_target_id": action.external_target_id,

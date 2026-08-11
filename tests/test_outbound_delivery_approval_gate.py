@@ -58,6 +58,44 @@ def test_pending_outbound_approval_blocks_delivery_without_creating_an_attempt(c
         assert approval.payload == {}
 
 
+def test_pending_whatsapp_cloud_approval_blocks_delivery_before_transport(client):
+    slug = "whatsapp-approval"
+    assert client.post("/api/workspaces", json={"slug": slug, "name": slug}).status_code == 201
+    account = client.post(
+        "/api/integrations/accounts",
+        headers=_headers(slug),
+        json={
+            "provider": "whatsapp_cloud",
+            "external_account_id": "555666777888999",
+            "secret_reference": "INTEGRATION_SECRET_WHATSAPP_CLOUD",
+        },
+    ).json()
+    created = client.post(
+        f"/api/integrations/accounts/{account['id']}/outbound-actions",
+        headers=_headers(slug),
+        json={
+            "external_target_id": "15557654321",
+            "action_type": "send_message",
+            "content": "Approved WhatsApp text only",
+            "payload": {},
+            "idempotency_key": "whatsapp-approval-gate",
+            "requires_approval": True,
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.post(
+        f"/api/integrations/accounts/{account['id']}/outbound-actions/{created.json()['id']}/deliver",
+        headers=_headers(slug),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Outbound integration action requires approval before delivery"
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        assert session.exec(select(OutboundIntegrationDeliveryAttempt)).all() == []
+
+
 def test_approved_outbound_action_can_deliver_and_rejected_action_stays_blocked(client):
     account, action = _create_workspace_and_action(client)
     approval_id = action["approval_request_id"]

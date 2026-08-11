@@ -249,6 +249,9 @@ def test_bidirectional_n8n_compatible_bridge_smoke_flow(
         sha256,
     ).hexdigest()
     assert json.loads(outbound_request["content"]) == {
+        "provider": "generic_webhook",
+        "integration_account_id": outbound_account["id"],
+        "external_account_id": "bridge-workspace-generic_webhook",
         "action_id": action["id"],
         "action_type": "send_message",
         "external_target_id": "n8n-contact-42",
