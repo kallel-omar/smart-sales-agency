@@ -15,8 +15,10 @@ from app.api.routes import (
 )
 from app.config import get_settings
 from app.db import create_db_and_tables
+from app.observability import RequestObservabilityMiddleware, configure_logging
 
 settings = get_settings()
+configure_logging(level=settings.log_level, log_format=settings.log_format)
 
 
 @asynccontextmanager
@@ -46,3 +48,6 @@ app.include_router(workspaces_router, prefix="/api")
 @app.get("/health", tags=["system"])
 def health() -> dict[str, str]:
     return {"status": "ok", "mode": settings.llm_mode}
+
+
+app.add_middleware(RequestObservabilityMiddleware)
