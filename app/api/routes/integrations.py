@@ -632,9 +632,30 @@ def get_integration_runtime_readiness(
     return IntegrationRuntimeReadinessRead(
         id=view.account.id,
         provider=view.account.provider,
+        active=view.account.active,
         status="ready" if view.configuration_ready else "blocked",
         configuration_ready=view.configuration_ready,
         external_provider_availability_checked=False,
+        supported_capabilities=[
+            str(capability.capability)
+            for capability in view.capabilities
+            if capability.supported
+        ],
+        capability_readiness=[
+            {
+                "capability": str(capability.capability),
+                "supported": capability.supported,
+                "ready": capability.ready,
+                "blocking_reasons": [
+                    str(blocker.code) for blocker in capability.blockers
+                ],
+                "blocking_reason_details": [
+                    {"code": str(blocker.code), "message": blocker.message}
+                    for blocker in capability.blockers
+                ],
+            }
+            for capability in view.capabilities
+        ],
         blocking_reasons=[str(blocker.code) for blocker in view.blockers],
         blocking_reason_details=[
             {"code": str(blocker.code), "message": blocker.message}

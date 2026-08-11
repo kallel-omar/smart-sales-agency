@@ -612,14 +612,27 @@ class IntegrationRuntimeReadinessBlockerRead(BaseModel):
     message: str
 
 
+class IntegrationRuntimeCapabilityReadinessRead(BaseModel):
+    """Safe configuration readiness for one provider-neutral capability."""
+
+    capability: str
+    supported: bool
+    ready: bool
+    blocking_reasons: list[str]
+    blocking_reason_details: list[IntegrationRuntimeReadinessBlockerRead]
+
+
 class IntegrationRuntimeReadinessRead(BaseModel):
     """Configuration-only readiness; external availability is never probed."""
 
     id: UUID
     provider: str
+    active: bool
     status: str
     configuration_ready: bool
     external_provider_availability_checked: bool = False
+    supported_capabilities: list[str]
+    capability_readiness: list[IntegrationRuntimeCapabilityReadinessRead]
     blocking_reasons: list[str]
     blocking_reason_details: list[IntegrationRuntimeReadinessBlockerRead]
 

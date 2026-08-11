@@ -15,6 +15,10 @@ class IntegrationRuntimeReadinessReasonCode(StrEnum):
     OUTBOUND_ADAPTER_CAPABILITY_MISMATCH = "outbound_adapter_capability_mismatch"
     OUTBOUND_CONFIGURATION_MISSING = "outbound_configuration_missing"
     OUTBOUND_CONFIGURATION_INVALID = "outbound_configuration_invalid"
+    EXTERNAL_ACCOUNT_ID_MISSING = "external_account_id_missing"
+    OUTBOUND_WEBHOOK_SIGNING_DISABLED = "outbound_webhook_signing_disabled"
+    OUTBOUND_APPROVAL_GATE_DISABLED = "outbound_approval_gate_disabled"
+    PROVIDER_CAPABILITY_NOT_SUPPORTED = "provider_capability_not_supported"
 
 
 _SAFE_MESSAGES: dict[IntegrationRuntimeReadinessReasonCode, str] = {
@@ -44,6 +48,18 @@ _SAFE_MESSAGES: dict[IntegrationRuntimeReadinessReasonCode, str] = {
     ),
     IntegrationRuntimeReadinessReasonCode.OUTBOUND_CONFIGURATION_INVALID: (
         "The outbound transport configuration is invalid."
+    ),
+    IntegrationRuntimeReadinessReasonCode.EXTERNAL_ACCOUNT_ID_MISSING: (
+        "The provider account identifier required by this channel is missing."
+    ),
+    IntegrationRuntimeReadinessReasonCode.OUTBOUND_WEBHOOK_SIGNING_DISABLED: (
+        "The outbound webhook transport must use signed requests."
+    ),
+    IntegrationRuntimeReadinessReasonCode.OUTBOUND_APPROVAL_GATE_DISABLED: (
+        "The outbound approval gate is not enabled for this runtime."
+    ),
+    IntegrationRuntimeReadinessReasonCode.PROVIDER_CAPABILITY_NOT_SUPPORTED: (
+        "This provider does not support the requested channel capability."
     ),
 }
 

@@ -311,6 +311,22 @@ def test_task289_meta_status_callbacks_are_verified_and_forwarded_safely():
     assert call_headers["X-Webhook-Signature"] == "={{ $json.headers['X-Webhook-Signature'] }}"
 
 
+def test_task290_readiness_authority_stays_in_fastapi_not_n8n():
+    workflow_text = WORKFLOW_FILE.read_text(encoding="utf-8")
+    readiness_text = (
+        REPO_ROOT / "app" / "services" / "integration_runtime_readiness.py"
+    ).read_text(encoding="utf-8")
+    route_text = (
+        REPO_ROOT / "app" / "api" / "routes" / "integrations.py"
+    ).read_text(encoding="utf-8")
+
+    assert "runtime-readiness" not in workflow_text
+    assert "readiness" not in workflow_text.lower()
+    assert "WHATSAPP_CLOUD_ACCESS_TOKEN" not in readiness_text
+    assert "IntegrationRuntimeReadinessService" in route_text
+    assert "external_provider_availability_checked=False" in route_text
+
+
 def test_task288_outbound_webhook_hmac_uses_original_raw_request_bytes():
     workflow = json.loads(WORKFLOW_FILE.read_text(encoding="utf-8"))
     outbound_webhook = next(
