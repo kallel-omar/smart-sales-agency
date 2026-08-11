@@ -15,6 +15,7 @@ from app.api.routes import (
 )
 from app.config import get_settings
 from app.db import create_db_and_tables
+from app.error_handling import register_error_handlers
 from app.observability import (
     METRICS_CONTENT_TYPE,
     METRICS_PATH,
@@ -45,6 +46,7 @@ app = FastAPI(
     description="Multi-agent smart sales agency MVP with human approval.",
     lifespan=lifespan,
 )
+register_error_handlers(app)
 
 app.include_router(leads_router, prefix="/api")
 app.include_router(products_router, prefix="/api")

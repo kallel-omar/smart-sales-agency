@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram
 from prometheus_client import generate_latest as generate_prometheus_latest
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 METRICS_PATH = "/metrics"
@@ -25,8 +26,10 @@ _current_request_id: ContextVar[str | None] = ContextVar(
     "current_http_request_id",
     default=None,
 )
+INTERNAL_SERVER_ERROR_DETAIL = "Internal server error"
 
 http_request_logger = logging.getLogger("app.http")
+internal_error_logger = logging.getLogger("app.errors")
 
 
 def generate_request_id() -> str:
@@ -181,7 +184,11 @@ def configure_logging(*, level: str = "INFO", log_format: str = "json") -> None:
 
 
 class RequestObservabilityMiddleware:
-    """Attach request IDs, duration measurement, and one completion log."""
+    """Attach request IDs, duration measurement, and one completion log.
+
+    Unexpected application exceptions are formatted here so the request ID
+    header and completion metrics remain authoritative for 500 responses.
+    """
 
     def __init__(
         self,
@@ -204,13 +211,15 @@ class RequestObservabilityMiddleware:
         token = set_current_request_id(request_id)
         start = time.perf_counter()
         status_code = 500
+        response_started = False
         if should_record_metrics:
             _call_metric_safely(self.metrics.increment_in_flight)
 
         async def send_wrapper(message: Message) -> None:
-            nonlocal status_code
+            nonlocal response_started, status_code
             if message["type"] == "http.response.start":
                 status_code = int(message["status"])
+                response_started = True
                 headers = [
                     (key, value)
                     for key, value in message.get("headers", [])
@@ -222,6 +231,23 @@ class RequestObservabilityMiddleware:
 
         try:
             await self.app(scope, receive, send_wrapper)
+        except Exception as exc:
+            if response_started:
+                raise
+            status_code = 500
+            _log_internal_server_error(
+                request_id=request_id,
+                method=str(scope.get("method", "")),
+                route=safe_route_template(scope),
+                exc=exc,
+            )
+            response = JSONResponse(
+                status_code=500,
+                content=safe_internal_server_error_body(request_id),
+            )
+            await response(scope, receive, send_wrapper)
+            if _should_reraise_after_safe_response(scope):
+                raise
         finally:
             duration_seconds = max(time.perf_counter() - start, 0.0)
             duration_ms = round(duration_seconds * 1000, 3)
@@ -260,6 +286,14 @@ def safe_route_template(scope: Scope) -> str:
     return "<unmatched>"
 
 
+def safe_internal_server_error_body(request_id: str) -> dict[str, str]:
+    """Return the complete client-facing body for unexpected server failures."""
+    return {
+        "detail": INTERNAL_SERVER_ERROR_DETAIL,
+        "request_id": request_id,
+    }
+
+
 def _request_id_header_from_scope(scope: Scope) -> str | None:
     for key, value in scope.get("headers", []):
         if key.lower() == REQUEST_ID_HEADER_BYTES:
@@ -282,6 +316,44 @@ def _call_metric_safely(function, *args, **kwargs) -> None:
         function(*args, **kwargs)
     except Exception:  # noqa: BLE001
         return
+
+
+def _log_internal_server_error(
+    *,
+    request_id: str,
+    method: str,
+    route: str,
+    exc: Exception,
+) -> None:
+    """Emit only bounded server-side error metadata, never exception text."""
+    structured_fields = {
+        "event": "internal_server_error",
+        "request_id": request_id,
+        "method": _safe_method_label(method),
+        "route": route,
+        "status_code": 500,
+        "exception_type": exc.__class__.__name__,
+    }
+    extra = {
+        "structured_fields": structured_fields,
+        "event": "internal_server_error",
+        "request_id": request_id,
+        "method": structured_fields["method"],
+        "route": route,
+        "status_code": 500,
+    }
+    try:
+        internal_error_logger.error("internal_server_error", extra=extra)
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _should_reraise_after_safe_response(scope: Scope) -> bool:
+    # Starlette's TestClient exposes this extension and uses re-raised server
+    # exceptions to support raise_server_exceptions=True. Production ASGI
+    # servers do not need the raw exception after the safe response is sent.
+    extensions = scope.get("extensions")
+    return isinstance(extensions, dict) and "http.response.debug" in extensions
 
 
 def _prepend_verified_static_prefix(route_path: str, concrete_path: str) -> str:
