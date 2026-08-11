@@ -33,3 +33,6 @@ jobs:
 
       - name: Run automated tests
         run: python -m pytest
+
+      - name: Build production Docker image
+        run: docker build -t smart-sales-agency:test .
