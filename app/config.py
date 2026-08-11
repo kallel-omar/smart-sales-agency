@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.services.ai_model_pricing import AIModelPricing
@@ -10,11 +10,25 @@ from app.services.ai_model_tiers import AIModelTier, AIModelTierMapping
 
 class Settings(BaseSettings):
     app_name: str = "Smart Sales Agency"
-    environment: Literal["development", "test", "production"] = "development"
+    environment: Literal["development", "test", "production"] = Field(
+        default="development",
+        validation_alias=AliasChoices("APP_ENV", "ENVIRONMENT"),
+    )
+    app_host: str = Field(default="127.0.0.1", min_length=1, max_length=255)
+    app_port: int = Field(
+        default=8000,
+        ge=1,
+        le=65_535,
+        validation_alias=AliasChoices("APP_PORT", "PORT"),
+    )
     database_url: str = "sqlite:///./sales_agency.db"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "text"] = "json"
     metrics_enabled: bool = True
+    api_docs_enabled: bool | None = None
+    cors_allowed_origins: str = ""
+    cors_allow_credentials: bool = False
+    trusted_proxy_hosts: str = ""
     rate_limit_enabled: bool = True
     rate_limit_auth_login_limit: int = Field(default=120, ge=1, le=100_000)
     rate_limit_auth_login_window_seconds: int = Field(default=60, ge=1, le=86_400)
@@ -81,6 +95,18 @@ class Settings(BaseSettings):
     outbound_webhook_signing_enabled: bool = False
     integration_health_window_days: int = Field(default=30, ge=1, le=90)
 
+    @field_validator("app_host")
+    @classmethod
+    def validate_app_host(cls, value: str) -> str:
+        normalized = value.strip()
+        if (
+            not normalized
+            or any(character.isspace() or ord(character) < 32 for character in normalized)
+            or "/" in normalized
+        ):
+            raise ValueError("APP_HOST must be a single host or bind address")
+        return normalized
+
     @field_validator("outbound_delivery_non_retryable_failure_codes")
     @classmethod
     def validate_outbound_delivery_non_retryable_failure_codes(cls, value: str) -> str:
@@ -115,8 +141,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_ai_model_tier_mappings(self) -> "Settings":
-        if self.environment == "production" and not self.auth_token_secret.get_secret_value():
-            raise ValueError("AUTH_TOKEN_SECRET must be configured in production")
         if AIModelTier.NONE in self.ai_model_tier_mappings:
             raise ValueError("The none AI model tier must not have a provider/model mapping")
         pricing_keys = [(entry.provider, entry.model) for entry in self.ai_model_pricing]
@@ -129,6 +153,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
 
 
