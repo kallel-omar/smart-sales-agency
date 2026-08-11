@@ -3,16 +3,16 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_ENV=production \
-    API_DOCS_ENABLED=false \
-    DATABASE_URL=sqlite:////app/data/sales_agency.db
+    API_DOCS_ENABLED=false
 
 WORKDIR /app
 
 RUN groupadd --system app && \
     useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md alembic.ini ./
 COPY app ./app
+COPY alembic ./alembic
 
 RUN python -m pip install --no-cache-dir . && \
     mkdir -p /app/data && \

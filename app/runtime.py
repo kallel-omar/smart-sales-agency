@@ -7,6 +7,7 @@ from ipaddress import ip_network
 from urllib.parse import urlsplit
 
 from app.config import Settings
+from app.database_urls import DatabaseURLConfigurationError, is_postgresql_database_url
 
 
 class RuntimeConfigurationError(RuntimeError):
@@ -46,10 +47,12 @@ class ProductionRuntimeValidator:
 
     def validate(self) -> RuntimePolicy:
         policy = runtime_policy_from_settings(self.settings)
+        self._validate_database_url()
         self._validate_configured_urls()
 
         if self.settings.environment == "production":
             self._validate_production_secret()
+            self._validate_production_database()
             self._validate_production_outbound_signing()
 
         return policy
@@ -58,6 +61,16 @@ class ProductionRuntimeValidator:
         secret = self.settings.auth_token_secret.get_secret_value()
         if len(secret) < 32 or secret.strip().lower() in self._UNSAFE_AUTH_SECRETS:
             raise RuntimeConfigurationError("AUTH_TOKEN_SECRET is not production-safe")
+
+    def _validate_database_url(self) -> None:
+        try:
+            is_postgresql_database_url(self.settings.database_url)
+        except DatabaseURLConfigurationError as exc:
+            raise RuntimeConfigurationError("DATABASE_URL is malformed") from exc
+
+    def _validate_production_database(self) -> None:
+        if not is_postgresql_database_url(self.settings.database_url):
+            raise RuntimeConfigurationError("DATABASE_URL must use PostgreSQL in production")
 
     def _validate_production_outbound_signing(self) -> None:
         if (

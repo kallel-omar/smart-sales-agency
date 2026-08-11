@@ -41,7 +41,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         ProductionRuntimeValidator(settings).validate()
-        create_db_and_tables()
+        if settings.environment != "production":
+            create_db_and_tables()
         yield
 
     app = FastAPI(

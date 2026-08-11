@@ -28,6 +28,8 @@ def _settings(environment: str = "production", **overrides) -> Settings:
         "outbound_webhook_url": "",
         "outbound_webhook_signing_enabled": True,
     }
+    if environment == "production":
+        values["database_url"] = "postgresql+psycopg://user:pw@db.example.test/app"
     values.update(overrides)
     return Settings(_env_file=None, **values)
 
@@ -60,7 +62,8 @@ def test_dockerfile_runs_as_unprivileged_user_and_does_not_copy_secret_files():
     assert "useradd --system" in dockerfile
     assert "COPY . ." not in dockerfile
     assert "COPY app ./app" in dockerfile
-    assert "COPY pyproject.toml README.md ./" in dockerfile
+    assert "COPY pyproject.toml README.md alembic.ini ./" in dockerfile
+    assert "COPY alembic ./alembic" in dockerfile
     assert "pip install --no-cache-dir ." in dockerfile
     assert "requirements.txt" not in dockerfile
     assert ".env" not in dockerfile
@@ -127,7 +130,13 @@ def test_lifespan_startup_and_shutdown_remain_clean(monkeypatch):
         calls["startup"] += 1
 
     monkeypatch.setattr("app.main.create_db_and_tables", fake_create_db_and_tables)
-    local_app = create_app(_settings())
+    local_app = create_app(
+        _settings(
+            "development",
+            auth_token_secret="",
+            outbound_webhook_signing_enabled=False,
+        )
+    )
 
     with TestClient(local_app) as client:
         assert client.get("/health").status_code == 200
@@ -148,7 +157,10 @@ def test_operations_docs_capture_task296_deployment_contract():
         "FastAPI does not require or own `WHATSAPP_CLOUD_ACCESS_TOKEN`",
         "Multiple containers or workers would each have independent buckets.",
         "Network-level protection for metrics is a deployment concern",
-        "PostgreSQL migrations, conversion, backup, restore, and recovery are deferred",
+        "PostgreSQL is required in production.",
+        "alembic upgrade head",
+        "application startup does\nnot run `create_all`",
+        "Backup, restore, point-in-time recovery, archival, and advanced migration",
         "No Sentry, OpenTelemetry exporter, or vendor SDK is required",
     ]
     for snippet in required_snippets:

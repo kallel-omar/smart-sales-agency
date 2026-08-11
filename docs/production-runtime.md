@@ -5,8 +5,9 @@ process hardening only; it does not add migrations, cloud deployment, external
 monitoring, Redis, or provider network probes.
 
 Task 296 adds the production packaging and operations contract for the FastAPI
-runtime. It still does not add PostgreSQL migrations, backups, Kubernetes,
-Terraform, external monitoring vendors, or production database conversion.
+runtime. Task 297 adds the PostgreSQL persistence and migration foundation. It
+still does not add backups, Kubernetes, Terraform, external monitoring vendors,
+or disaster recovery.
 
 ## Required Production Settings
 
@@ -15,11 +16,16 @@ Set production mode explicitly:
 ```sh
 APP_ENV=production
 AUTH_TOKEN_SECRET=<strong-random-secret>
+DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database>
 ```
 
 `AUTH_TOKEN_SECRET` must be present, at least 32 characters, and not a known
 development placeholder. Startup errors name the unsafe setting but never print
 the value.
+
+PostgreSQL is required in production. SQLite remains available for development,
+unit tests, and lightweight local work only. Production rejects SQLite instead
+of silently treating it as final persistence.
 
 If `OUTBOUND_WEBHOOK_URL` is configured in production,
 `OUTBOUND_WEBHOOK_SIGNING_ENABLED=true` is required. FastAPI still does not own
@@ -96,18 +102,18 @@ Run it with production settings supplied at container runtime:
 docker run --rm --name smart-sales-agency-api -p 8000:8000 \
   -e APP_ENV=production \
   -e AUTH_TOKEN_SECRET=<strong-random-secret> \
+  -e DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database> \
   -e API_DOCS_ENABLED=false \
   -e CORS_ALLOWED_ORIGINS=https://app.example.com \
   -e CORS_ALLOW_CREDENTIALS=false \
   -e METRICS_ENABLED=true \
-  -e DATABASE_URL=sqlite:////app/data/sales_agency.db \
   -e OUTBOUND_WEBHOOK_SIGNING_ENABLED=true \
   smart-sales-agency-api:local
 ```
 
-The image runs as an unprivileged `app` user. The default SQLite path inside the
-image is `/app/data/sales_agency.db`, which is writable by that user. Mount a
-volume at `/app/data` if SQLite state must survive container replacement.
+The image runs as an unprivileged `app` user. It contains the application,
+PostgreSQL driver, Alembic runtime, and migration scripts. It does not run or
+embed PostgreSQL.
 
 The build context excludes local `.env` files, n8n `.env` files, `.git`,
 virtual environments, Python/test caches, logs, and local database files. Do
@@ -146,9 +152,22 @@ used for tenant, customer, request ID, or secret-bearing labels.
 ## Startup Behavior
 
 Startup validation is deterministic and local. It checks runtime configuration
-only and performs no external network calls. The FastAPI lifespan then creates
-configured database tables as before. No background workers are introduced by
-Task 295.
+only and performs no external network calls. In development and test, the
+FastAPI lifespan may create configured database tables for local convenience. In
+production, Alembic migrations are the schema authority; application startup does
+not run `create_all` or automatically upgrade the database. No background
+workers are introduced by Tasks 295-297.
+
+Run migrations as an explicit release step after configuring `DATABASE_URL` and
+before starting the application:
+
+```sh
+alembic upgrade head
+```
+
+The migration configuration reads `DATABASE_URL` from the same application
+settings at runtime. Do not hard-code database credentials into Alembic files,
+Docker images, or source control.
 
 ## Shutdown
 
@@ -195,5 +214,7 @@ tokens, customer content, phone numbers, emails, tenant IDs, or provider IDs.
 ## Database Boundary
 
 `DATABASE_URL` remains runtime configuration. The production image does not copy
-local SQLite database files. Startup still uses SQLModel `create_all` for the
-current schema behavior. PostgreSQL migrations, conversion, backup, restore, and recovery are deferred to Task 297 and later.
+local SQLite database files. PostgreSQL availability is deployment
+infrastructure responsibility; the FastAPI container does not include a database
+server. Backup, restore, point-in-time recovery, archival, and advanced migration
+orchestration are deferred to Tasks 298-300.

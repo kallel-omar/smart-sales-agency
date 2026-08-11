@@ -27,6 +27,7 @@ def _settings(environment: str = "development", **overrides) -> Settings:
     }
     if environment == "production":
         values["auth_token_secret"] = SAFE_PRODUCTION_SECRET
+        values["database_url"] = "postgresql+psycopg://user:pw@db.example.test/app"
     values.update(overrides)
     return Settings(_env_file=None, **values)
 
@@ -69,7 +70,7 @@ def test_valid_production_starts_and_disables_docs_by_default(monkeypatch):
         assert client.get("/redoc").status_code == 404
         assert client.get("/openapi.json").status_code == 404
 
-    assert db_calls["count"] == 1
+    assert db_calls["count"] == 0
 
 
 def test_production_docs_can_be_enabled_explicitly(monkeypatch):
