@@ -15,6 +15,17 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "text"] = "json"
     metrics_enabled: bool = True
+    rate_limit_enabled: bool = True
+    rate_limit_auth_login_limit: int = Field(default=120, ge=1, le=100_000)
+    rate_limit_auth_login_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    rate_limit_integration_ingest_limit: int = Field(default=600, ge=1, le=100_000)
+    rate_limit_integration_ingest_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    rate_limit_outbound_delivery_limit: int = Field(default=120, ge=1, le=100_000)
+    rate_limit_outbound_delivery_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    rate_limit_ai_conversation_limit: int = Field(default=120, ge=1, le=100_000)
+    rate_limit_ai_conversation_window_seconds: int = Field(default=60, ge=1, le=86_400)
+    rate_limit_in_memory_max_buckets: int = Field(default=10_000, ge=100, le=1_000_000)
+    rate_limit_in_memory_cleanup_batch_size: int = Field(default=500, ge=1, le=10_000)
 
     # Authentication is opt-in until Task 280 introduces the first human
     # credential flow. An empty development value cannot issue or verify a

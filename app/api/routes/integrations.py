@@ -7,10 +7,12 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from app.api.dependencies import (
     AIUsageReadPermissionDep,
     CurrentWorkspaceDep,
+    IntegrationIngestRateLimitDep,
     IntegrationManagePermissionDep,
     IntegrationReadPermissionDep,
     IntegrationReadinessReadPermissionDep,
     OutboundActionOperatePermissionDep,
+    OutboundDeliveryRateLimitDep,
     SessionDep,
     SettingsDep,
     VerifiedIntegrationContextDep,
@@ -1133,9 +1135,11 @@ def deliver_outbound_integration_action(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
     _: OutboundActionOperatePermissionDep,
+    rate_limit: OutboundDeliveryRateLimitDep,
     settings: SettingsDep,
 ) -> OutboundIntegrationActionRead:
     """Explicitly process one pending action through a neutral adapter."""
+    del rate_limit
     try:
         action, account = OutboundIntegrationDeliveryService.from_settings(session, settings).deliver_pending_action(
             workspace,
@@ -1193,9 +1197,11 @@ def retry_failed_outbound_integration_action(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
     _: OutboundActionOperatePermissionDep,
+    rate_limit: OutboundDeliveryRateLimitDep,
     settings: SettingsDep,
 ) -> OutboundIntegrationActionRead:
     """Explicitly retry one failed action with the same persisted identity."""
+    del rate_limit
     try:
         action, account = OutboundIntegrationDeliveryService.from_settings(
             session,
@@ -1524,8 +1530,10 @@ def receive_provider_delivery_status_event(
     payload: ProviderDeliveryStatusEventCreate,
     session: SessionDep,
     integration_context: VerifiedIntegrationContextDep,
+    rate_limit: IntegrationIngestRateLimitDep,
 ) -> ProviderDeliveryStatusEventIngestRead:
     """Accept a machine-authenticated provider delivery-status callback."""
+    del rate_limit
     try:
         result = OutboundProviderDeliveryStatusEventService(session).record_event(
             integration_context.workspace,
@@ -1557,10 +1565,12 @@ async def receive_inbound_event(
     payload: InboundIntegrationEvent,
     session: SessionDep,
     integration_context: VerifiedIntegrationContextDep,
+    rate_limit: IntegrationIngestRateLimitDep,
     settings: SettingsDep,
     request: Request,
 ) -> InboundIntegrationReplyRead | SalesReply | InboundIntegrationDuplicateRead:
     """Accept an inbound event; the optional header enables durable retry safety."""
+    del rate_limit
 
     integration_service = InboundIntegrationService(session, settings)
     integration_event_id = request.headers.get("X-Integration-Event-Id")

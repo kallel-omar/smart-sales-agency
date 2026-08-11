@@ -1,6 +1,11 @@
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.dependencies import AuthenticatedPrincipalDep, SessionDep, SettingsDep
+from app.api.dependencies import (
+    AuthLoginRateLimitDep,
+    AuthenticatedPrincipalDep,
+    SessionDep,
+    SettingsDep,
+)
 from app.models import User
 from app.schemas import AccessTokenRead, AuthLoginCreate, AuthRegistrationCreate, UserRead
 from app.services.authentication import (
@@ -37,6 +42,7 @@ def register(
 
 @router.post("/login", response_model=AccessTokenRead)
 def login(
+    _: AuthLoginRateLimitDep,
     payload: AuthLoginCreate,
     session: SessionDep,
     settings: SettingsDep,

@@ -22,10 +22,15 @@ from app.observability import (
     RequestObservabilityMiddleware,
     configure_logging,
 )
+from app.services.rate_limiting import InMemoryFixedWindowRateLimitBackend
 
 settings = get_settings()
 configure_logging(level=settings.log_level, log_format=settings.log_format)
 http_metrics = HttpMetrics() if settings.metrics_enabled else None
+rate_limit_backend = InMemoryFixedWindowRateLimitBackend(
+    max_buckets=settings.rate_limit_in_memory_max_buckets,
+    cleanup_batch_size=settings.rate_limit_in_memory_cleanup_batch_size,
+)
 
 
 @asynccontextmanager
@@ -68,4 +73,5 @@ if http_metrics is not None:
 
 
 app.state.http_metrics = http_metrics
+app.state.rate_limit_backend = rate_limit_backend
 app.add_middleware(RequestObservabilityMiddleware, metrics=http_metrics)

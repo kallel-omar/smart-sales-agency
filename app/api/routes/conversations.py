@@ -5,6 +5,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from sqlmodel import Session
 
 from app.api.dependencies import (
+    AIConversationRateLimitDep,
     ConversationOperatePermissionDep,
     CurrentWorkspaceDep,
     OperatorAssignmentActorDep,
@@ -144,9 +145,11 @@ async def draft_sales_reply(
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
     _: ConversationOperatePermissionDep,
+    rate_limit: AIConversationRateLimitDep,
     settings: SettingsDep,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> DirectSalesReply:
+    del rate_limit
     repository = SalesRepository(session)
 
     try:

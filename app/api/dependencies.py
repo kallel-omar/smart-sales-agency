@@ -1,13 +1,15 @@
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.models import Workspace, WorkspaceMember
+from app.models import IntegrationAccount, Workspace, WorkspaceMember
 from app.services.authentication import (
     AuthenticationService,
     InvalidAccessTokenError,
@@ -25,6 +27,14 @@ from app.services.identity_memberships import (
 from app.services.webhook_authentication import (
     ProviderWebhookAuthenticationService,
     WebhookAuthenticationError,
+)
+from app.services.rate_limiting import (
+    InMemoryFixedWindowRateLimitBackend,
+    RateLimitExceeded,
+    RateLimitPolicy,
+    RateLimitPolicyId,
+    RateLimitService,
+    rate_limit_headers,
 )
 from app.services.workspace_rbac import (
     WorkspacePermission,
@@ -397,3 +407,163 @@ VerifiedIntegrationContextDep = Annotated[
     IntegrationContext,
     Depends(get_verified_integration_context),
 ]
+
+
+def get_rate_limit_service(
+    request: Request,
+    settings: SettingsDep,
+) -> RateLimitService:
+    backend = getattr(request.app.state, "rate_limit_backend", None)
+    if backend is None:
+        backend = InMemoryFixedWindowRateLimitBackend(
+            max_buckets=settings.rate_limit_in_memory_max_buckets,
+            cleanup_batch_size=settings.rate_limit_in_memory_cleanup_batch_size,
+        )
+        request.app.state.rate_limit_backend = backend
+    return RateLimitService(
+        backend,
+        enabled=settings.rate_limit_enabled,
+    )
+
+
+RateLimitServiceDep = Annotated[RateLimitService, Depends(get_rate_limit_service)]
+
+
+def enforce_auth_login_rate_limit(
+    request: Request,
+    service: RateLimitServiceDep,
+    settings: SettingsDep,
+) -> None:
+    _enforce_rate_limit(
+        service,
+        _rate_limit_policy(settings, RateLimitPolicyId.AUTH_LOGIN),
+        _scope_key(
+            "client_source",
+            request.client.host if request.client is not None else "unknown",
+        ),
+    )
+
+
+AuthLoginRateLimitDep = Annotated[
+    None,
+    Depends(enforce_auth_login_rate_limit),
+]
+
+
+def enforce_integration_ingest_rate_limit(
+    integration_context: VerifiedIntegrationContextDep,
+    service: RateLimitServiceDep,
+    settings: SettingsDep,
+) -> None:
+    _enforce_rate_limit(
+        service,
+        _rate_limit_policy(settings, RateLimitPolicyId.INTEGRATION_INGEST),
+        _scope_key("integration_account", str(integration_context.account.id)),
+    )
+
+
+IntegrationIngestRateLimitDep = Annotated[
+    None,
+    Depends(enforce_integration_ingest_rate_limit),
+]
+
+
+def enforce_outbound_delivery_rate_limit(
+    account_id: UUID,
+    context: AuthenticatedWorkspaceContextDep,
+    _: OutboundActionOperatePermissionDep,
+    session: SessionDep,
+    service: RateLimitServiceDep,
+    settings: SettingsDep,
+) -> None:
+    account = session.exec(
+        select(IntegrationAccount).where(
+            IntegrationAccount.id == account_id,
+            IntegrationAccount.workspace_id == context.workspace.id,
+        )
+    ).first()
+    if account is None:
+        raise HTTPException(status_code=404, detail="Integration account not found")
+
+    _enforce_rate_limit(
+        service,
+        _rate_limit_policy(settings, RateLimitPolicyId.OUTBOUND_DELIVERY),
+        _scope_key(
+            "outbound_delivery",
+            f"{context.workspace.id}:{context.principal.user_id}:{account.id}",
+        ),
+    )
+
+
+OutboundDeliveryRateLimitDep = Annotated[
+    None,
+    Depends(enforce_outbound_delivery_rate_limit),
+]
+
+
+def enforce_ai_conversation_rate_limit(
+    context: AuthenticatedWorkspaceContextDep,
+    _: ConversationOperatePermissionDep,
+    service: RateLimitServiceDep,
+    settings: SettingsDep,
+) -> None:
+    _enforce_rate_limit(
+        service,
+        _rate_limit_policy(settings, RateLimitPolicyId.AI_CONVERSATION),
+        _scope_key(
+            "ai_conversation",
+            f"{context.workspace.id}:{context.principal.user_id}",
+        ),
+    )
+
+
+AIConversationRateLimitDep = Annotated[
+    None,
+    Depends(enforce_ai_conversation_rate_limit),
+]
+
+
+def _enforce_rate_limit(
+    service: RateLimitService,
+    policy: RateLimitPolicy,
+    scope_key: str,
+) -> None:
+    try:
+        service.enforce(policy, scope_key)
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers=rate_limit_headers(exc.decision),
+        ) from exc
+
+
+def _rate_limit_policy(settings: Settings, policy_id: RateLimitPolicyId) -> RateLimitPolicy:
+    if policy_id is RateLimitPolicyId.AUTH_LOGIN:
+        return RateLimitPolicy(
+            policy_id,
+            settings.rate_limit_auth_login_limit,
+            settings.rate_limit_auth_login_window_seconds,
+        )
+    if policy_id is RateLimitPolicyId.INTEGRATION_INGEST:
+        return RateLimitPolicy(
+            policy_id,
+            settings.rate_limit_integration_ingest_limit,
+            settings.rate_limit_integration_ingest_window_seconds,
+        )
+    if policy_id is RateLimitPolicyId.OUTBOUND_DELIVERY:
+        return RateLimitPolicy(
+            policy_id,
+            settings.rate_limit_outbound_delivery_limit,
+            settings.rate_limit_outbound_delivery_window_seconds,
+        )
+    return RateLimitPolicy(
+        policy_id,
+        settings.rate_limit_ai_conversation_limit,
+        settings.rate_limit_ai_conversation_window_seconds,
+    )
+
+
+def _scope_key(scope_type: str, trusted_value: str) -> str:
+    digest = sha256(trusted_value.encode()).hexdigest()
+    return f"{scope_type}:{digest}"

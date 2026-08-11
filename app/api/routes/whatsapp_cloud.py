@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import select
 
 from app.api.dependencies import (
+    IntegrationIngestRateLimitDep,
     SessionDep,
     SettingsDep,
     VerifiedIntegrationContextDep,
@@ -36,9 +37,11 @@ async def receive_whatsapp_cloud_text_event(
     payload: WhatsAppCloudInboundTextEvent,
     session: SessionDep,
     integration_context: VerifiedIntegrationContextDep,
+    rate_limit: IntegrationIngestRateLimitDep,
     settings: SettingsDep,
 ) -> InboundIntegrationReplyRead | InboundIntegrationDuplicateRead:
     """Accept n8n-normalized WhatsApp Cloud text after machine authentication."""
+    del rate_limit
 
     account = integration_context.account
     workspace = integration_context.workspace
