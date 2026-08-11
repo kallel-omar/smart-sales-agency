@@ -49,6 +49,14 @@ def test_task286_workflow_is_transport_only_and_keeps_fastapi_as_authority():
     lower_text = workflow_text.lower()
     node_types = {node["type"] for node in workflow["nodes"]}
     node_names = {node["name"] for node in workflow["nodes"]}
+    meta_event_webhook = next(
+        node for node in workflow["nodes"] if node["name"] == "Meta Event Webhook"
+    )
+    meta_event_node = next(
+        node
+        for node in workflow["nodes"]
+        if node["name"] == "Verify And Normalize Meta Event"
+    )
     outbound_node = next(
         node for node in workflow["nodes"] if node["name"] == "Prepare WhatsApp Text Send"
     )
@@ -67,9 +75,10 @@ def test_task286_workflow_is_transport_only_and_keeps_fastapi_as_authority():
         for node in workflow["nodes"]
         if node["name"] == "Acknowledge WhatsApp Delivery Result"
     )
+    meta_event_code = meta_event_node["parameters"]["jsCode"]
 
     assert workflow["id"] == "task286whatsappcloudbridge"
-    assert workflow["name"] == "Task 288 WhatsApp Cloud Bridge"
+    assert workflow["name"] == "Task 289 WhatsApp Cloud Bridge"
     assert workflow["active"] is True
     assert "n8n-nodes-base.webhook" in node_types
     assert "n8n-nodes-base.code" in node_types
@@ -77,14 +86,25 @@ def test_task286_workflow_is_transport_only_and_keeps_fastapi_as_authority():
     assert "n8n-nodes-base.respondToWebhook" in node_types
     assert {"Meta Verification Webhook", "Meta Event Webhook", "Outbound Transport Webhook"} <= node_names
     assert "rawBody" in workflow_text
+    assert meta_event_webhook["parameters"]["options"] == {"rawBody": True}
     assert "hub.challenge" in workflow_text
     assert "x-hub-signature-256" in lower_text
     assert "/api/integrations/inbound-events/whatsapp-cloud" in workflow_text
+    assert "/api/integrations/inbound-events/provider-status-events" in workflow_text
     assert "X-Integration-Key" in workflow_text
     assert "X-Webhook-Signature" in workflow_text
     assert "provider_event_id" in workflow_text
+    assert "provider_delivery_id" in workflow_text
+    assert "provider_status" in workflow_text
     assert "external_target_id" in workflow_text
     assert "action_type" in workflow_text
+    assert "await this.helpers.getBinaryDataBuffer(0, 'data')" in meta_event_code
+    assert "$binary" not in meta_event_code
+    assert "JSON.stringify($json.body" not in meta_event_code
+    assert "supportedStatuses = new Set(['sent', 'delivered', 'read', 'failed'])" in meta_event_code
+    assert "failure_classification = 'unknown'" in meta_event_code
+    assert "raw_payload" not in meta_event_code
+    assert "WHATSAPP_CLOUD_ACCESS_TOKEN" not in meta_event_code
     assert "Should Send WhatsApp Cloud Message" in node_names
     assert "WHATSAPP_CLOUD_ACCESS_TOKEN" not in outbound_code
     assert "await fetch" not in outbound_code
@@ -215,7 +235,11 @@ def test_task288_outbound_workflow_javascript_is_syntax_valid_when_node_is_avail
         return
     workflow = json.loads(WORKFLOW_FILE.read_text(encoding="utf-8"))
 
-    for node_name in ("Prepare WhatsApp Text Send", "Normalize WhatsApp Delivery Result"):
+    for node_name in (
+        "Verify And Normalize Meta Event",
+        "Prepare WhatsApp Text Send",
+        "Normalize WhatsApp Delivery Result",
+    ):
         code_node = next(node for node in workflow["nodes"] if node["name"] == node_name)
         wrapped_code = f"async function __n8n_code_node__() {{\n{code_node['parameters']['jsCode']}\n}}\n"
         with tempfile.NamedTemporaryFile(
@@ -237,6 +261,54 @@ def test_task288_outbound_workflow_javascript_is_syntax_valid_when_node_is_avail
             check_file.unlink(missing_ok=True)
 
         assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
+def test_task289_meta_status_callbacks_are_verified_and_forwarded_safely():
+    workflow = json.loads(WORKFLOW_FILE.read_text(encoding="utf-8"))
+    meta_webhook = next(
+        node for node in workflow["nodes"] if node["name"] == "Meta Event Webhook"
+    )
+    meta_node = next(
+        node for node in workflow["nodes"] if node["name"] == "Verify And Normalize Meta Event"
+    )
+    call_fastapi = next(
+        node for node in workflow["nodes"] if node["name"] == "Call FastAPI Boundary"
+    )
+    meta_code = meta_node["parameters"]["jsCode"]
+    call_headers = {
+        row["name"]: row["value"]
+        for row in call_fastapi["parameters"]["headerParameters"]["parameters"]
+    }
+
+    assert meta_webhook["parameters"]["options"] == {"rawBody": True}
+    assert "rawBody = await this.helpers.getBinaryDataBuffer(0, 'data');" in meta_code
+    assert "$binary" not in meta_code
+    assert "const expected = 'sha256='" in meta_code
+    assert meta_code.index("const expected = 'sha256='") < meta_code.index("let body;")
+    assert meta_code.index("if (!secureEqual(signature, expected))") < meta_code.index(
+        "let body;"
+    )
+    assert meta_code.index("if (!secureEqual(signature, expected))") < meta_code.index(
+        "'/api/integrations/inbound-events/provider-status-events'"
+    )
+    assert "value.statuses" in meta_code
+    assert "provider_delivery_id: providerDeliveryId" in meta_code
+    assert "provider_status: providerStatus" in meta_code
+    assert "provider_error_code" in meta_code
+    assert "provider_error_title" in meta_code
+    assert "provider_error_type" in meta_code
+    assert "failure_classification = 'unknown'" in meta_code
+    assert "statusBody.raw" not in meta_code
+    assert "raw_payload" not in meta_code
+    assert "WHATSAPP_CLOUD_ACCESS_TOKEN" not in meta_code
+    assert "localStorage" not in meta_code
+    assert "database" not in meta_code.lower()
+    assert "dedup" not in meta_code.lower()
+    assert call_fastapi["parameters"]["url"] == "={{ $json.url }}"
+    assert call_fastapi["parameters"]["body"] == "={{ $json.body }}"
+    assert call_headers["X-Integration-Key"] == "={{ $json.headers['X-Integration-Key'] }}"
+    assert call_headers["X-Webhook-Timestamp"] == "={{ $json.headers['X-Webhook-Timestamp'] }}"
+    assert call_headers["X-Webhook-Signature"] == "={{ $json.headers['X-Webhook-Signature'] }}"
 
 
 def test_task288_outbound_webhook_hmac_uses_original_raw_request_bytes():

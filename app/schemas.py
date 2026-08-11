@@ -10,10 +10,12 @@ from app.models import (
     ApprovalStatus,
     IntegrationAccountAuditAction,
     LeadStatus,
+    OutboundDeliveryFailureClassification,
     OutboundActionPriority,
     OutboundIntegrationActionStatus,
     OutboundIntegrationActionType,
     OutboundIntegrationAuditAction,
+    ProviderDeliveryStatus,
     SalesConversationHandoffStatus,
     SalesHandoffReasonCode,
     SalesLanguage,
@@ -409,6 +411,73 @@ class OutboundIntegrationDeliveryAttemptRead(BaseModel):
     completed_at: datetime | None
     failure_code: str | None
     failure_message: str | None
+
+
+class ProviderDeliveryStatusEventCreate(BaseModel):
+    """Machine-authenticated provider status callback with no trusted tenancy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider_delivery_id: str = Field(min_length=1, max_length=255)
+    provider_status: ProviderDeliveryStatus
+    provider_timestamp: datetime | None = None
+    provider_error_code: str | None = Field(default=None, max_length=100)
+    provider_error_title: str | None = Field(default=None, max_length=200)
+    provider_error_type: str | None = Field(default=None, max_length=100)
+    failure_classification: OutboundDeliveryFailureClassification | None = None
+
+    @field_validator("provider_delivery_id")
+    @classmethod
+    def normalize_provider_delivery_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("provider_delivery_id is required")
+        if any(
+            character.isspace() or ord(character) < 32 or ord(character) == 127
+            for character in normalized
+        ):
+            raise ValueError(
+                "provider_delivery_id must not contain whitespace or control characters"
+            )
+        return normalized
+
+    @field_validator("provider_error_code", "provider_error_title", "provider_error_type")
+    @classmethod
+    def normalize_safe_provider_error_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if any(ord(character) < 32 or ord(character) == 127 for character in normalized):
+            raise ValueError("provider error metadata must not contain control characters")
+        return normalized
+
+
+class ProviderDeliveryStatusEventRead(BaseModel):
+    """Safe provider status history record with no raw webhook or credentials."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    integration_account_id: UUID
+    outbound_integration_action_id: UUID
+    provider_delivery_id: str
+    provider_status: ProviderDeliveryStatus
+    provider_timestamp: datetime | None
+    provider_error_code: str | None
+    provider_error_title: str | None
+    provider_error_type: str | None
+    failure_classification: OutboundDeliveryFailureClassification | None
+    created_at: datetime
+
+
+class ProviderDeliveryStatusEventIngestRead(BaseModel):
+    """Safe acknowledgement for a provider delivery-status callback."""
+
+    duplicate: bool
+    event: ProviderDeliveryStatusEventRead
 
 
 class OutboundIntegrationAuditEventRead(BaseModel):

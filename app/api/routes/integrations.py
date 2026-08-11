@@ -67,6 +67,9 @@ from app.schemas import (
     OutboundIntegrationDeliveryAttemptRead,
     OutboundIntegrationDeliveryStatusRead,
     OutboundDeliveryReadinessRead,
+    ProviderDeliveryStatusEventCreate,
+    ProviderDeliveryStatusEventIngestRead,
+    ProviderDeliveryStatusEventRead,
     SalesReply,
 )
 from app.services.inbound_integrations import (
@@ -155,6 +158,13 @@ from app.services.outbound_delivery_status import (
     OutboundIntegrationDeliveryStatusService,
     OutboundIntegrationDeliveryStatusView,
 )
+from app.services.outbound_provider_status_events import (
+    DEFAULT_PROVIDER_DELIVERY_STATUS_EVENT_LIMIT,
+    MAX_PROVIDER_DELIVERY_STATUS_EVENT_LIMIT,
+    ProviderDeliveryStatusEventActionNotFoundError,
+    ProviderDeliveryStatusEventValidationError,
+    OutboundProviderDeliveryStatusEventService,
+)
 from app.services.outbound_approval_status import (
     OutboundApprovalStatusNotFoundError,
     OutboundApprovalStatusService,
@@ -220,6 +230,15 @@ DeliveryAttemptLimit = Annotated[
         ge=1,
         le=MAX_DELIVERY_ATTEMPT_LIMIT,
         description="Maximum number of safe delivery attempts to return.",
+    ),
+]
+
+ProviderDeliveryStatusEventLimit = Annotated[
+    int,
+    Query(
+        ge=1,
+        le=MAX_PROVIDER_DELIVERY_STATUS_EVENT_LIMIT,
+        description="Maximum number of safe provider status events to return.",
     ),
 ]
 
@@ -360,6 +379,12 @@ def outbound_delivery_attempt_read(
     attempt: OutboundIntegrationDeliveryAttempt,
 ) -> OutboundIntegrationDeliveryAttemptRead:
     return OutboundIntegrationDeliveryAttemptRead.model_validate(attempt)
+
+
+def provider_delivery_status_event_read(
+    event,
+) -> ProviderDeliveryStatusEventRead:
+    return ProviderDeliveryStatusEventRead.model_validate(event)
 
 
 def outbound_delivery_status_read(
@@ -1379,6 +1404,37 @@ def get_outbound_integration_delivery_status(
 
 
 @router.get(
+    "/accounts/{account_id}/outbound-actions/{action_id}/provider-status-events",
+    response_model=list[ProviderDeliveryStatusEventRead],
+)
+def list_outbound_provider_delivery_status_events(
+    account_id: UUID,
+    action_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: IntegrationReadPermissionDep,
+    limit: ProviderDeliveryStatusEventLimit = (
+        DEFAULT_PROVIDER_DELIVERY_STATUS_EVENT_LIMIT
+    ),
+) -> list[ProviderDeliveryStatusEventRead]:
+    """Return safe provider callback history for one scoped outbound action."""
+    try:
+        events = OutboundProviderDeliveryStatusEventService(session).list_for_action(
+            workspace,
+            account_id,
+            action_id,
+            limit=limit,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except OutboundIntegrationActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
+    except ProviderDeliveryStatusEventValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [provider_delivery_status_event_read(event) for event in events]
+
+
+@router.get(
     "/accounts/{account_id}/outbound-actions/{action_id}/delivery-attempts",
     response_model=list[OutboundIntegrationDeliveryAttemptRead],
 )
@@ -1437,6 +1493,39 @@ def get_integration_execution_trace(
             detail="Integration execution trace not found",
         ) from exc
     return integration_execution_trace_read(view)
+
+
+@router.post(
+    "/inbound-events/provider-status-events",
+    response_model=ProviderDeliveryStatusEventIngestRead,
+)
+def receive_provider_delivery_status_event(
+    payload: ProviderDeliveryStatusEventCreate,
+    session: SessionDep,
+    integration_context: VerifiedIntegrationContextDep,
+) -> ProviderDeliveryStatusEventIngestRead:
+    """Accept a machine-authenticated provider delivery-status callback."""
+    try:
+        result = OutboundProviderDeliveryStatusEventService(session).record_event(
+            integration_context.workspace,
+            integration_context.account,
+            provider_delivery_id=payload.provider_delivery_id,
+            provider_status=payload.provider_status,
+            provider_timestamp=payload.provider_timestamp,
+            provider_error_code=payload.provider_error_code,
+            provider_error_title=payload.provider_error_title,
+            provider_error_type=payload.provider_error_type,
+            failure_classification=payload.failure_classification,
+        )
+    except ProviderDeliveryStatusEventActionNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Outbound integration action not found",
+        ) from exc
+    return ProviderDeliveryStatusEventIngestRead(
+        duplicate=result.duplicate,
+        event=provider_delivery_status_event_read(result.event),
+    )
 
 
 @router.post(

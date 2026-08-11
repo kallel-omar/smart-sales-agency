@@ -144,6 +144,15 @@ class OutboundDeliveryFailureClassification(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ProviderDeliveryStatus(StrEnum):
+    """Provider-reported delivery status values recorded after send acceptance."""
+
+    SENT = "sent"
+    DELIVERED = "delivered"
+    READ = "read"
+    FAILED = "failed"
+
+
 class OutboundIntegrationAuditAction(StrEnum):
     """Safe, provider-neutral lifecycle events for outbound actions."""
 
@@ -490,6 +499,43 @@ class OutboundIntegrationDeliveryAttempt(SQLModel, table=True):
         default=None,
         index=True,
     )
+
+
+class OutboundProviderDeliveryStatusEvent(SQLModel, table=True):
+    """Safe provider status callback history correlated to an outbound action."""
+
+    __tablename__ = "outbound_provider_delivery_status_event"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "integration_account_id",
+            "idempotency_key",
+            name="uq_outbound_provider_delivery_status_event_idempotency",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id",
+        index=True,
+    )
+    outbound_integration_action_id: UUID = Field(
+        foreign_key="outboundintegrationaction.id",
+        index=True,
+    )
+    provider_delivery_id: str = Field(max_length=255, index=True)
+    provider_status: ProviderDeliveryStatus = Field(index=True)
+    provider_timestamp: datetime | None = Field(default=None, index=True)
+    provider_error_code: str | None = Field(default=None, max_length=100)
+    provider_error_title: str | None = Field(default=None, max_length=200)
+    provider_error_type: str | None = Field(default=None, max_length=100)
+    failure_classification: OutboundDeliveryFailureClassification | None = Field(
+        default=None,
+        index=True,
+    )
+    idempotency_key: str = Field(max_length=64)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
 class Lead(SQLModel, table=True):
