@@ -1,0 +1,100 @@
+import { API_BASE_URL } from "./env";
+import type {
+  AIInvocationUsageSummaryRead,
+  AccessTokenRead,
+  ApprovalRead,
+  IntegrationAccountRead,
+  IntegrationOperationalSummaryRead,
+  LeadRead,
+  UserRead,
+  WorkspaceRead
+} from "../types/api";
+
+interface RequestOptions {
+  token?: string | null;
+  workspaceSlug?: string | null;
+  method?: "GET" | "POST" | "PUT" | "DELETE";
+  body?: unknown;
+}
+
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(status: number, detail: unknown) {
+    super(typeof detail === "string" ? detail : "Request failed");
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const headers = new Headers({ Accept: "application/json" });
+
+  if (options.body !== undefined) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (options.token) {
+    headers.set("Authorization", `Bearer ${options.token}`);
+  }
+  if (options.workspaceSlug) {
+    headers.set("X-Workspace-Slug", options.workspaceSlug);
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers,
+    body: options.body === undefined ? undefined : JSON.stringify(options.body)
+  });
+
+  const contentType = response.headers.get("Content-Type") ?? "";
+  const payload =
+    contentType.includes("application/json") && response.status !== 204
+      ? await response.json()
+      : null;
+
+  if (response.status === 401) {
+    window.dispatchEvent(new CustomEvent("hiri:auth-expired"));
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, payload?.detail ?? payload ?? response.statusText);
+  }
+  return payload as T;
+}
+
+export const apiClient = {
+  login(email: string, password: string) {
+    return request<AccessTokenRead>("/api/auth/login", {
+      method: "POST",
+      body: { email, password }
+    });
+  },
+  me(token: string) {
+    return request<UserRead>("/api/auth/me", { token });
+  },
+  workspaces(token: string) {
+    return request<WorkspaceRead[]>("/api/workspaces", { token });
+  },
+  leads(token: string, workspaceSlug: string) {
+    return request<LeadRead[]>("/api/leads", { token, workspaceSlug });
+  },
+  approvals(token: string, workspaceSlug: string) {
+    return request<ApprovalRead[]>("/api/approvals", { token, workspaceSlug });
+  },
+  integrationAccounts(token: string, workspaceSlug: string) {
+    return request<IntegrationAccountRead[]>("/api/integrations/accounts", { token, workspaceSlug });
+  },
+  integrationSummary(token: string, workspaceSlug: string) {
+    return request<IntegrationOperationalSummaryRead>("/api/integrations/operational-summary", {
+      token,
+      workspaceSlug
+    });
+  },
+  aiUsageSummary(token: string, workspaceSlug: string) {
+    return request<AIInvocationUsageSummaryRead>("/api/integrations/ai-usage/summary", {
+      token,
+      workspaceSlug
+    });
+  }
+};
