@@ -5,9 +5,12 @@ process hardening only; it does not add migrations, cloud deployment, external
 monitoring, Redis, or provider network probes.
 
 Task 296 adds the production packaging and operations contract for the FastAPI
-runtime. Task 297 adds the PostgreSQL persistence and migration foundation. It
-still does not add backups, Kubernetes, Terraform, external monitoring vendors,
-or disaster recovery.
+runtime. Task 297 adds the PostgreSQL persistence and migration foundation.
+Task 298 adds production migration lifecycle safety: deployments must migrate
+the database explicitly, and FastAPI refuses to serve production traffic unless
+the database is at the application's expected Alembic head. This still does not
+add backups, Kubernetes, Terraform, external monitoring vendors, or disaster
+recovery.
 
 ## Required Production Settings
 
@@ -152,11 +155,11 @@ used for tenant, customer, request ID, or secret-bearing labels.
 ## Startup Behavior
 
 Startup validation is deterministic and local. It checks runtime configuration
-only and performs no external network calls. In development and test, the
-FastAPI lifespan may create configured database tables for local convenience. In
-production, Alembic migrations are the schema authority; application startup does
-not run `create_all` or automatically upgrade the database. No background
-workers are introduced by Tasks 295-297.
+and production database schema state, and performs no external provider network
+calls. In development and test, the FastAPI lifespan may create configured
+database tables for local convenience. In production, Alembic migrations are the
+schema authority; application startup does not run `create_all` or automatically
+upgrade the database. No background workers are introduced by Tasks 295-298.
 
 Run migrations as an explicit release step after configuring `DATABASE_URL` and
 before starting the application:
@@ -168,6 +171,49 @@ alembic upgrade head
 The migration configuration reads `DATABASE_URL` from the same application
 settings at runtime. Do not hard-code database credentials into Alembic files,
 Docker images, or source control.
+
+## Migration Lifecycle
+
+The production deployment sequence is:
+
+1. Provision and reach PostgreSQL.
+2. Set `DATABASE_URL` securely in the runtime environment.
+3. Run `alembic upgrade head`.
+4. Optionally run `python -m app.migration_state check`.
+5. Start FastAPI.
+6. FastAPI independently verifies that the database is at the application
+   Alembic head before accepting traffic.
+
+The precheck command exits `0` only when the configured database is current:
+
+```sh
+python -m app.migration_state check
+```
+
+It exits non-zero for uninitialized, outdated, unknown/ahead, multiple-head, or
+failed schema checks. Output is intentionally concise and never prints
+credential-bearing database URLs.
+
+Production FastAPI startup refuses unsafe schema states:
+
+- uninitialized database
+- database behind the application head
+- database ahead of or unknown to the application
+- multiple database current heads
+- database connection or schema-check failure
+
+Startup refusal is intentional. Operators must run the migration step before the
+web runtime starts. FastAPI never runs `alembic upgrade head` automatically.
+
+Migration history is forward-only for production. Do not edit an already applied
+committed revision. Create a new migration for schema changes, review generated
+migrations before deployment, run migrations before the new app version, and let
+startup verification block mismatches. Do not rely on `create_all` for
+production.
+
+Automatic production downgrade is not a recovery strategy. Application rollback
+must consider database compatibility. Backup and recovery work belongs to Task
+299.
 
 ## Shutdown
 
@@ -217,4 +263,4 @@ tokens, customer content, phone numbers, emails, tenant IDs, or provider IDs.
 local SQLite database files. PostgreSQL availability is deployment
 infrastructure responsibility; the FastAPI container does not include a database
 server. Backup, restore, point-in-time recovery, archival, and advanced migration
-orchestration are deferred to Tasks 298-300.
+or recovery orchestration are deferred to Tasks 299-300.

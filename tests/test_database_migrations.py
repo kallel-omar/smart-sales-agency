@@ -157,6 +157,7 @@ def test_production_startup_does_not_run_create_all(monkeypatch):
         calls["create_all"] += 1
 
     monkeypatch.setattr("app.main.create_db_and_tables", fake_create_db_and_tables)
+    monkeypatch.setattr("app.main.ensure_database_schema_current", lambda database_url: None)
     local_app = create_app(_settings("production"))
 
     with TestClient(local_app) as client:

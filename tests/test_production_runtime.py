@@ -39,6 +39,7 @@ def _disable_db_startup(monkeypatch) -> dict[str, int]:
         calls["count"] += 1
 
     monkeypatch.setattr("app.main.create_db_and_tables", fake_create_db_and_tables)
+    monkeypatch.setattr("app.main.ensure_database_schema_current", lambda database_url: None)
     return calls
 
 

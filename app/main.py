@@ -17,6 +17,7 @@ from app.api.routes import (
 from app.config import Settings, get_settings
 from app.db import create_db_and_tables
 from app.error_handling import register_error_handlers
+from app.migration_state import ensure_database_schema_current
 from app.observability import (
     METRICS_CONTENT_TYPE,
     METRICS_PATH,
@@ -41,7 +42,9 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         ProductionRuntimeValidator(settings).validate()
-        if settings.environment != "production":
+        if settings.environment == "production":
+            ensure_database_schema_current(settings.database_url)
+        else:
             create_db_and_tables()
         yield
 

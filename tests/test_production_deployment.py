@@ -159,7 +159,10 @@ def test_operations_docs_capture_task296_deployment_contract():
         "Network-level protection for metrics is a deployment concern",
         "PostgreSQL is required in production.",
         "alembic upgrade head",
-        "application startup does\nnot run `create_all`",
+        "application startup does not run `create_all`",
+        "python -m app.migration_state check",
+        "FastAPI never runs `alembic upgrade head` automatically.",
+        "Do not edit an already applied\ncommitted revision.",
         "Backup, restore, point-in-time recovery, archival, and advanced migration",
         "No Sentry, OpenTelemetry exporter, or vendor SDK is required",
     ]
