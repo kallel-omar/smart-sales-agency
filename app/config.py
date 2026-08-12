@@ -22,6 +22,8 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("APP_PORT", "PORT"),
     )
     database_url: str = "sqlite:///./sales_agency.db"
+    database_startup_max_attempts: int = Field(default=3, ge=1, le=20)
+    database_startup_retry_delay_seconds: float = Field(default=1.0, ge=0, le=30)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "text"] = "json"
     metrics_enabled: bool = True

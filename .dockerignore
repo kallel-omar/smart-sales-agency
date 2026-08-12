@@ -25,6 +25,12 @@ infra/n8n/.env.*
 *.db-*
 sales_agency*.db
 task*_runtime.db
+backups
+backups/
+*.backup
+*.dump
+*.backup.sha256
+*.dump.sha256
 
 *.log
 tmp

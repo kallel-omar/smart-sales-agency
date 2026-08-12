@@ -8,9 +8,11 @@ Task 296 adds the production packaging and operations contract for the FastAPI
 runtime. Task 297 adds the PostgreSQL persistence and migration foundation.
 Task 298 adds production migration lifecycle safety: deployments must migrate
 the database explicitly, and FastAPI refuses to serve production traffic unless
-the database is at the application's expected Alembic head. This still does not
-add backups, Kubernetes, Terraform, external monitoring vendors, or disaster
-recovery.
+the database is at the application's expected Alembic head. Task 299 adds the
+baseline PostgreSQL logical backup and restore runbook plus bounded startup
+retry for transient database inspection failures. This still does not add
+Kubernetes, Terraform, external monitoring vendors, replication, failover, or
+point-in-time recovery infrastructure.
 
 ## Required Production Settings
 
@@ -29,6 +31,17 @@ the value.
 PostgreSQL is required in production. SQLite remains available for development,
 unit tests, and lightweight local work only. Production rejects SQLite instead
 of silently treating it as final persistence.
+
+Production startup may retry transient database schema inspection failures using
+bounded settings:
+
+```sh
+DATABASE_STARTUP_MAX_ATTEMPTS=3
+DATABASE_STARTUP_RETRY_DELAY_SECONDS=1
+```
+
+Only failed inspection/connectivity checks retry. Known migration mismatches
+still fail immediately.
 
 If `OUTBOUND_WEBHOOK_URL` is configured in production,
 `OUTBOUND_WEBHOOK_SIGNING_ENABLED=true` is required. FastAPI still does not own
@@ -159,7 +172,7 @@ and production database schema state, and performs no external provider network
 calls. In development and test, the FastAPI lifespan may create configured
 database tables for local convenience. In production, Alembic migrations are the
 schema authority; application startup does not run `create_all` or automatically
-upgrade the database. No background workers are introduced by Tasks 295-298.
+upgrade the database. No background workers are introduced by Tasks 295-299.
 
 Run migrations as an explicit release step after configuring `DATABASE_URL` and
 before starting the application:
@@ -205,6 +218,11 @@ Production FastAPI startup refuses unsafe schema states:
 Startup refusal is intentional. Operators must run the migration step before the
 web runtime starts. FastAPI never runs `alembic upgrade head` automatically.
 
+If PostgreSQL is briefly unavailable while the container starts, FastAPI retries
+only the schema inspection according to the bounded `DATABASE_STARTUP_*`
+settings. It does not retry business writes or mutate domain state during
+startup recovery.
+
 Migration history is forward-only for production. Do not edit an already applied
 committed revision. Create a new migration for schema changes, review generated
 migrations before deployment, run migrations before the new app version, and let
@@ -233,6 +251,8 @@ FastAPI-owned settings include:
 - `CORS_ALLOW_CREDENTIALS`
 - `METRICS_ENABLED`
 - `DATABASE_URL`
+- `DATABASE_STARTUP_MAX_ATTEMPTS`
+- `DATABASE_STARTUP_RETRY_DELAY_SECONDS`
 - `OUTBOUND_WEBHOOK_URL`
 - `OUTBOUND_WEBHOOK_SIGNING_ENABLED`
 - logging, AI boundary, integration readiness, and rate-limit settings
@@ -262,5 +282,17 @@ tokens, customer content, phone numbers, emails, tenant IDs, or provider IDs.
 `DATABASE_URL` remains runtime configuration. The production image does not copy
 local SQLite database files. PostgreSQL availability is deployment
 infrastructure responsibility; the FastAPI container does not include a database
-server. Backup, restore, point-in-time recovery, archival, and advanced migration
-or recovery orchestration are deferred to Tasks 299-300.
+server. Logical backup and restore use PostgreSQL-native tooling outside the
+FastAPI process:
+
+- `pg_dump --format=custom --no-owner --no-acl`
+- `pg_restore --exit-on-error --single-transaction --no-owner --no-acl`
+
+Backup archives are sensitive production data and must be encrypted at rest by
+the deployment/storage layer. They must not be committed to Git, copied into the
+FastAPI image, or uploaded as public CI artifacts. See
+`docs/database-recovery.md` for the Task 299 recovery runbook.
+
+Point-in-time recovery, WAL archiving, managed snapshots, archival retention,
+and advanced recovery orchestration remain deployment-owned concerns for later
+tasks.

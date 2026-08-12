@@ -15,9 +15,12 @@ from app.api.routes import (
     workspaces_router,
 )
 from app.config import Settings, get_settings
-from app.db import create_db_and_tables
+from app.database_resilience import (
+    DatabaseStartupRetryPolicy,
+    ensure_database_schema_current_with_startup_retry,
+)
+from app.db import create_db_and_tables, dispose_engine
 from app.error_handling import register_error_handlers
-from app.migration_state import ensure_database_schema_current
 from app.observability import (
     METRICS_CONTENT_TYPE,
     METRICS_PATH,
@@ -43,10 +46,19 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI):
         ProductionRuntimeValidator(settings).validate()
         if settings.environment == "production":
-            ensure_database_schema_current(settings.database_url)
+            ensure_database_schema_current_with_startup_retry(
+                settings.database_url,
+                DatabaseStartupRetryPolicy(
+                    max_attempts=settings.database_startup_max_attempts,
+                    retry_delay_seconds=settings.database_startup_retry_delay_seconds,
+                ),
+            )
         else:
             create_db_and_tables()
-        yield
+        try:
+            yield
+        finally:
+            dispose_engine()
 
     app = FastAPI(
         title=settings.app_name,

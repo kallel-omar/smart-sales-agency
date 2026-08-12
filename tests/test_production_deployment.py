@@ -158,12 +158,17 @@ def test_operations_docs_capture_task296_deployment_contract():
         "Multiple containers or workers would each have independent buckets.",
         "Network-level protection for metrics is a deployment concern",
         "PostgreSQL is required in production.",
+        "DATABASE_STARTUP_MAX_ATTEMPTS=3",
+        "DATABASE_STARTUP_RETRY_DELAY_SECONDS=1",
         "alembic upgrade head",
         "application startup does not run `create_all`",
         "python -m app.migration_state check",
         "FastAPI never runs `alembic upgrade head` automatically.",
+        "It does not retry business writes or mutate domain state during",
         "Do not edit an already applied\ncommitted revision.",
-        "Backup, restore, point-in-time recovery, archival, and advanced migration",
+        "`pg_dump --format=custom --no-owner --no-acl`",
+        "`pg_restore --exit-on-error --single-transaction --no-owner --no-acl`",
+        "`docs/database-recovery.md`",
         "No Sentry, OpenTelemetry exporter, or vendor SDK is required",
     ]
     for snippet in required_snippets:

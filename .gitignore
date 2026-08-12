@@ -6,4 +6,9 @@ __pycache__/
 .env
 *.db
 *.sqlite3
+backups/
+*.backup
+*.dump
+*.backup.sha256
+*.dump.sha256
 .DS_Store

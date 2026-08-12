@@ -5,7 +5,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
@@ -13,6 +12,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from alembic import command
 from app import db
 from app.config import Settings, get_settings
 from app.database_urls import database_dialect_name
@@ -157,7 +157,10 @@ def test_production_startup_does_not_run_create_all(monkeypatch):
         calls["create_all"] += 1
 
     monkeypatch.setattr("app.main.create_db_and_tables", fake_create_db_and_tables)
-    monkeypatch.setattr("app.main.ensure_database_schema_current", lambda database_url: None)
+    monkeypatch.setattr(
+        "app.main.ensure_database_schema_current_with_startup_retry",
+        lambda database_url, policy: None,
+    )
     local_app = create_app(_settings("production"))
 
     with TestClient(local_app) as client:

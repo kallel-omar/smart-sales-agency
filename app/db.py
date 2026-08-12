@@ -29,6 +29,14 @@ def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
 
 
+def dispose_engine() -> None:
+    engine.dispose()
+
+
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            session.rollback()
+            raise
