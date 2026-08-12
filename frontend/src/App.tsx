@@ -6,6 +6,7 @@ import { AuthProvider } from "./auth/AuthProvider";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
+import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { WorkspaceProvider } from "./workspaces/WorkspaceProvider";
@@ -40,7 +41,7 @@ export function App() {
             <Route element={<ProtectedRoute />}>
               <Route path="/app" element={<AppShell />}>
                 <Route index element={<DashboardPage />} />
-                <Route path="inbox" element={<PlaceholderPage title="Inbox" />} />
+                <Route path="inbox" element={<InboxPage />} />
                 <Route path="approvals" element={<PlaceholderPage title="Approvals" />} />
                 <Route path="leads" element={<PlaceholderPage title="Leads" />} />
                 <Route path="products" element={<PlaceholderPage title="Products" />} />

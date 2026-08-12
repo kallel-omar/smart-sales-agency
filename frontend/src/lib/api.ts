@@ -3,6 +3,8 @@ import type {
   AIInvocationUsageSummaryRead,
   AccessTokenRead,
   ApprovalRead,
+  ConversationMessageRead,
+  DirectSalesReply,
   IntegrationAccountRead,
   IntegrationOperationalSummaryRead,
   LeadRead,
@@ -15,6 +17,7 @@ interface RequestOptions {
   workspaceSlug?: string | null;
   method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
+  idempotencyKey?: string;
 }
 
 export class ApiError extends Error {
@@ -40,6 +43,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
   if (options.workspaceSlug) {
     headers.set("X-Workspace-Slug", options.workspaceSlug);
+  }
+  if (options.idempotencyKey) {
+    headers.set("Idempotency-Key", options.idempotencyKey);
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -78,6 +84,35 @@ export const apiClient = {
   },
   leads(token: string, workspaceSlug: string) {
     return request<LeadRead[]>("/api/leads", { token, workspaceSlug });
+  },
+  conversationHistory(token: string, workspaceSlug: string, leadId: string, limit = 100) {
+    return request<ConversationMessageRead[]>(`/api/conversations/${leadId}?limit=${limit}`, {
+      token,
+      workspaceSlug
+    });
+  },
+  replyToConversation({
+    token,
+    workspaceSlug,
+    leadId,
+    content,
+    channel,
+    idempotencyKey
+  }: {
+    token: string;
+    workspaceSlug: string;
+    leadId: string;
+    content: string;
+    channel: string;
+    idempotencyKey: string;
+  }) {
+    return request<DirectSalesReply>(`/api/conversations/${leadId}/reply`, {
+      token,
+      workspaceSlug,
+      method: "POST",
+      body: { channel, content },
+      idempotencyKey
+    });
   },
   approvals(token: string, workspaceSlug: string) {
     return request<ApprovalRead[]>("/api/approvals", { token, workspaceSlug });

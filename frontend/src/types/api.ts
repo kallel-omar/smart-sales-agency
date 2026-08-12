@@ -27,11 +27,37 @@ export interface LeadRead {
   tenant_id: string;
   full_name: string;
   company_name: string;
+  job_title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  source: string;
+  notes?: string | null;
   status: string;
   sales_stage: string;
   score: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface ConversationMessageRead {
+  id: string;
+  lead_id: string;
+  direction: "inbound" | "outbound" | string;
+  channel: string;
+  stage: string;
+  content: string;
+  created_at: string;
+}
+
+export interface DirectSalesReply {
+  lead_id: string;
+  detected_stage: string;
+  draft_reply: string;
+  approval_id?: string | null;
+  handoff_required: boolean;
+  handoff_reason_code?: string | null;
+  duplicate?: boolean | null;
 }
 
 export interface ApprovalRead {
