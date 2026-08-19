@@ -29,6 +29,7 @@ ALEMBIC_INI = ROOT / "alembic.ini"
 ALEMBIC_DIR = ROOT / "alembic"
 SAFE_PRODUCTION_SECRET = "task298-safe-production-runtime-value"
 DEPARTMENT_REVISION = "20260819_001"
+CAPABILITY_REVISION = "20260819_002"
 
 
 @pytest.fixture
@@ -90,7 +91,11 @@ def test_migration_graph_is_single_linear_history_with_task297_baseline_root():
     assert topology.head_revision == application_head_revision()
     assert topology.revisions[0] == BASELINE_REVISION
     assert len(topology.revisions) == len(set(topology.revisions))
-    assert topology.revisions == (BASELINE_REVISION, DEPARTMENT_REVISION)
+    assert topology.revisions == (
+        BASELINE_REVISION,
+        DEPARTMENT_REVISION,
+        CAPABILITY_REVISION,
+    )
 
 
 def test_database_check_failure_fails_closed_without_echoing_credentials(monkeypatch):

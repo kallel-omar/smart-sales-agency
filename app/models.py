@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, Numeric, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
 
 
@@ -242,6 +243,29 @@ class Department(SQLModel, table=True):
     kind: DepartmentKind = Field(
         sa_column=Column(String(50), nullable=False, index=True),
     )
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class Capability(SQLModel, table=True):
+    """Workspace-owned business capability scoped to one persisted Department."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "department_id",
+            "key",
+            name="uq_capability_workspace_department_key",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    department_id: UUID = Field(foreign_key="department.id", index=True)
+    key: BusinessCapabilityKey = Field(
+        sa_column=Column(String(100), nullable=False, index=True),
+    )
+    active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

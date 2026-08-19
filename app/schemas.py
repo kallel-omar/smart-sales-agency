@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
 from app.models import (
     AIInvocationStatus,
@@ -213,6 +214,20 @@ class DepartmentRead(BaseModel):
     id: UUID
     workspace_id: UUID
     kind: DepartmentKind
+    created_at: datetime
+    updated_at: datetime
+
+
+class CapabilityRead(BaseModel):
+    """Safe persisted business Capability projection scoped to one workspace."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    department_id: UUID
+    key: BusinessCapabilityKey
+    active: bool
     created_at: datetime
     updated_at: datetime
 
