@@ -288,6 +288,26 @@ class AIEmployee(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class AIEmployeeCapabilityAssignment(SQLModel, table=True):
+    """Workspace-scoped assignment of one AIEmployee to one Capability."""
+
+    __tablename__ = "ai_employee_capability_assignment"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "ai_employee_id",
+            "capability_id",
+            name="uq_ai_employee_capability_assignment",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    ai_employee_id: UUID = Field(foreign_key="ai_employee.id", index=True)
+    capability_id: UUID = Field(foreign_key="capability.id", index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class User(SQLModel, table=True):
     """Durable platform operator identity; credentials are intentionally absent."""
 

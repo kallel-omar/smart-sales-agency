@@ -248,6 +248,18 @@ class AIEmployeeRead(BaseModel):
     updated_at: datetime
 
 
+class AIEmployeeCapabilityAssignmentRead(BaseModel):
+    """Safe persisted AIEmployee-Capability assignment scoped to one workspace."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    ai_employee_id: UUID
+    capability_id: UUID
+    created_at: datetime
+
+
 class AIInvocationUsageSummaryRead(BaseModel):
     """Safe workspace-only AI usage aggregate without prompt or credential data."""
 
