@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
@@ -258,6 +259,22 @@ class AIEmployeeCapabilityAssignmentRead(BaseModel):
     ai_employee_id: UUID
     capability_id: UUID
     created_at: datetime
+
+
+class AIEmployeeCapabilityToolAccessRead(BaseModel):
+    """Safe AIEmployee-Capability integration-action grant scoped to one workspace."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    assignment_id: UUID
+    integration_account_id: UUID
+    action_type: OutboundIntegrationActionType
+    autonomy_level: AIEmployeeAutonomyLevel
+    active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class AIInvocationUsageSummaryRead(BaseModel):

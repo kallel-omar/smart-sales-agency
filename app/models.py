@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, Numeric, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.events import Department as DepartmentKind
@@ -306,6 +307,41 @@ class AIEmployeeCapabilityAssignment(SQLModel, table=True):
     ai_employee_id: UUID = Field(foreign_key="ai_employee.id", index=True)
     capability_id: UUID = Field(foreign_key="capability.id", index=True)
     created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
+class AIEmployeeCapabilityToolAccess(SQLModel, table=True):
+    """Workspace-scoped permission for an assigned Capability to use an integration action."""
+
+    __tablename__ = "ai_employee_capability_tool_access"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "assignment_id",
+            "integration_account_id",
+            "action_type",
+            name="uq_ai_employee_capability_tool_access",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    assignment_id: UUID = Field(
+        foreign_key="ai_employee_capability_assignment.id",
+        index=True,
+    )
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id",
+        index=True,
+    )
+    action_type: OutboundIntegrationActionType = Field(
+        sa_column=Column(String(100), nullable=False, index=True),
+    )
+    autonomy_level: AIEmployeeAutonomyLevel = Field(
+        sa_column=Column(String(100), nullable=False, index=True),
+    )
+    active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class User(SQLModel, table=True):
