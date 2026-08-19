@@ -8,6 +8,7 @@ from sqlalchemy import JSON, Column, Numeric, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from app.core.capabilities import BusinessCapabilityKey
+from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.events import Department as DepartmentKind
 
 
@@ -265,6 +266,23 @@ class Capability(SQLModel, table=True):
     key: BusinessCapabilityKey = Field(
         sa_column=Column(String(100), nullable=False, index=True),
     )
+    active: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIEmployee(SQLModel, table=True):
+    """Workspace-owned AI specialist scoped to one persisted Department."""
+
+    __tablename__ = "ai_employee"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    department_id: UUID = Field(foreign_key="department.id", index=True)
+    role_key: AIEmployeeRoleKey = Field(
+        sa_column=Column(String(100), nullable=False, index=True),
+    )
+    name: str = Field(max_length=200)
     active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

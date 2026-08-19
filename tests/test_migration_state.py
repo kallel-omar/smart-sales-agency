@@ -30,6 +30,7 @@ ALEMBIC_DIR = ROOT / "alembic"
 SAFE_PRODUCTION_SECRET = "task298-safe-production-runtime-value"
 DEPARTMENT_REVISION = "20260819_001"
 CAPABILITY_REVISION = "20260819_002"
+AI_EMPLOYEE_REVISION = "20260820_001"
 
 
 @pytest.fixture
@@ -95,6 +96,7 @@ def test_migration_graph_is_single_linear_history_with_task297_baseline_root():
         BASELINE_REVISION,
         DEPARTMENT_REVISION,
         CAPABILITY_REVISION,
+        AI_EMPLOYEE_REVISION,
     )
 
 
