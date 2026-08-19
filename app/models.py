@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, Numeric, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from app.core.events import Department as DepartmentKind
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -220,6 +222,26 @@ class Workspace(SQLModel, table=True):
     # customer's latest clearly detected writing system.
     sales_preferred_script: SalesWritingScript | None = Field(default=None)
     sales_preferred_tone: SalesTone | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class Department(SQLModel, table=True):
+    """Workspace-owned persisted representation of the platform Department contract."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "kind",
+            name="uq_department_workspace_kind",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    kind: DepartmentKind = Field(
+        sa_column=Column(String(50), nullable=False, index=True),
+    )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

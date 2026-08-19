@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from app.core.events import Department as DepartmentKind
 from app.models import (
     AIInvocationStatus,
     ApprovalStatus,
@@ -202,6 +203,18 @@ class AIInvocationUsageRead(BaseModel):
     pricing_known: bool
     status: AIInvocationStatus
     created_at: datetime
+
+
+class DepartmentRead(BaseModel):
+    """Safe persisted Department projection scoped to one workspace."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    kind: DepartmentKind
+    created_at: datetime
+    updated_at: datetime
 
 
 class AIInvocationUsageSummaryRead(BaseModel):
