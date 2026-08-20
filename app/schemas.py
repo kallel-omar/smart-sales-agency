@@ -16,8 +16,8 @@ from app.models import (
     ApprovalStatus,
     IntegrationAccountAuditAction,
     LeadStatus,
-    OutboundDeliveryFailureClassification,
     OutboundActionPriority,
+    OutboundDeliveryFailureClassification,
     OutboundIntegrationActionStatus,
     OutboundIntegrationActionType,
     OutboundIntegrationAuditAction,
@@ -402,6 +402,84 @@ class WorkItemRead(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     expires_at: datetime | None
+
+
+class OperatorToolAccessRead(BaseModel):
+    integration_account_id: UUID
+    provider: str
+    external_account_id: str | None
+    action_type: OutboundIntegrationActionType
+    autonomy_level: AIEmployeeAutonomyLevel
+    active: bool
+
+
+class OperatorCapabilityRead(BaseModel):
+    id: UUID
+    assignment_id: UUID
+    key: BusinessCapabilityKey
+    active: bool
+    tool_access: list[OperatorToolAccessRead]
+
+
+class OperatorAIEmployeeRead(BaseModel):
+    id: UUID
+    name: str
+    role_key: AIEmployeeRoleKey
+    active: bool
+    department_id: UUID
+    department: DepartmentKind
+    capabilities: list[OperatorCapabilityRead]
+    created_at: datetime
+    updated_at: datetime
+
+
+class OperatorWorkItemRead(BaseModel):
+    id: UUID
+    title: str
+    work_type: str
+    status: WorkItemStatus
+    department_id: UUID
+    department: DepartmentKind
+    ai_employee_id: UUID | None
+    ai_employee_name: str | None
+    capability_id: UUID | None
+    capability_key: BusinessCapabilityKey | None
+    correlation_id: UUID
+    input: dict[str, Any]
+    result: dict[str, Any] | None
+    error_code: str | None
+    error_message: str | None
+    source_follow_up_task_id: UUID | None
+    parent_work_item_id: UUID | None
+    approval_id: UUID | None
+    approval_status: ApprovalStatus | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    expires_at: datetime | None
+
+
+class OperatorApprovalRead(BaseModel):
+    id: UUID
+    status: ApprovalStatus
+    action_type: str
+    channel: str
+    payload: dict[str, Any]
+    reviewer_note: str | None
+    created_at: datetime
+    decided_at: datetime | None
+    lead_id: UUID | None
+    lead_name: str | None
+    company_name: str | None
+    work_item_id: UUID | None
+    work_item_title: str | None
+    work_type: str | None
+    work_item_status: WorkItemStatus | None
+    ai_employee_name: str | None
+    capability_key: BusinessCapabilityKey | None
+    integration_provider: str | None
+    integration_external_account_id: str | None
 
 
 class AIInvocationUsageSummaryRead(BaseModel):

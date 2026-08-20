@@ -8,7 +8,10 @@ import { AppShell } from "./components/layout/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { WorkforcePage } from "./pages/WorkforcePage";
+import { WorkItemsPage } from "./pages/WorkItemsPage";
 import { WorkspaceProvider } from "./workspaces/WorkspaceProvider";
 
 function makeQueryClient() {
@@ -42,11 +45,12 @@ export function App() {
               <Route path="/app" element={<AppShell />}>
                 <Route index element={<DashboardPage />} />
                 <Route path="inbox" element={<InboxPage />} />
-                <Route path="approvals" element={<PlaceholderPage title="Approvals" />} />
+                <Route path="workforce" element={<WorkforcePage />} />
+                <Route path="work-items" element={<WorkItemsPage />} />
+                <Route path="approvals" element={<ApprovalsPage />} />
                 <Route path="leads" element={<PlaceholderPage title="Leads" />} />
                 <Route path="products" element={<PlaceholderPage title="Products" />} />
                 <Route path="integrations" element={<PlaceholderPage title="Integrations" />} />
-                <Route path="ai-team" element={<PlaceholderPage title="AI Sales Team" />} />
                 <Route path="analytics" element={<PlaceholderPage title="Analytics" />} />
                 <Route path="settings" element={<PlaceholderPage title="Settings" />} />
               </Route>

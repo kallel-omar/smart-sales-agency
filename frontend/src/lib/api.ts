@@ -8,6 +8,9 @@ import type {
   IntegrationAccountRead,
   IntegrationOperationalSummaryRead,
   LeadRead,
+  OperatorAIEmployeeRead,
+  OperatorApprovalRead,
+  OperatorWorkItemRead,
   UserRead,
   WorkspaceRead
 } from "../types/api";
@@ -116,6 +119,45 @@ export const apiClient = {
   },
   approvals(token: string, workspaceSlug: string) {
     return request<ApprovalRead[]>("/api/approvals", { token, workspaceSlug });
+  },
+  operatorWorkforce(token: string, workspaceSlug: string) {
+    return request<OperatorAIEmployeeRead[]>("/api/operator/workforce?limit=100", {
+      token,
+      workspaceSlug
+    });
+  },
+  operatorWorkItems(
+    token: string,
+    workspaceSlug: string,
+    filters: { status?: string; workType?: string } = {}
+  ) {
+    const params = new URLSearchParams({ limit: "100" });
+    if (filters.status) params.set("status", filters.status);
+    if (filters.workType) params.set("work_type", filters.workType);
+    return request<OperatorWorkItemRead[]>(`/api/operator/work-items?${params}`, {
+      token,
+      workspaceSlug
+    });
+  },
+  operatorApprovals(token: string, workspaceSlug: string) {
+    return request<OperatorApprovalRead[]>("/api/operator/approvals?limit=100", {
+      token,
+      workspaceSlug
+    });
+  },
+  decideApproval(
+    token: string,
+    workspaceSlug: string,
+    approvalId: string,
+    decision: "approve" | "reject",
+    reviewerNote?: string
+  ) {
+    return request<ApprovalRead>(`/api/approvals/${approvalId}/${decision}`, {
+      token,
+      workspaceSlug,
+      method: "POST",
+      body: { reviewer_note: reviewerNote?.trim() || null }
+    });
   },
   integrationAccounts(token: string, workspaceSlug: string) {
     return request<IntegrationAccountRead[]>("/api/integrations/accounts", { token, workspaceSlug });

@@ -70,6 +70,95 @@ export interface ApprovalRead {
   decided_at: string | null;
 }
 
+export type WorkItemStatus =
+  | "created"
+  | "assigned"
+  | "running"
+  | "waiting"
+  | "approval_required"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+export interface OperatorToolAccessRead {
+  integration_account_id: string;
+  provider: string;
+  external_account_id: string | null;
+  action_type: string;
+  autonomy_level: string;
+  active: boolean;
+}
+
+export interface OperatorCapabilityRead {
+  id: string;
+  assignment_id: string;
+  key: string;
+  active: boolean;
+  tool_access: OperatorToolAccessRead[];
+}
+
+export interface OperatorAIEmployeeRead {
+  id: string;
+  name: string;
+  role_key: string;
+  active: boolean;
+  department_id: string;
+  department: string;
+  capabilities: OperatorCapabilityRead[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperatorWorkItemRead {
+  id: string;
+  title: string;
+  work_type: string;
+  status: WorkItemStatus;
+  department_id: string;
+  department: string;
+  ai_employee_id: string | null;
+  ai_employee_name: string | null;
+  capability_id: string | null;
+  capability_key: string | null;
+  correlation_id: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  error_code: string | null;
+  error_message: string | null;
+  source_follow_up_task_id: string | null;
+  parent_work_item_id: string | null;
+  approval_id: string | null;
+  approval_status: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  expires_at: string | null;
+}
+
+export interface OperatorApprovalRead {
+  id: string;
+  status: "pending" | "approved" | "rejected" | "executed";
+  action_type: string;
+  channel: string;
+  payload: Record<string, unknown>;
+  reviewer_note: string | null;
+  created_at: string;
+  decided_at: string | null;
+  lead_id: string | null;
+  lead_name: string | null;
+  company_name: string | null;
+  work_item_id: string | null;
+  work_item_title: string | null;
+  work_type: string | null;
+  work_item_status: WorkItemStatus | null;
+  ai_employee_name: string | null;
+  capability_key: string | null;
+  integration_provider: string | null;
+  integration_external_account_id: string | null;
+}
+
 export interface IntegrationAccountRead {
   id: string;
   workspace_id: string;

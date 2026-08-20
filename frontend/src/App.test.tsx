@@ -116,6 +116,12 @@ function installDefaultApi() {
     if (url.endsWith("/api/approvals")) {
       return mockJson([]);
     }
+    if (url.includes("/api/operator/workforce")) {
+      return mockJson([]);
+    }
+    if (url.includes("/api/operator/work-items")) {
+      return mockJson([]);
+    }
     if (url.endsWith("/api/integrations/accounts")) {
       return mockJson([]);
     }
@@ -229,7 +235,7 @@ describe("HIRI frontend foundation", () => {
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(await screen.findByText("Smart Sales Agency")).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: /overview/i })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /dashboard/i })).toBeInTheDocument();
   });
 
   it("shows invalid credentials for 401 login failures", async () => {
@@ -282,7 +288,8 @@ describe("HIRI frontend foundation", () => {
     const navigation = await screen.findByRole("navigation", { name: /primary navigation/i });
     expect(within(navigation).getByRole("link", { name: /inbox/i })).toBeInTheDocument();
     expect(within(navigation).getByRole("link", { name: /approvals/i })).toBeInTheDocument();
-    expect(within(navigation).getByRole("link", { name: /ai sales team/i })).toBeInTheDocument();
+    expect(within(navigation).getByRole("link", { name: /workforce/i })).toBeInTheDocument();
+    expect(within(navigation).getByRole("link", { name: /workitems/i })).toBeInTheDocument();
   });
 
   it("loads and switches workspace selection", async () => {

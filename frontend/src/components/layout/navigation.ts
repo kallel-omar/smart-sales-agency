@@ -2,6 +2,7 @@ import {
   BarChart3,
   Bot,
   CheckSquare,
+  ClipboardList,
   Home,
   Inbox,
   Layers3,
@@ -12,13 +13,14 @@ import {
 } from "lucide-react";
 
 export const navigationItems = [
-  { label: "Overview", path: "/app", icon: Home },
+  { label: "Dashboard", path: "/app", icon: Home },
   { label: "Inbox", path: "/app/inbox", icon: Inbox },
+  { label: "Workforce", path: "/app/workforce", icon: Bot },
+  { label: "WorkItems", path: "/app/work-items", icon: ClipboardList },
   { label: "Approvals", path: "/app/approvals", icon: CheckSquare },
   { label: "Leads", path: "/app/leads", icon: UsersRound },
   { label: "Products", path: "/app/products", icon: Tags },
   { label: "Integrations", path: "/app/integrations", icon: PlugZap },
-  { label: "AI Sales Team", path: "/app/ai-team", icon: Bot },
   { label: "Analytics", path: "/app/analytics", icon: BarChart3 },
   { label: "Settings", path: "/app/settings", icon: Settings }
 ] as const;

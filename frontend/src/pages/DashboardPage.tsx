@@ -1,5 +1,5 @@
 import { useQueries } from "@tanstack/react-query";
-import { AlertCircle, Bot, CheckSquare, PlugZap, UsersRound } from "lucide-react";
+import { AlertCircle, Bot, CheckSquare, CircleAlert, PlayCircle, UsersRound } from "lucide-react";
 
 import { useAuth } from "../auth/AuthProvider";
 import { Badge } from "../components/ui/Badge";
@@ -17,7 +17,7 @@ export function DashboardPage() {
   const { token, user } = useAuth();
   const { selectedWorkspace, selectedWorkspaceSlug, isLoading, error } = useWorkspace();
 
-  const [leadsQuery, approvalsQuery, integrationsQuery, operationsQuery, aiUsageQuery] = useQueries({
+  const [leadsQuery, approvalsQuery, integrationsQuery, operationsQuery, aiUsageQuery, workforceQuery, workItemsQuery] = useQueries({
     queries: [
       {
         queryKey: queryKeys.leads(selectedWorkspaceSlug ?? "none"),
@@ -42,6 +42,16 @@ export function DashboardPage() {
       {
         queryKey: queryKeys.aiUsageSummary(selectedWorkspaceSlug ?? "none"),
         queryFn: () => apiClient.aiUsageSummary(token as string, selectedWorkspaceSlug as string),
+        enabled: Boolean(token && selectedWorkspaceSlug)
+      },
+      {
+        queryKey: queryKeys.operatorWorkforce(selectedWorkspaceSlug ?? "none"),
+        queryFn: () => apiClient.operatorWorkforce(token as string, selectedWorkspaceSlug as string),
+        enabled: Boolean(token && selectedWorkspaceSlug)
+      },
+      {
+        queryKey: queryKeys.operatorWorkItems(selectedWorkspaceSlug ?? "none"),
+        queryFn: () => apiClient.operatorWorkItems(token as string, selectedWorkspaceSlug as string),
         enabled: Boolean(token && selectedWorkspaceSlug)
       }
     ]
@@ -73,14 +83,16 @@ export function DashboardPage() {
 
   const pendingApprovals = approvalsQuery.data?.filter((approval) => approval.status === "pending") ?? [];
   const activeIntegrations = integrationsQuery.data?.filter((account) => account.active) ?? [];
+  const runningWorkItems = workItemsQuery.data?.filter((item) => item.status === "running") ?? [];
+  const failedWorkItems = workItemsQuery.data?.filter((item) => item.status === "failed") ?? [];
   const dashboardLoading =
     leadsQuery.isLoading ||
     approvalsQuery.isLoading ||
     integrationsQuery.isLoading ||
     operationsQuery.isLoading ||
-    aiUsageQuery.isLoading;
+    aiUsageQuery.isLoading || workforceQuery.isLoading || workItemsQuery.isLoading;
   const dashboardError =
-    leadsQuery.error || approvalsQuery.error || integrationsQuery.error || operationsQuery.error || aiUsageQuery.error;
+    leadsQuery.error || approvalsQuery.error || integrationsQuery.error || operationsQuery.error || aiUsageQuery.error || workforceQuery.error || workItemsQuery.error;
 
   return (
     <div>
@@ -98,10 +110,10 @@ export function DashboardPage() {
         ) : null}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={UsersRound} label="Leads" value={leadsQuery.data?.length ?? 0} helper="Workspace-scoped" />
-          <MetricCard icon={CheckSquare} label="Pending approvals" value={pendingApprovals.length} helper="Human gate" />
-          <MetricCard icon={PlugZap} label="Active integrations" value={activeIntegrations.length} helper="Configured accounts" />
-          <MetricCard icon={Bot} label="AI invocations" value={aiUsageQuery.data?.invocation_count ?? 0} helper="Usage summary" />
+          <MetricCard icon={Bot} label="AI employees" value={workforceQuery.data?.length ?? 0} helper="Configured workforce" />
+          <MetricCard icon={PlayCircle} label="Running WorkItems" value={runningWorkItems.length} helper="In progress" />
+          <MetricCard icon={CheckSquare} label="Approval required" value={pendingApprovals.length} helper="Human gate" />
+          <MetricCard icon={CircleAlert} label="Failed WorkItems" value={failedWorkItems.length} helper="Needs attention" />
         </div>
 
         <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">

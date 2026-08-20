@@ -6,11 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import (
     approvals_router,
     auth_router,
-    conversations_router,
     comment_trigger_rules_router,
+    conversations_router,
     integrations_router,
     leads_router,
     meta_router,
+    operator_router,
     products_router,
     whatsapp_cloud_router,
     workflows_router,
@@ -82,6 +83,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.include_router(integrations_router, prefix="/api")
     app.include_router(whatsapp_cloud_router, prefix="/api")
     app.include_router(approvals_router, prefix="/api")
+    app.include_router(operator_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(workspaces_router, prefix="/api")
 
