@@ -777,6 +777,7 @@ class ApprovalRead(BaseModel):
 
     id: UUID
     lead_id: UUID | None
+    work_item_id: UUID | None = None
     action_type: str
     channel: str
     payload: dict[str, Any]

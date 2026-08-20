@@ -13,6 +13,7 @@ from app.models import (
     ConversationMessage,
     Lead,
     SalesStage,
+    WorkItem,
     Workspace,
     WorkspaceMemberRole,
     utc_now,
@@ -127,6 +128,17 @@ class ApprovalDecisionService:
         ).first()
         if lead_approval is not None:
             return lead_approval
+
+        work_item_approval = self.session.exec(
+            select(ApprovalRequest)
+            .join(WorkItem, ApprovalRequest.work_item_id == WorkItem.id)
+            .where(
+                ApprovalRequest.id == approval_id,
+                WorkItem.workspace_id == workspace.id,
+            )
+        ).first()
+        if work_item_approval is not None:
+            return work_item_approval
 
         approval = OutboundDeliveryApprovalService(self.session).get_scoped_approval(
             workspace,

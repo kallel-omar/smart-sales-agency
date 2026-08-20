@@ -825,6 +825,11 @@ class SalesConversationHandoff(SQLModel, table=True):
 class ApprovalRequest(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     lead_id: UUID | None = Field(default=None, foreign_key="lead.id", index=True)
+    work_item_id: UUID | None = Field(
+        default=None,
+        foreign_key="work_item.id",
+        index=True,
+    )
     action_type: str = Field(default="send_message", max_length=100)
     channel: str = Field(default="console", max_length=50)
     payload: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
