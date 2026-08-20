@@ -152,6 +152,20 @@ class InboundIntegrationDuplicateRead(BaseModel):
     correlation_id: UUID
 
 
+class MetaCommentIntakeRead(BaseModel):
+    """Safe acknowledgement of a normalized comment without business capture."""
+
+    channel: Literal["facebook_comment", "instagram_comment"]
+    event_type: Literal["comment"] = "comment"
+    external_author_id: str
+    comment_id: str
+    post_or_media_id: str | None = None
+    parent_comment_id: str | None = None
+    content: str
+    timestamp: int | None = None
+    correlation_id: UUID
+
+
 class InboundIntegrationReplyRead(BaseModel):
     """Safe first-delivery response for a durably correlated inbound event."""
 

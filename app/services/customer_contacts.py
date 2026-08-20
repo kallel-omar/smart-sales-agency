@@ -133,6 +133,21 @@ class CustomerContactService:
             )
         )  # type: ignore[return-value]
 
+    def create_external_identity_contact(
+        self,
+        workspace: Workspace,
+        *,
+        name: str | None = None,
+    ) -> Contact:
+        """Create a Contact whose durable identity is owned by an external mapping."""
+        self._require_workspace(workspace)
+        return self.repository.save(
+            Contact(
+                workspace_id=workspace.id,
+                name=self._optional_text(name, 200),
+            )
+        )  # type: ignore[return-value]
+
     def get_contact(self, workspace: Workspace, contact_id: UUID) -> Contact:
         self._require_workspace(workspace)
         return self.repository.get_contact(workspace, contact_id)

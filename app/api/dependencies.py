@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 
 from app.config import Settings, get_settings
 from app.db import get_session
+from app.integrations.providers import META_MESSAGING_PROVIDERS
 from app.models import IntegrationAccount, Workspace, WorkspaceMember
 from app.services.authentication import (
     AuthenticationService,
@@ -82,6 +83,7 @@ IntegrationKeyHeader = Annotated[
 ]
 
 WebhookSignatureHeader = Annotated[str | None, Header(alias="X-Webhook-Signature")]
+MetaWebhookSignatureHeader = Annotated[str | None, Header(alias="X-Hub-Signature-256")]
 WebhookTimestampHeader = Annotated[str | None, Header(alias="X-Webhook-Timestamp")]
 WebhookEventIdHeader = Annotated[str | None, Header(alias="X-Webhook-Event-Id")]
 
@@ -409,6 +411,46 @@ VerifiedIntegrationContextDep = Annotated[
 ]
 
 
+async def get_verified_meta_integration_context(
+    account_id: UUID,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    signature: MetaWebhookSignatureHeader = None,
+) -> IntegrationContext:
+    """Authenticate a raw Meta body against the account configured in the URL."""
+    try:
+        account = session.exec(
+            select(IntegrationAccount).where(
+                IntegrationAccount.id == account_id,
+                IntegrationAccount.active.is_(True),
+                IntegrationAccount.provider.in_(META_MESSAGING_PROVIDERS),
+            )
+        ).first()
+        if account is None:
+            raise InvalidIntegrationContextError("Integration context is not recognized")
+        ProviderWebhookAuthenticationService(settings).authenticate(
+            account,
+            payload=await request.body(),
+            signature=signature,
+            timestamp=None,
+            event_id=None,
+        )
+        workspace = resolve_integration_workspace_for_account(session, account)
+        return IntegrationContext(account=account, workspace=workspace)
+    except (InvalidIntegrationContextError, WebhookAuthenticationError) as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid webhook authentication",
+        ) from exc
+
+
+VerifiedMetaIntegrationContextDep = Annotated[
+    IntegrationContext,
+    Depends(get_verified_meta_integration_context),
+]
+
+
 def get_rate_limit_service(
     request: Request,
     settings: SettingsDep,
@@ -465,6 +507,24 @@ def enforce_integration_ingest_rate_limit(
 IntegrationIngestRateLimitDep = Annotated[
     None,
     Depends(enforce_integration_ingest_rate_limit),
+]
+
+
+def enforce_meta_integration_ingest_rate_limit(
+    integration_context: VerifiedMetaIntegrationContextDep,
+    service: RateLimitServiceDep,
+    settings: SettingsDep,
+) -> None:
+    _enforce_rate_limit(
+        service,
+        _rate_limit_policy(settings, RateLimitPolicyId.INTEGRATION_INGEST),
+        _scope_key("integration_account", str(integration_context.account.id)),
+    )
+
+
+MetaIntegrationIngestRateLimitDep = Annotated[
+    None,
+    Depends(enforce_meta_integration_ingest_rate_limit),
 ]
 
 

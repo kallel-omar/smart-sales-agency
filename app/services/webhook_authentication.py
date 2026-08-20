@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Protocol
 
-from app.integrations.providers import GENERIC_HMAC_PROVIDER, WHATSAPP_CLOUD_PROVIDER
+from app.integrations.providers import (
+    GENERIC_HMAC_PROVIDER,
+    META_MESSAGING_PROVIDERS,
+    WHATSAPP_CLOUD_PROVIDER,
+)
 from app.config import Settings
 from app.models import IntegrationAccount
 from app.services.secret_resolver import EnvironmentSecretResolver, SecretResolver
@@ -87,6 +91,37 @@ class GenericHmacWebhookVerifier:
         )
 
 
+class MetaWebhookVerifier:
+    """Verify Meta's raw-body X-Hub-Signature-256 contract."""
+
+    def __init__(self, provider: str) -> None:
+        self.provider = provider
+
+    def verify(
+        self,
+        *,
+        payload: bytes,
+        signature: str | None,
+        timestamp: str | None,
+        event_id: str | None,
+        secret: str | None,
+        max_age_seconds: int,
+    ) -> VerifiedWebhookMetadata:
+        del timestamp, max_age_seconds
+        if not secret or not signature or not signature.startswith("sha256="):
+            raise WebhookAuthenticationError("Webhook authentication failed")
+        expected = "sha256=" + hmac.new(
+            secret.encode("utf-8"), payload, sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise WebhookAuthenticationError("Webhook authentication failed")
+        return VerifiedWebhookMetadata(
+            provider=self.provider,
+            timestamp=int(time.time()),
+            event_id=event_id,
+        )
+
+
 class ProviderWebhookAuthenticationService:
     """Selects a provider verifier while keeping the core integration flow generic."""
 
@@ -100,6 +135,10 @@ class ProviderWebhookAuthenticationService:
         self.verifiers: dict[str, ProviderWebhookVerifier] = {
             GENERIC_HMAC_PROVIDER: GenericHmacWebhookVerifier(GENERIC_HMAC_PROVIDER),
             WHATSAPP_CLOUD_PROVIDER: GenericHmacWebhookVerifier(WHATSAPP_CLOUD_PROVIDER),
+            **{
+                provider: MetaWebhookVerifier(provider)
+                for provider in META_MESSAGING_PROVIDERS
+            },
         }
 
     def authenticate(

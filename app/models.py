@@ -777,6 +777,32 @@ class Customer(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class InboundExternalIdentity(SQLModel, table=True):
+    """Provider-neutral mapping from one external sender to HIRI identities."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "integration_account_id",
+            "channel",
+            "external_subject_id",
+            name="uq_inbound_external_identity_subject",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id", index=True
+    )
+    channel: str = Field(max_length=50, index=True)
+    external_subject_id: str = Field(max_length=255)
+    contact_id: UUID = Field(foreign_key="contact.id", index=True)
+    lead_id: UUID | None = Field(default=None, foreign_key="lead.id", index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class Contact(SQLModel, table=True):
     """Generic person or prospect owned by one workspace."""
 

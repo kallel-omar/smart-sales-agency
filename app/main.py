@@ -9,6 +9,7 @@ from app.api.routes import (
     conversations_router,
     integrations_router,
     leads_router,
+    meta_router,
     products_router,
     whatsapp_cloud_router,
     workflows_router,
@@ -72,6 +73,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
 
     app.include_router(leads_router, prefix="/api")
+    app.include_router(meta_router, prefix="/api")
     app.include_router(products_router, prefix="/api")
     app.include_router(workflows_router, prefix="/api")
     app.include_router(conversations_router, prefix="/api")

@@ -3,11 +3,21 @@
 GENERIC_HMAC_PROVIDER = "generic_hmac"
 GENERIC_WEBHOOK_PROVIDER = "generic_webhook"
 WHATSAPP_CLOUD_PROVIDER = "whatsapp_cloud"
+FACEBOOK_MESSENGER_PROVIDER = "facebook_messenger"
+INSTAGRAM_DM_PROVIDER = "instagram_dm"
+
+META_MESSAGING_PROVIDERS = frozenset(
+    {
+        FACEBOOK_MESSENGER_PROVIDER,
+        INSTAGRAM_DM_PROVIDER,
+    }
+)
 
 MACHINE_HMAC_PROVIDERS = frozenset(
     {
         GENERIC_HMAC_PROVIDER,
         WHATSAPP_CLOUD_PROVIDER,
+        *META_MESSAGING_PROVIDERS,
     }
 )
 
