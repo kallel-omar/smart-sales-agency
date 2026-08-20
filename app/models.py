@@ -729,6 +729,11 @@ class OutboundProviderDeliveryStatusEvent(SQLModel, table=True):
 class Lead(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     tenant_id: str = Field(default="demo", index=True, max_length=100)
+    contact_id: UUID | None = Field(
+        default=None,
+        foreign_key="contact.id",
+        index=True,
+    )
     full_name: str = Field(index=True, max_length=200)
     company_name: str = Field(index=True, max_length=200)
     job_title: str | None = Field(default=None, max_length=200)
@@ -758,6 +763,33 @@ class Lead(SQLModel, table=True):
     )
     score: int = Field(default=0, ge=0, le=100)
     notes: str | None = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class Customer(SQLModel, table=True):
+    """Generic commercial party owned by one workspace."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    name: str = Field(max_length=200, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class Contact(SQLModel, table=True):
+    """Generic person or prospect owned by one workspace."""
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    customer_id: UUID | None = Field(
+        default=None,
+        foreign_key="customer.id",
+        index=True,
+    )
+    name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=320, index=True)
+    phone: str | None = Field(default=None, max_length=50)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

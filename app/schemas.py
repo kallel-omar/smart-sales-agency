@@ -68,10 +68,40 @@ class LeadRead(LeadCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    contact_id: UUID | None = None
     status: LeadStatus
     sales_stage: SalesStage
     score: int
     assignment: OperatorAssignmentRead | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class CustomerRead(CustomerCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContactCreate(BaseModel):
+    customer_id: UUID | None = None
+    name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=320)
+    phone: str | None = Field(default=None, max_length=50)
+
+
+class ContactRead(ContactCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
     created_at: datetime
     updated_at: datetime
 
