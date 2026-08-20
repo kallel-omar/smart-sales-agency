@@ -7,14 +7,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.config import Settings
+from app.core.lead_capture import LeadCaptureResult, LeadCaptureSignal
 from app.departments.sales.services import (
     SalesConversationTurnInput,
     SalesConversationTurnResult,
     SalesConversationTurnService,
 )
-from app.models import IntegrationAccount, InboundIntegrationEventReceipt, Workspace
+from app.models import InboundIntegrationEventReceipt, IntegrationAccount, Workspace
 from app.schemas import InboundIntegrationEvent
 from app.services.ai_invocation_gateway import AIInvocationGateway
+from app.services.lead_capture import LeadCaptureService
 from app.services.repository import NotFoundError, SalesRepository
 
 
@@ -34,7 +36,7 @@ class InboundIntegrationService:
         workspace: Workspace,
         account: IntegrationAccount,
         external_event_id: str,
-    ) -> "InboundEventReservation":
+    ) -> InboundEventReservation:
         """Durably reserve an authenticated provider event before dispatching it."""
 
         normalized_event_id = self._normalize_external_event_id(external_event_id)
@@ -61,6 +63,44 @@ class InboundIntegrationService:
             if existing is None:
                 raise
             return InboundEventReservation(receipt=existing, first_delivery=False)
+
+    def release_event_reservation(
+        self,
+        workspace: Workspace,
+        account: IntegrationAccount,
+        reservation: InboundEventReservation,
+    ) -> None:
+        """Release only this account's reserved event before dispatch has begun."""
+
+        receipt = self.repository.session.exec(
+            select(InboundIntegrationEventReceipt).where(
+                InboundIntegrationEventReceipt.id == reservation.receipt.id,
+                InboundIntegrationEventReceipt.workspace_id == workspace.id,
+                InboundIntegrationEventReceipt.integration_account_id == account.id,
+            )
+        ).first()
+        if receipt is None:
+            return
+        self.repository.session.delete(receipt)
+        self.repository.session.commit()
+
+    def capture_reserved_event(
+        self,
+        workspace: Workspace,
+        account: IntegrationAccount,
+        reservation: InboundEventReservation,
+        signal: LeadCaptureSignal,
+    ) -> LeadCaptureResult:
+        """Capture before dispatch, releasing only this reservation on failure."""
+
+        try:
+            return LeadCaptureService(self.repository.session).capture(
+                workspace.id,
+                signal,
+            )
+        except Exception:
+            self.release_event_reservation(workspace, account, reservation)
+            raise
 
     async def handle_event(
         self,

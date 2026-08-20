@@ -1,17 +1,27 @@
 from uuid import UUID
 
+import pytest
 from sqlmodel import select
 
 from app.db import get_session
 from app.main import app
 from app.models import (
     AIInvocationUsage,
+    Capability,
+    Contact,
     ConversationMessage,
+    Department,
     InboundIntegrationEventReceipt,
+    Lead,
     OutboundIntegrationAction,
     SalesConversationHandoff,
     User,
+    WorkItem,
+    Workspace,
+    WorkspaceMember,
+    WorkspaceMemberRole,
 )
+from app.services.lead_capture import LeadCaptureService
 
 PHONE_NUMBER_ID = "555666777888999"
 WRONG_PHONE_NUMBER_ID = "999888777666555"
@@ -27,6 +37,24 @@ def _workspace_headers(slug: str) -> dict[str, str]:
 def _create_workspace(client, slug: str) -> None:
     response = client.post("/api/workspaces", json={"slug": slug, "name": slug})
     assert response.status_code == 201
+
+
+def _create_legacy_workspace(client, slug: str) -> None:
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        user = session.exec(select(User)).first()
+        assert user is not None
+        workspace = Workspace(slug=slug, name=slug)
+        session.add(workspace)
+        session.flush()
+        session.add(
+            WorkspaceMember(
+                workspace_id=workspace.id,
+                user_id=user.id,
+                role=WorkspaceMemberRole.OWNER,
+            )
+        )
+        session.commit()
 
 
 def _create_lead(client, slug: str, *, phone: str = CUSTOMER_EXTERNAL_ID) -> str:
@@ -124,6 +152,19 @@ def test_whatsapp_cloud_text_event_uses_machine_auth_and_creates_one_turn(
     assert history.status_code == 200
     assert history.json()[0]["direction"] == "inbound"
     assert history.json()[0]["channel"] == "whatsapp_cloud"
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        lead = session.get(Lead, UUID(lead_id))
+        capture_items = list(
+            session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all()
+        )
+        assert lead and lead.contact_id is not None
+        contact = session.get(Contact, lead.contact_id)
+        assert contact and contact.phone == CUSTOMER_EXTERNAL_ID
+        assert len(capture_items) == 2
+        assert capture_items[-1].input["message"] == "What is the monthly price?"
+        assert capture_items[-1].input["external_reference"] == EVENT_ID
+        assert capture_items[-1].input["metadata"] == {"timestamp": 1_720_000_000}
 
 
 def test_duplicate_whatsapp_event_reuses_task251_receipt_without_second_turn(
@@ -149,6 +190,129 @@ def test_duplicate_whatsapp_event_reuses_task251_receipt_without_second_turn(
     with next(session_dependency()) as session:
         receipt = session.exec(select(InboundIntegrationEventReceipt)).one()
         assert receipt.external_event_id == EVENT_ID
+        assert len(session.exec(select(Lead)).all()) == 1
+        assert len(
+            session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all()
+        ) == 2
+
+
+def test_whatsapp_first_delivery_can_capture_a_new_lead(
+    client,
+    signed_webhook_request,
+):
+    _create_workspace(client, "company-a")
+    account = _provision_account(client, "company-a")
+    headers, body = _signed_request(signed_webhook_request, account, _normalized_payload())
+
+    response = client.post(ENDPOINT, headers=headers, content=body)
+
+    assert response.status_code == 200
+    lead_id = UUID(response.json()["lead_id"])
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        lead = session.get(Lead, lead_id)
+        assert lead and lead.tenant_id == "company-a"
+        assert lead.phone == CUSTOMER_EXTERNAL_ID
+        assert lead.contact_id is not None
+        assert len(
+            session.exec(
+                select(ConversationMessage).where(ConversationMessage.lead_id == lead_id)
+            ).all()
+        ) == 1
+
+
+def test_legacy_workspace_whatsapp_capture_ensures_foundation(
+    client,
+    signed_webhook_request,
+):
+    _create_legacy_workspace(client, "legacy-whatsapp")
+    account = _provision_account(client, "legacy-whatsapp")
+    headers, body = _signed_request(signed_webhook_request, account, _normalized_payload())
+
+    response = client.post(ENDPOINT, headers=headers, content=body)
+
+    assert response.status_code == 200
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        workspace = session.exec(
+            select(Workspace).where(Workspace.slug == "legacy-whatsapp")
+        ).one()
+        assert len(
+            session.exec(
+                select(Department).where(Department.workspace_id == workspace.id)
+            ).all()
+        ) == 1
+        assert len(
+            session.exec(
+                select(Capability).where(Capability.workspace_id == workspace.id)
+            ).all()
+        ) == 1
+
+
+def test_invalid_whatsapp_auth_does_not_provision_legacy_workspace(
+    client,
+    signed_webhook_request,
+):
+    _create_legacy_workspace(client, "legacy-invalid-auth")
+    account = _provision_account(client, "legacy-invalid-auth")
+    headers, body = _signed_request(signed_webhook_request, account, _normalized_payload())
+    headers["X-Webhook-Signature"] = "invalid"
+
+    response = client.post(ENDPOINT, headers=headers, content=body)
+
+    assert response.status_code == 401
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        workspace = session.exec(
+            select(Workspace).where(Workspace.slug == "legacy-invalid-auth")
+        ).one()
+        assert session.exec(
+            select(Department).where(Department.workspace_id == workspace.id)
+        ).all() == []
+        assert session.exec(
+            select(Capability).where(Capability.workspace_id == workspace.id)
+        ).all() == []
+
+
+def test_capture_failure_releases_receipt_for_one_successful_retry(
+    client,
+    signed_webhook_request,
+    monkeypatch,
+):
+    _create_workspace(client, "capture-retry")
+    account = _provision_account(client, "capture-retry")
+    headers, body = _signed_request(signed_webhook_request, account, _normalized_payload())
+    original_capture = LeadCaptureService.capture
+    attempts = 0
+
+    def fail_once(self, workspace_id, signal):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("forced capture failure")
+        return original_capture(self, workspace_id, signal)
+
+    monkeypatch.setattr(LeadCaptureService, "capture", fail_once)
+
+    with pytest.raises(RuntimeError, match="forced capture failure"):
+        client.post(ENDPOINT, headers=headers, content=body)
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        assert session.exec(select(InboundIntegrationEventReceipt)).all() == []
+        assert session.exec(select(ConversationMessage)).all() == []
+
+    retry = client.post(ENDPOINT, headers=headers, content=body)
+    duplicate = client.post(ENDPOINT, headers=headers, content=body)
+
+    assert retry.status_code == duplicate.status_code == 200
+    assert duplicate.json()["duplicate"] is True
+    with next(session_dependency()) as session:
+        assert len(session.exec(select(InboundIntegrationEventReceipt)).all()) == 1
+        assert len(session.exec(select(ConversationMessage)).all()) == 1
+        assert len(session.exec(select(Lead)).all()) == 1
+        assert len(
+            session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all()
+        ) == 1
 
 
 def test_whatsapp_explicit_human_request_creates_handoff_without_ai(

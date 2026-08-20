@@ -9,6 +9,7 @@ from app.api.dependencies import (
     SettingsDep,
     VerifiedIntegrationContextDep,
 )
+from app.core.lead_capture import LeadCaptureSignal
 from app.integrations.providers import WHATSAPP_CLOUD_PROVIDER
 from app.models import Lead
 from app.schemas import (
@@ -22,6 +23,7 @@ from app.services.inbound_integrations import (
     InboundIntegrationService,
 )
 from app.services.repository import NotFoundError
+from app.services.workspaces import ensure_workspace_lead_capture_foundation
 
 router = APIRouter(
     prefix="/integrations/inbound-events/whatsapp-cloud",
@@ -52,16 +54,14 @@ async def receive_whatsapp_cloud_text_event(
         payload.recipient_account_id.strip(),
     ):
         raise HTTPException(status_code=404, detail="Integration account not found")
+    ensure_workspace_lead_capture_foundation(session, workspace)
 
-    lead = session.exec(
+    existing_lead = session.exec(
         select(Lead).where(
             Lead.tenant_id == workspace.slug,
             Lead.phone == payload.sender_external_id,
         )
     ).first()
-    if lead is None:
-        raise HTTPException(status_code=404, detail="Lead not found")
-
     integration_service = InboundIntegrationService(session, settings)
     try:
         reservation = integration_service.reserve_event(
@@ -73,9 +73,24 @@ async def receive_whatsapp_cloud_text_event(
             return InboundIntegrationDuplicateRead(
                 correlation_id=reservation.receipt.correlation_id,
             )
+        capture = integration_service.capture_reserved_event(
+            workspace,
+            account,
+            reservation,
+            LeadCaptureSignal(
+                source=WHATSAPP_CLOUD_PROVIDER,
+                phone=payload.sender_external_id,
+                message=payload.content,
+                external_reference=payload.provider_event_id,
+                metadata={
+                    "timestamp": payload.timestamp,
+                },
+                lead_id=existing_lead.id if existing_lead is not None else None,
+            ),
+        )
         result = await integration_service.handle_event(
             InboundIntegrationEvent(
-                lead_id=lead.id,
+                lead_id=capture.lead_id,
                 channel=WHATSAPP_CLOUD_PROVIDER,
                 content=payload.content,
                 external_event_id=payload.provider_event_id,
@@ -88,7 +103,7 @@ async def receive_whatsapp_cloud_text_event(
         raise HTTPException(status_code=404, detail="Lead not found") from exc
 
     return InboundIntegrationReplyRead(
-        lead_id=lead.id,
+        lead_id=capture.lead_id,
         detected_stage=result.detected_stage,
         draft_reply=result.draft_reply,
         approval_id=result.approval_id,

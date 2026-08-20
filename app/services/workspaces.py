@@ -100,7 +100,26 @@ class WorkspaceCreationService:
             raise DuplicateWorkspaceSlugError("A workspace with this slug already exists") from exc
 
         self.session.refresh(workspace)
+        ensure_workspace_lead_capture_foundation(self.session, workspace)
         return workspace
+
+
+def ensure_workspace_lead_capture_foundation(
+    session: Session,
+    workspace: Workspace,
+) -> None:
+    """Idempotently provision the standard persisted foundation for real capture."""
+
+    from app.core.capabilities import BusinessCapabilityKey
+    from app.services.capabilities import CapabilityService
+    from app.services.departments import DepartmentService
+
+    department = DepartmentService(session).ensure_sales_department(workspace)
+    CapabilityService(session).ensure_for_department(
+        workspace,
+        department,
+        BusinessCapabilityKey.CAPTURE_LEAD,
+    )
 
 
 def normalize_workspace_sales_instructions(value: str) -> str | None:

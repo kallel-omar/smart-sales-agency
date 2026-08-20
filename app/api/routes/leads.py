@@ -9,9 +9,12 @@ from app.api.dependencies import (
     SalesDataWritePermissionDep,
     SessionDep,
 )
+from app.core.lead_capture import LeadCaptureSignal
 from app.models import Lead
 from app.schemas import LeadCreate, LeadRead, OperatorAssignmentRead
+from app.services.lead_capture import LeadCaptureService
 from app.services.operator_assignments import OperatorAssignmentService
+from app.services.workspaces import ensure_workspace_lead_capture_foundation
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -29,11 +32,23 @@ def create_lead(
     workspace: CurrentWorkspaceDep,
     _: SalesDataWritePermissionDep,
 ) -> LeadRead:
-    lead_data = payload.model_dump()
-    lead_data["tenant_id"] = workspace.slug
-
-    lead = Lead(**lead_data)
-
+    ensure_workspace_lead_capture_foundation(session, workspace)
+    result = LeadCaptureService(session).capture(
+        workspace.id,
+        LeadCaptureSignal(
+            source=payload.source,
+            name=payload.full_name,
+            email=payload.email,
+            phone=payload.phone,
+            company_name=payload.company_name,
+        ),
+    )
+    lead = session.get(Lead, result.lead_id)
+    if lead is None:
+        raise HTTPException(status_code=500, detail="Lead capture failed")
+    lead.job_title = payload.job_title
+    lead.website = payload.website
+    lead.notes = payload.notes
     session.add(lead)
     session.commit()
     session.refresh(lead)
