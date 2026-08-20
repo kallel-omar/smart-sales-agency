@@ -11,6 +11,7 @@ from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.events import Department as DepartmentKind
+from app.core.work_items import WorkItemStatus
 
 
 def utc_now() -> datetime:
@@ -342,6 +343,53 @@ class AIEmployeeCapabilityToolAccess(SQLModel, table=True):
     active: bool = Field(default=True, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkItem(SQLModel, table=True):
+    """Generic, workspace-scoped unit of work for HIRI orchestration."""
+
+    __tablename__ = "work_item"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    department_id: UUID = Field(foreign_key="department.id", index=True)
+    ai_employee_id: UUID | None = Field(
+        default=None,
+        foreign_key="ai_employee.id",
+        index=True,
+    )
+    capability_id: UUID | None = Field(
+        default=None,
+        foreign_key="capability.id",
+        index=True,
+    )
+    assignment_id: UUID | None = Field(
+        default=None,
+        foreign_key="ai_employee_capability_assignment.id",
+        index=True,
+    )
+    status: WorkItemStatus = Field(
+        default=WorkItemStatus.CREATED,
+        sa_column=Column(String(50), nullable=False, index=True),
+    )
+    work_type: str = Field(max_length=100, index=True)
+    title: str = Field(max_length=200)
+    input: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False),
+    )
+    result: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
+    error_code: str | None = Field(default=None, max_length=100, index=True)
+    error_message: str | None = Field(default=None, max_length=500)
+    correlation_id: UUID = Field(default_factory=uuid4, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+    updated_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = Field(default=None, index=True)
+    completed_at: datetime | None = Field(default=None, index=True)
+    expires_at: datetime | None = Field(default=None, index=True)
 
 
 class User(SQLModel, table=True):

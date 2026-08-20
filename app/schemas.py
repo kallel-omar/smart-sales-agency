@@ -9,6 +9,7 @@ from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
+from app.core.work_items import WorkItemStatus
 from app.models import (
     AIInvocationStatus,
     ApprovalStatus,
@@ -275,6 +276,32 @@ class AIEmployeeCapabilityToolAccessRead(BaseModel):
     active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class WorkItemRead(BaseModel):
+    """Safe generic WorkItem projection scoped to one workspace."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    department_id: UUID
+    ai_employee_id: UUID | None
+    capability_id: UUID | None
+    assignment_id: UUID | None
+    status: WorkItemStatus
+    work_type: str
+    title: str
+    input: dict[str, Any]
+    result: dict[str, Any] | None
+    error_code: str | None
+    error_message: str | None
+    correlation_id: UUID
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    expires_at: datetime | None
 
 
 class AIInvocationUsageSummaryRead(BaseModel):
