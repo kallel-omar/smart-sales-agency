@@ -11,6 +11,7 @@ from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.comment_triggers import CommentTriggerResult
 from app.core.work_items import WorkItemStatus
 from app.models import (
+    AIEmployee,
     AIEmployeeCapabilityAssignment,
     Capability,
     Department,
@@ -69,6 +70,64 @@ class SendMessageWorkItemService:
             input=dict(input),
         )
         work_item = self.work_items.assign_work_item(workspace, work_item.id, assignment)
+        return self.execute_work_item(
+            workspace,
+            work_item.id,
+            account,
+            message=message,
+            external_target_id=external_target_id,
+            idempotency_source=idempotency_source,
+            correlation_id=correlation_id,
+        )
+
+    def execute_work_item(
+        self,
+        workspace: Workspace,
+        work_item_id: UUID,
+        account: IntegrationAccount,
+        *,
+        message: str | None = None,
+        external_target_id: str | None = None,
+        idempotency_source: str | None = None,
+        correlation_id: UUID | None = None,
+    ) -> SendMessageWorkItemResult:
+        work_item = self.work_items.get_work_item(workspace, work_item_id)
+        if WorkItemStatus(work_item.status) != WorkItemStatus.ASSIGNED:
+            raise ValueError("send_message WorkItem must be assigned before execution")
+        if work_item.assignment_id is None:
+            raise ValueError("send_message WorkItem requires an assignment")
+        assignment = self.session.get(AIEmployeeCapabilityAssignment, work_item.assignment_id)
+        capability = (
+            self.session.get(Capability, assignment.capability_id)
+            if assignment is not None
+            else None
+        )
+        employee = (
+            self.session.get(AIEmployee, assignment.ai_employee_id)
+            if assignment is not None
+            else None
+        )
+        if (
+            assignment is None
+            or capability is None
+            or employee is None
+            or assignment.workspace_id != workspace.id
+            or capability.workspace_id != workspace.id
+            or employee.workspace_id != workspace.id
+            or capability.department_id != work_item.department_id
+            or employee.department_id != work_item.department_id
+            or capability.key != "send_message"
+            or not capability.active
+            or not employee.active
+        ):
+            raise PermissionError("send_message WorkItem assignment is invalid")
+        stored_account = self.session.get(IntegrationAccount, account.id)
+        if stored_account is None or stored_account.workspace_id != workspace.id:
+            raise PermissionError("IntegrationAccount does not belong to this workspace")
+        message = message or self._required_input_text(work_item, "message")
+        external_target_id = external_target_id or self._required_input_text(work_item, "recipient")
+        idempotency_source = idempotency_source or str(work_item.id)
+        correlation_id = correlation_id or work_item.correlation_id
         work_item = self.work_items.transition_work_item(
             workspace, work_item.id, WorkItemStatus.RUNNING
         )
@@ -77,7 +136,7 @@ class SendMessageWorkItemService:
             decision = AIEmployeeCapabilityToolAccessService(self.session).evaluate(
                 workspace,
                 assignment,
-                account,
+                stored_account,
                 OutboundIntegrationActionType.SEND_MESSAGE,
             )
             if not decision.allowed:
@@ -109,9 +168,9 @@ class SendMessageWorkItemService:
                     workspace,
                     work_item.id,
                     action_type=OutboundIntegrationActionType.SEND_MESSAGE.value,
-                    channel=str(input["channel"]),
+                    channel=str(work_item.input["channel"]),
                     payload={
-                        "integration_account_id": str(account.id),
+                        "integration_account_id": str(stored_account.id),
                         "external_target_id": external_target_id,
                         "message": message,
                     },
@@ -136,15 +195,20 @@ class SendMessageWorkItemService:
 
             action, _ = OutboundIntegrationService(self.session).create_action(
                 workspace,
-                account.id,
+                stored_account.id,
                 external_target_id=external_target_id,
                 action_type=OutboundIntegrationActionType.SEND_MESSAGE,
                 content=message,
                 payload={
-                    "channel": input["channel"],
-                    "external_subject_id": input["external_subject_id"],
-                    "comment_id": input["comment_id"],
-                    "post_or_media_id": input.get("post_or_media_id"),
+                    "channel": work_item.input["channel"],
+                    "external_subject_id": work_item.input.get("external_subject_id"),
+                    "comment_id": work_item.input.get("comment_id"),
+                    "post_or_media_id": work_item.input.get("post_or_media_id"),
+                    "lead_id": work_item.input.get("lead_id"),
+                    "source_follow_up_task_id": work_item.input.get("source_follow_up_task_id"),
+                    "source_follow_up_work_item_id": work_item.input.get(
+                        "source_follow_up_work_item_id"
+                    ),
                     "work_item_id": str(work_item.id),
                 },
                 correlation_id=str(correlation_id),
@@ -152,7 +216,7 @@ class SendMessageWorkItemService:
             )
             delivered, _ = OutboundIntegrationDeliveryService.from_settings(
                 self.session, self.settings
-            ).deliver_pending_action(workspace, account.id, action.id)
+            ).deliver_pending_action(workspace, stored_account.id, action.id)
             if delivered.status == OutboundIntegrationActionStatus.DELIVERED:
                 completed = self.work_items.transition_work_item(
                     workspace,
@@ -212,3 +276,10 @@ class SendMessageWorkItemService:
     @staticmethod
     def _idempotency_key(source: str) -> str:
         return f"social-comment-dm:{sha256(source.encode()).hexdigest()}"
+
+    @staticmethod
+    def _required_input_text(work_item: WorkItem, field: str) -> str:
+        value = work_item.input.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"send_message WorkItem input requires {field}")
+        return value.strip()

@@ -111,6 +111,8 @@ class WorkItemService:
         input: dict,
         capability: Capability | None = None,
         expires_at: datetime | None = None,
+        source_follow_up_task_id: UUID | None = None,
+        parent_work_item_id: UUID | None = None,
     ) -> WorkItem:
         self._require_workspace(workspace)
         stored_department = self._require_department_in_workspace(workspace, department)
@@ -131,6 +133,8 @@ class WorkItemService:
                 title=self._bounded_text(title, "WorkItem title", 200),
                 input=dict(input),
                 expires_at=expires_at,
+                source_follow_up_task_id=source_follow_up_task_id,
+                parent_work_item_id=parent_work_item_id,
             )
         )
 

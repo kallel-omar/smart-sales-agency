@@ -6,13 +6,15 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from sqlmodel import Session
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session, select
 
 from app.config import Settings
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
 from app.core.work_items import WorkItemStatus
 from app.departments.sales.agents.base import AgentContext
+from app.departments.sales.agents.follow_up import FollowUpAgent
 from app.departments.sales.agents.lead_researcher import LeadResearchAgent
 from app.departments.sales.agents.qualifier import QualificationAgent
 from app.departments.sales.services.conversation_turn_service import (
@@ -24,13 +26,17 @@ from app.models import (
     AIEmployeeCapabilityAssignment,
     Capability,
     Department,
+    FollowUpTask,
+    IntegrationAccount,
     Lead,
     WorkItem,
     Workspace,
 )
 from app.services.ai_execution_attribution import AIExecutionAttributionService
 from app.services.ai_invocation_gateway import AIInvocationGateway
+from app.services.department_supervisors import DepartmentSupervisorRoutingService
 from app.services.repository import NotFoundError, SalesRepository
+from app.services.send_message_work_items import SendMessageWorkItemService
 from app.services.work_items import WorkItemService
 
 M09_SALES_EXECUTION_CAPABILITIES = frozenset(
@@ -40,6 +46,9 @@ M09_SALES_EXECUTION_CAPABILITIES = frozenset(
         BusinessCapabilityKey.ANSWER_CUSTOMER,
     }
 )
+SALES_EXECUTION_CAPABILITIES = M09_SALES_EXECUTION_CAPABILITIES | {
+    BusinessCapabilityKey.FOLLOW_UP_LEAD
+}
 
 
 class SalesWorkItemExecutionStateError(ValueError):
@@ -109,9 +118,7 @@ class SalesWorkItemExecutionService:
             WorkItemStatus.RUNNING,
         )
         try:
-            result = self._json_safe_result(
-                await executor(workspace, target.work_item)
-            )
+            result = self._json_safe_result(await executor(workspace, target.work_item))
         except Exception as exc:
             self.work_items.transition_work_item(
                 workspace,
@@ -133,6 +140,7 @@ class SalesWorkItemExecutionService:
             BusinessCapabilityKey.RESEARCH_COMPANY: self._execute_research,
             BusinessCapabilityKey.QUALIFY_LEAD: self._execute_qualification,
             BusinessCapabilityKey.ANSWER_CUSTOMER: self._execute_conversation,
+            BusinessCapabilityKey.FOLLOW_UP_LEAD: self._execute_follow_up,
         }
 
     def _execution_target(
@@ -167,15 +175,11 @@ class SalesWorkItemExecutionService:
             work_item.assignment_id,
         )
         if assignment is None:
-            raise SalesWorkItemExecutionAssignmentError(
-                "Sales WorkItem assignment was not found"
-            )
+            raise SalesWorkItemExecutionAssignmentError("Sales WorkItem assignment was not found")
         employee = self.session.get(AIEmployee, assignment.ai_employee_id)
         capability = self.session.get(Capability, assignment.capability_id)
         if employee is None or capability is None:
-            raise SalesWorkItemExecutionAssignmentError(
-                "Sales WorkItem assignment is incomplete"
-            )
+            raise SalesWorkItemExecutionAssignmentError("Sales WorkItem assignment is incomplete")
         if (
             assignment.workspace_id != workspace.id
             or employee.workspace_id != workspace.id
@@ -200,16 +204,14 @@ class SalesWorkItemExecutionService:
                 "Sales WorkItem fields do not match its assignment"
             )
         if not employee.active or not capability.active:
-            raise SalesWorkItemExecutionAssignmentError(
-                "Sales WorkItem assignment is inactive"
-            )
+            raise SalesWorkItemExecutionAssignmentError("Sales WorkItem assignment is inactive")
         try:
             capability_key = BusinessCapabilityKey(capability.key)
         except (TypeError, ValueError) as exc:
             raise SalesWorkItemUnsupportedCapabilityError(
                 "Sales WorkItem capability is not supported for execution"
             ) from exc
-        if capability_key not in M09_SALES_EXECUTION_CAPABILITIES:
+        if capability_key not in SALES_EXECUTION_CAPABILITIES:
             raise SalesWorkItemUnsupportedCapabilityError(
                 "Sales WorkItem capability is not supported for execution"
             )
@@ -231,12 +233,19 @@ class SalesWorkItemExecutionService:
         if capability_key == BusinessCapabilityKey.QUALIFY_LEAD:
             research = work_item.input.get("research")
             if not isinstance(research, dict):
-                raise SalesWorkItemInputError(
-                    "Qualification WorkItem input requires research"
-                )
+                raise SalesWorkItemInputError("Qualification WorkItem input requires research")
         if capability_key == BusinessCapabilityKey.ANSWER_CUSTOMER:
             self._required_text(work_item, "channel", max_length=50)
             self._required_text(work_item, "customer_message", max_length=10_000)
+        if capability_key == BusinessCapabilityKey.FOLLOW_UP_LEAD:
+            task_id = self._required_uuid(work_item, "follow_up_task_id")
+            task = self.session.get(FollowUpTask, task_id)
+            if (
+                task is None
+                or task.lead_id != self._required_uuid(work_item, "lead_id")
+                or work_item.source_follow_up_task_id != task.id
+            ):
+                raise SalesWorkItemInputError("Follow-up WorkItem does not match its FollowUpTask")
 
     async def _execute_research(
         self,
@@ -244,9 +253,7 @@ class SalesWorkItemExecutionService:
         work_item: WorkItem,
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
-        return await LeadResearchAgent(
-            self._agent_context(workspace, work_item)
-        ).run(lead)
+        return await LeadResearchAgent(self._agent_context(workspace, work_item)).run(lead)
 
     async def _execute_qualification(
         self,
@@ -255,9 +262,7 @@ class SalesWorkItemExecutionService:
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
         research = dict(work_item.input["research"])
-        result = await QualificationAgent(
-            self._agent_context(workspace, work_item)
-        ).run(
+        result = await QualificationAgent(self._agent_context(workspace, work_item)).run(
             lead,
             research,
         )
@@ -300,12 +305,150 @@ class SalesWorkItemExecutionService:
             "approval_id": str(result.approval_id) if result.approval_id else None,
             "handoff_required": result.handoff_required,
             "handoff_reason_code": (
-                result.handoff_reason_code.value
-                if result.handoff_reason_code is not None
-                else None
+                result.handoff_reason_code.value if result.handoff_reason_code is not None else None
             ),
             "ai_invoked": result.ai_invoked,
         }
+
+    async def _execute_follow_up(
+        self,
+        workspace: Workspace,
+        work_item: WorkItem,
+    ) -> dict[str, Any]:
+        lead = self._lead(workspace, work_item)
+        task_id = self._required_uuid(work_item, "follow_up_task_id")
+        task = self.session.get(FollowUpTask, task_id)
+        if task is None:
+            raise SalesWorkItemInputError("FollowUpTask was not found")
+        decision = FollowUpAgent(self.session).decide(task, lead, work_item.input)
+        result: dict[str, Any] = {
+            "action": decision["action"],
+            "lead_id": str(lead.id),
+            "follow_up_task_id": str(task.id),
+            "reason": decision["reason"],
+        }
+        if decision["action"] == "no_send":
+            task.status = "completed"
+            self.session.add(task)
+            self.session.commit()
+            return result
+
+        if decision["action"] != "send":
+            raise SalesWorkItemResultError("Follow-up decision action is unsupported")
+
+        child = self._get_or_create_send_work_item(workspace, work_item, lead, task, decision)
+        if WorkItemStatus(child.status) == WorkItemStatus.CREATED:
+            DepartmentSupervisorRoutingService(self.session).route_and_assign(workspace, child.id)
+            child = self.work_items.get_work_item(workspace, child.id)
+        result.update(
+            {
+                "message": decision["message"],
+                "integration_account_id": decision["integration_account_id"],
+                "channel": decision["channel"],
+                "recipient": decision["recipient"],
+                "send_work_item_id": str(child.id),
+            }
+        )
+        if WorkItemStatus(child.status) != WorkItemStatus.ASSIGNED:
+            result["send_work_item_status"] = WorkItemStatus(child.status).value
+            result["reason"] = "send_message_assignment_unavailable"
+            return result
+
+        account_id = self._uuid_value(decision["integration_account_id"], "integration_account_id")
+        account = self.session.get(IntegrationAccount, account_id)
+        if account is None or account.workspace_id != workspace.id:
+            raise SalesWorkItemExecutionScopeError(
+                "Follow-up IntegrationAccount does not belong to this workspace"
+            )
+        send = SendMessageWorkItemService(self.session, self.settings).execute_work_item(
+            workspace,
+            child.id,
+            account,
+            idempotency_source=f"follow-up:{task.id}:{child.id}",
+            correlation_id=work_item.correlation_id,
+        )
+        result.update(
+            {
+                "send_outcome": send.outcome.value,
+                "send_work_item_status": WorkItemStatus(send.work_item.status).value,
+                "approval_id": str(send.approval_id) if send.approval_id else None,
+                "outbound_action_id": (
+                    str(send.outbound_action.id) if send.outbound_action else None
+                ),
+            }
+        )
+        if send.outcome.value == "outbound_delivered":
+            task.status = "completed"
+            self.session.add(task)
+            self.session.commit()
+        return result
+
+    def _get_or_create_send_work_item(
+        self,
+        workspace: Workspace,
+        source: WorkItem,
+        lead: Lead,
+        task: FollowUpTask,
+        decision: dict[str, Any],
+    ) -> WorkItem:
+        existing = self.session.exec(
+            select(WorkItem).where(
+                WorkItem.workspace_id == workspace.id,
+                WorkItem.parent_work_item_id == source.id,
+            )
+        ).first()
+        if existing is not None:
+            return existing
+        capability = self.session.exec(
+            select(Capability).where(
+                Capability.workspace_id == workspace.id,
+                Capability.department_id == source.department_id,
+                Capability.key == BusinessCapabilityKey.SEND_MESSAGE,
+                Capability.active.is_(True),
+            )
+        ).first()
+        department = self.session.get(Department, source.department_id)
+        if capability is None or department is None:
+            raise SalesWorkItemExecutionAssignmentError(
+                "send_message Capability is not configured for Sales"
+            )
+        safe_input = {
+            "lead_id": str(lead.id),
+            "source_follow_up_task_id": str(task.id),
+            "source_follow_up_work_item_id": str(source.id),
+            "integration_account_id": str(decision["integration_account_id"]),
+            "channel": str(decision["channel"]),
+            "recipient": str(decision["recipient"]),
+            "message": str(decision["message"]),
+        }
+        try:
+            return self.work_items.create_work_item(
+                workspace,
+                department,
+                work_type="sales_follow_up_message",
+                title="Send sales follow-up message",
+                capability=capability,
+                input=safe_input,
+                parent_work_item_id=source.id,
+            )
+        except IntegrityError:
+            self.session.rollback()
+            existing = self.session.exec(
+                select(WorkItem).where(
+                    WorkItem.workspace_id == workspace.id,
+                    WorkItem.parent_work_item_id == source.id,
+                )
+            ).first()
+            if existing is None:
+                raise
+            return existing
+
+    @staticmethod
+    def _uuid_value(value: Any, field: str) -> UUID:
+        try:
+            return UUID(str(value))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise SalesWorkItemInputError(f"Sales WorkItem input requires a valid {field}") from exc
 
     def _agent_context(
         self,
@@ -342,9 +485,7 @@ class SalesWorkItemExecutionService:
         try:
             return UUID(str(value))
         except (TypeError, ValueError, AttributeError) as exc:
-            raise SalesWorkItemInputError(
-                f"Sales WorkItem input requires a valid {field}"
-            ) from exc
+            raise SalesWorkItemInputError(f"Sales WorkItem input requires a valid {field}") from exc
 
     @staticmethod
     def _required_text(
@@ -355,14 +496,10 @@ class SalesWorkItemExecutionService:
     ) -> str:
         value = work_item.input.get(field)
         if not isinstance(value, str):
-            raise SalesWorkItemInputError(
-                f"Sales WorkItem input requires {field}"
-            )
+            raise SalesWorkItemInputError(f"Sales WorkItem input requires {field}")
         normalized = value.strip()
         if not normalized or len(normalized) > max_length:
-            raise SalesWorkItemInputError(
-                f"Sales WorkItem input contains invalid {field}"
-            )
+            raise SalesWorkItemInputError(f"Sales WorkItem input contains invalid {field}")
         return normalized
 
     @staticmethod
@@ -374,9 +511,7 @@ class SalesWorkItemExecutionService:
                 "Sales WorkItem execution returned a non-JSON-safe result"
             ) from exc
         if not isinstance(value, dict):
-            raise SalesWorkItemResultError(
-                "Sales WorkItem execution result must be an object"
-            )
+            raise SalesWorkItemResultError("Sales WorkItem execution result must be an object")
         return value
 
     @staticmethod

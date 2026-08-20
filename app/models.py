@@ -369,6 +369,18 @@ class WorkItem(SQLModel, table=True):
         foreign_key="ai_employee_capability_assignment.id",
         index=True,
     )
+    source_follow_up_task_id: UUID | None = Field(
+        default=None,
+        foreign_key="followuptask.id",
+        unique=True,
+        index=True,
+    )
+    parent_work_item_id: UUID | None = Field(
+        default=None,
+        foreign_key="work_item.id",
+        unique=True,
+        index=True,
+    )
     status: WorkItemStatus = Field(
         default=WorkItemStatus.CREATED,
         sa_column=Column(String(50), nullable=False, index=True),
