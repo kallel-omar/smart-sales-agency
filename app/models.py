@@ -7,9 +7,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column, Numeric, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.capabilities import BusinessCapabilityKey
-from app.core.ai_employees import AIEmployeeRoleKey
+from app.core.comment_triggers import InboundCommentChannel
 from app.core.events import Department as DepartmentKind
 from app.core.work_items import WorkItemStatus
 
@@ -799,6 +800,38 @@ class InboundExternalIdentity(SQLModel, table=True):
     external_subject_id: str = Field(max_length=255)
     contact_id: UUID = Field(foreign_key="contact.id", index=True)
     lead_id: UUID | None = Field(default=None, foreign_key="lead.id", index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class InboundCommentTriggerRule(SQLModel, table=True):
+    """Workspace-owned deterministic comment automation configuration."""
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "integration_account_id",
+            "name",
+            name="uq_inbound_comment_trigger_rule_name",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id", index=True
+    )
+    channel: InboundCommentChannel = Field(
+        sa_column=Column(String(50), nullable=False, index=True)
+    )
+    name: str = Field(max_length=200)
+    enabled: bool = Field(default=True, index=True)
+    keywords: list[str] = Field(sa_column=Column(JSON, nullable=False))
+    content_external_id: str | None = Field(default=None, max_length=255, index=True)
+    dm_message: str = Field(sa_column=Column(Text, nullable=False))
+    send_assignment_id: UUID = Field(
+        foreign_key="ai_employee_capability_assignment.id", index=True
+    )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

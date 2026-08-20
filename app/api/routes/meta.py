@@ -23,13 +23,14 @@ from app.services.inbound_integrations import (
 )
 from app.services.meta_inbound import (
     AmbiguousExternalIdentityLeadError,
-    InboundExternalIdentityService,
     InboundExternalIdentityBindingError,
+    InboundExternalIdentityService,
     MetaInboundAccountMismatchError,
     MetaInboundNormalizationError,
     MetaInboundNormalizer,
 )
 from app.services.repository import NotFoundError
+from app.services.social_comment_automation import SocialCommentAutomationService
 from app.services.workspaces import ensure_workspace_lead_capture_foundation
 
 router = APIRouter(prefix="/integrations/inbound-events/meta", tags=["integrations"])
@@ -80,6 +81,13 @@ async def receive_meta_event(
                 correlation_id=reservation.receipt.correlation_id
             )
         if event.kind == "comment":
+            automation = SocialCommentAutomationService(session, settings).process(
+                workspace,
+                account,
+                event,
+                reservation,
+                integration_service,
+            )
             return MetaCommentIntakeRead(
                 channel=event.channel,
                 external_author_id=event.sender_external_id,
@@ -89,6 +97,31 @@ async def receive_meta_event(
                 content=event.content,
                 timestamp=event.timestamp,
                 correlation_id=reservation.receipt.correlation_id,
+                trigger_result=automation.outcome,
+                trigger_rule_id=(
+                    automation.rule.id if automation.rule is not None else None
+                ),
+                lead_id=(
+                    automation.capture.lead_id
+                    if automation.capture is not None
+                    else None
+                ),
+                work_item_id=(
+                    automation.send.work_item.id
+                    if automation.send is not None
+                    else None
+                ),
+                approval_id=(
+                    automation.send.approval_id
+                    if automation.send is not None
+                    else None
+                ),
+                outbound_action_id=(
+                    automation.send.outbound_action.id
+                    if automation.send is not None
+                    and automation.send.outbound_action is not None
+                    else None
+                ),
             )
 
         identities = InboundExternalIdentityService(session)

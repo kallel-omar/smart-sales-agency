@@ -3,11 +3,12 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
-from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.ai_employees import AIEmployeeRoleKey
+from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.capabilities import BusinessCapabilityKey
+from app.core.comment_triggers import CommentTriggerResult, InboundCommentChannel
 from app.core.events import Department as DepartmentKind
 from app.core.work_items import WorkItemStatus
 from app.models import (
@@ -164,6 +165,61 @@ class MetaCommentIntakeRead(BaseModel):
     content: str
     timestamp: int | None = None
     correlation_id: UUID
+    trigger_result: CommentTriggerResult = CommentTriggerResult.NO_MATCH
+    trigger_rule_id: UUID | None = None
+    lead_id: UUID | None = None
+    work_item_id: UUID | None = None
+    approval_id: UUID | None = None
+    outbound_action_id: UUID | None = None
+
+
+class InboundCommentTriggerRuleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    integration_account_id: UUID
+    channel: InboundCommentChannel
+    name: str = Field(min_length=1, max_length=200)
+    enabled: bool = True
+    keywords: list[str] = Field(min_length=1, max_length=50)
+    content_external_id: str | None = Field(default=None, max_length=255)
+    dm_message: str = Field(min_length=1, max_length=10_000)
+    send_assignment_id: UUID
+
+
+class InboundCommentTriggerRuleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    keywords: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    content_external_id: str | None = Field(default=None, max_length=255)
+    clear_content_external_id: bool = False
+    dm_message: str | None = Field(default=None, min_length=1, max_length=10_000)
+    send_assignment_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def require_update(self) -> "InboundCommentTriggerRuleUpdate":
+        if not self.model_fields_set:
+            raise ValueError("At least one rule field must be updated")
+        if self.content_external_id is not None and self.clear_content_external_id:
+            raise ValueError("Content scope cannot be set and cleared together")
+        return self
+
+
+class InboundCommentTriggerRuleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    integration_account_id: UUID
+    channel: InboundCommentChannel
+    name: str
+    enabled: bool
+    keywords: list[str]
+    content_external_id: str | None
+    dm_message: str
+    send_assignment_id: UUID
+    created_at: datetime
+    updated_at: datetime
 
 
 class InboundIntegrationReplyRead(BaseModel):

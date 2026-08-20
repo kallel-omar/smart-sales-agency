@@ -7,6 +7,7 @@ from app.api.routes import (
     approvals_router,
     auth_router,
     conversations_router,
+    comment_trigger_rules_router,
     integrations_router,
     leads_router,
     meta_router,
@@ -77,6 +78,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.include_router(products_router, prefix="/api")
     app.include_router(workflows_router, prefix="/api")
     app.include_router(conversations_router, prefix="/api")
+    app.include_router(comment_trigger_rules_router, prefix="/api")
     app.include_router(integrations_router, prefix="/api")
     app.include_router(whatsapp_cloud_router, prefix="/api")
     app.include_router(approvals_router, prefix="/api")
