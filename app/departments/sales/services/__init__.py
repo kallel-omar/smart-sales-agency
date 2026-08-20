@@ -22,8 +22,19 @@ from app.departments.sales.services.stage_transition_service import (
     SalesStageTransitionResult,
     SalesStageTransitionService,
 )
+from app.departments.sales.services.work_item_execution import (
+    M09_SALES_EXECUTION_CAPABILITIES,
+    SalesWorkItemExecutionAssignmentError,
+    SalesWorkItemExecutionScopeError,
+    SalesWorkItemExecutionService,
+    SalesWorkItemExecutionStateError,
+    SalesWorkItemInputError,
+    SalesWorkItemResultError,
+    SalesWorkItemUnsupportedCapabilityError,
+)
 
 __all__ = [
+    "M09_SALES_EXECUTION_CAPABILITIES",
     "DirectConversationTurnIdempotencyConflictError",
     "DirectConversationTurnIdempotencyValidationError",
     "DirectSalesConversationTurnOutcome",
@@ -38,4 +49,11 @@ __all__ = [
     "SalesStageTransitionInput",
     "SalesStageTransitionResult",
     "SalesStageTransitionService",
+    "SalesWorkItemExecutionAssignmentError",
+    "SalesWorkItemExecutionScopeError",
+    "SalesWorkItemExecutionService",
+    "SalesWorkItemExecutionStateError",
+    "SalesWorkItemInputError",
+    "SalesWorkItemResultError",
+    "SalesWorkItemUnsupportedCapabilityError",
 ]
