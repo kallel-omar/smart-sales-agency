@@ -117,6 +117,7 @@ class LeadResearchAgent:
                     system_prompt=rendered_prompt.system_prompt,
                     user_prompt=rendered_prompt.user_prompt,
                     conversation_id=lead.id,
+                    attribution=self.context.ai_execution_attribution,
                 )
             )
             if invocation.content is None:

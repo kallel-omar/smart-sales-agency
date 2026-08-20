@@ -509,6 +509,26 @@ class AIInvocationUsage(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    department_id: UUID | None = Field(
+        default=None,
+        foreign_key="department.id",
+        index=True,
+    )
+    ai_employee_id: UUID | None = Field(
+        default=None,
+        foreign_key="ai_employee.id",
+        index=True,
+    )
+    capability_id: UUID | None = Field(
+        default=None,
+        foreign_key="capability.id",
+        index=True,
+    )
+    work_item_id: UUID | None = Field(
+        default=None,
+        foreign_key="work_item.id",
+        index=True,
+    )
     # Conversations are currently represented by lead-owned message history,
     # not a standalone table, so this remains an optional opaque reference.
     conversation_id: UUID | None = Field(default=None, index=True)

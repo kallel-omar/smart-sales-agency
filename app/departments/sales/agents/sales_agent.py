@@ -242,6 +242,7 @@ class SalesConversationAgent:
                     user_prompt=rendered_prompt.user_prompt,
                     conversation_id=lead.id,
                     sales_stage=canonical_stage,
+                    attribution=self.context.ai_execution_attribution,
                 )
             )
             if invocation.content is None:

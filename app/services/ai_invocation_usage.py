@@ -1,14 +1,16 @@
 """Provider-neutral, workspace-scoped AI invocation usage persistence."""
 
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.core.ai_execution_attribution import AIExecutionAttribution
 from app.models import AIInvocationStatus, AIInvocationUsage, Workspace, utc_now
+from app.services.ai_execution_attribution import AIExecutionAttributionService
 from app.services.ai_model_pricing import AIModelPricingCatalog
 
 if TYPE_CHECKING:
@@ -45,6 +47,7 @@ class AIInvocationUsageService:
     ) -> None:
         self.session = session
         self._pricing_catalog = pricing_catalog
+        self._attribution_service = AIExecutionAttributionService(session)
 
     @classmethod
     def from_settings(cls, session: Session, settings: "Settings") -> "AIInvocationUsageService":
@@ -66,7 +69,9 @@ class AIInvocationUsageService:
         total_tokens: int | None = None,
         estimated_cost: Decimal | str | int | None = None,
         created_at: datetime | None = None,
+        attribution: AIExecutionAttribution | None = None,
     ) -> AIInvocationUsage:
+        attribution = self.validate_attribution(workspace, attribution)
         normalized = {
             "task_identifier": self._identifier(task_identifier, "Task identifier"),
             "agent_identifier": self._identifier(agent_identifier, "Agent identifier"),
@@ -90,6 +95,10 @@ class AIInvocationUsageService:
         )
         usage = AIInvocationUsage(
             workspace_id=workspace.id,
+            department_id=(attribution.department_id if attribution else None),
+            ai_employee_id=(attribution.ai_employee_id if attribution else None),
+            capability_id=(attribution.capability_id if attribution else None),
+            work_item_id=(attribution.work_item_id if attribution else None),
             conversation_id=conversation_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -110,6 +119,13 @@ class AIInvocationUsageService:
             self.session.rollback()
             raise
         return usage
+
+    def validate_attribution(
+        self,
+        workspace: Workspace,
+        attribution: AIExecutionAttribution | None,
+    ) -> AIExecutionAttribution | None:
+        return self._attribution_service.validate(workspace, attribution)
 
     def list_for_workspace(self, workspace: Workspace) -> list[AIInvocationUsage]:
         statement = (

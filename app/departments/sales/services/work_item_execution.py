@@ -28,6 +28,7 @@ from app.models import (
     WorkItem,
     Workspace,
 )
+from app.services.ai_execution_attribution import AIExecutionAttributionService
 from app.services.ai_invocation_gateway import AIInvocationGateway
 from app.services.repository import NotFoundError, SalesRepository
 from app.services.work_items import WorkItemService
@@ -92,6 +93,7 @@ class SalesWorkItemExecutionService:
         self.repository = SalesRepository(session)
         self.work_items = WorkItemService(session)
         self.ai_invocation_gateway = ai_invocation_gateway
+        self.attribution = AIExecutionAttributionService(session)
 
     async def execute(
         self,
@@ -242,7 +244,9 @@ class SalesWorkItemExecutionService:
         work_item: WorkItem,
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
-        return await LeadResearchAgent(self._agent_context(workspace)).run(lead)
+        return await LeadResearchAgent(
+            self._agent_context(workspace, work_item)
+        ).run(lead)
 
     async def _execute_qualification(
         self,
@@ -251,7 +255,9 @@ class SalesWorkItemExecutionService:
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
         research = dict(work_item.input["research"])
-        result = await QualificationAgent(self._agent_context(workspace)).run(
+        result = await QualificationAgent(
+            self._agent_context(workspace, work_item)
+        ).run(
             lead,
             research,
         )
@@ -272,6 +278,10 @@ class SalesWorkItemExecutionService:
             settings=self.settings,
             workspace=workspace,
             ai_invocation_gateway=self.ai_invocation_gateway,
+            ai_execution_attribution=self.attribution.from_work_item(
+                workspace,
+                work_item,
+            ),
         ).process(
             SalesConversationTurnInput(
                 lead_id=lead.id,
@@ -297,13 +307,21 @@ class SalesWorkItemExecutionService:
             "ai_invoked": result.ai_invoked,
         }
 
-    def _agent_context(self, workspace: Workspace) -> AgentContext:
+    def _agent_context(
+        self,
+        workspace: Workspace,
+        work_item: WorkItem,
+    ) -> AgentContext:
         return AgentContext(
             settings=self.settings,
             repository=self.repository,
             llm=None,
             workspace=workspace,
             ai_invocation_gateway=self.ai_invocation_gateway,
+            ai_execution_attribution=self.attribution.from_work_item(
+                workspace,
+                work_item,
+            ),
         )
 
     def _lead(self, workspace: Workspace, work_item: WorkItem) -> Lead:

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.config import Settings
+from app.core.ai_execution_attribution import AIExecutionAttribution
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.sales_agent import SalesConversationAgent
 from app.departments.sales.handoff_policy import (
@@ -70,6 +71,7 @@ class SalesConversationTurnService:
         settings: Settings,
         workspace: Workspace,
         ai_invocation_gateway: AIInvocationGateway | None = None,
+        ai_execution_attribution: AIExecutionAttribution | None = None,
     ) -> None:
         self.repository = repository
         self.settings = settings
@@ -78,6 +80,7 @@ class SalesConversationTurnService:
             repository.session,
             settings,
         )
+        self.ai_execution_attribution = ai_execution_attribution
 
     async def process(
         self,
@@ -175,6 +178,7 @@ class SalesConversationTurnService:
             llm=None,
             workspace=self.workspace,
             ai_invocation_gateway=self.ai_invocation_gateway,
+            ai_execution_attribution=self.ai_execution_attribution,
         )
 
     def _handoff_decision(

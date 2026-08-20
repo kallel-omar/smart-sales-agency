@@ -16,6 +16,7 @@ from uuid import UUID
 
 from sqlmodel import Session
 
+from app.core.ai_execution_attribution import AIExecutionAttribution
 from app.models import AIInvocationStatus, Workspace
 from app.services.ai_invocation_usage import AIInvocationUsage, AIInvocationUsageService
 from app.services.ai_model_routing import (
@@ -76,6 +77,7 @@ class AIInvocationGatewayRequest:
     expected_total_tokens: int | None = None
     expected_estimated_cost: Decimal | str | int | None = None
     pricing_known: bool | None = None
+    attribution: AIExecutionAttribution | None = None
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,10 @@ class AIInvocationGateway:
         )
 
     async def invoke(self, request: AIInvocationGatewayRequest) -> AIInvocationGatewayResult:
+        self._usage_service.validate_attribution(
+            request.workspace,
+            request.attribution,
+        )
         routing_decision = self._routing_policy.decide(
             AIModelRoutingRequest(
                 task=request.task,
@@ -226,6 +232,7 @@ class AIInvocationGateway:
             latency_ms=latency_ms,
             status=status,
             conversation_id=request.conversation_id,
+            attribution=request.attribution,
         )
 
     def _record_failed_without_masking_provider_error(
