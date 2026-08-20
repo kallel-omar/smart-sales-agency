@@ -36,6 +36,10 @@ class WorkItemDepartmentWorkspaceMismatchError(PermissionError):
     """Raised when a Department is not owned by the requested workspace."""
 
 
+class WorkItemCapabilityScopeError(PermissionError):
+    """Raised when a required Capability is outside the WorkItem scope."""
+
+
 class WorkItemAssignmentRequiredError(ValueError):
     """Raised when a WorkItem state requires an AIEmployee-Capability assignment."""
 
@@ -105,14 +109,23 @@ class WorkItemService:
         work_type: str,
         title: str,
         input: dict,
+        capability: Capability | None = None,
         expires_at: datetime | None = None,
     ) -> WorkItem:
         self._require_workspace(workspace)
         stored_department = self._require_department_in_workspace(workspace, department)
+        stored_capability = self._require_capability_for_department(
+            workspace,
+            stored_department,
+            capability,
+        )
         return self.repository.add(
             WorkItem(
                 workspace_id=workspace.id,
                 department_id=stored_department.id,
+                capability_id=(
+                    stored_capability.id if stored_capability is not None else None
+                ),
                 status=WorkItemStatus.CREATED,
                 work_type=self._bounded_text(work_type, "WorkItem type", 100),
                 title=self._bounded_text(title, "WorkItem title", 200),
@@ -351,6 +364,28 @@ class WorkItemService:
         if stored.workspace_id != workspace.id:
             raise WorkItemDepartmentWorkspaceMismatchError(
                 "Department does not belong to this workspace"
+            )
+        return stored
+
+    def _require_capability_for_department(
+        self,
+        workspace: Workspace,
+        department: Department,
+        capability: Capability | None,
+    ) -> Capability | None:
+        if capability is None:
+            return None
+        stored = self.session.get(Capability, capability.id)
+        if stored is None:
+            raise WorkItemCapabilityScopeError(
+                "Capability does not belong to this workspace and Department"
+            )
+        if (
+            stored.workspace_id != workspace.id
+            or stored.department_id != department.id
+        ):
+            raise WorkItemCapabilityScopeError(
+                "Capability does not belong to this workspace and Department"
             )
         return stored
 
