@@ -9,6 +9,7 @@ import type {
   IntegrationOperationalSummaryRead,
   LeadRead,
   OperatorAIEmployeeRead,
+  OperatorAnalyticsRead,
   OperatorApprovalRead,
   OperatorWorkItemRead,
   UserRead,
@@ -141,6 +142,12 @@ export const apiClient = {
   },
   operatorApprovals(token: string, workspaceSlug: string) {
     return request<OperatorApprovalRead[]>("/api/operator/approvals?limit=100", {
+      token,
+      workspaceSlug
+    });
+  },
+  operatorAnalytics(token: string, workspaceSlug: string, days: 7 | 30 | 90 = 30) {
+    return request<OperatorAnalyticsRead>(`/api/operator/analytics?days=${days}`, {
       token,
       workspaceSlug
     });

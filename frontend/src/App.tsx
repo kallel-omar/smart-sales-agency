@@ -9,6 +9,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { WorkforcePage } from "./pages/WorkforcePage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
@@ -51,7 +52,7 @@ export function App() {
                 <Route path="leads" element={<PlaceholderPage title="Leads" />} />
                 <Route path="products" element={<PlaceholderPage title="Products" />} />
                 <Route path="integrations" element={<PlaceholderPage title="Integrations" />} />
-                <Route path="analytics" element={<PlaceholderPage title="Analytics" />} />
+                <Route path="analytics" element={<AnalyticsPage />} />
                 <Route path="settings" element={<PlaceholderPage title="Settings" />} />
               </Route>
             </Route>

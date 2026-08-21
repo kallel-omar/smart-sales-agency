@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -13,12 +13,26 @@ from app.core.work_items import WorkItemStatus
 from app.models import ApprovalStatus
 from app.schemas import (
     OperatorAIEmployeeRead,
+    OperatorAnalyticsRead,
     OperatorApprovalRead,
     OperatorWorkItemRead,
 )
+from app.services.operator_analytics import AnalyticsDays, OperatorAnalyticsService
 from app.services.operator_views import OperatorViewNotFoundError, OperatorViewService
 
 router = APIRouter(prefix="/operator", tags=["operator"])
+
+
+@router.get("/analytics", response_model=OperatorAnalyticsRead)
+def get_operator_analytics(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: WorkspaceReadPermissionDep,
+    days: Annotated[int, Query()] = 30,
+) -> OperatorAnalyticsRead:
+    if days not in (7, 30, 90):
+        raise HTTPException(status_code=422, detail="Days must be 7, 30, or 90")
+    return OperatorAnalyticsService(session).summarize(workspace, days=cast(AnalyticsDays, days))
 
 
 @router.get("/workforce", response_model=list[OperatorAIEmployeeRead])
@@ -88,9 +102,7 @@ def list_operator_approvals(
     status: Annotated[ApprovalStatus | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> list[OperatorApprovalRead]:
-    return OperatorViewService(session).list_approvals(
-        workspace, status=status, limit=limit
-    )
+    return OperatorViewService(session).list_approvals(workspace, status=status, limit=limit)
 
 
 @router.get("/approvals/{approval_id}", response_model=OperatorApprovalRead)

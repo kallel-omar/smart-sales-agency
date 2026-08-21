@@ -482,6 +482,126 @@ class OperatorApprovalRead(BaseModel):
     integration_external_account_id: str | None
 
 
+class OperatorAnalyticsPeriodRead(BaseModel):
+    days: Literal[7, 30, 90]
+    starts_at: datetime
+    ends_at: datetime
+
+
+class OperatorAnalyticsWorkItemCountsRead(BaseModel):
+    created: int
+    assigned: int
+    running: int
+    waiting: int
+    approval_required: int
+    completed: int
+    failed: int
+    cancelled: int
+    expired: int
+
+
+class OperatorAnalyticsWorkBreakdownRead(BaseModel):
+    key: str
+    total: int
+    completed: int
+    failed: int
+    success_rate: float | None
+
+
+class OperatorAnalyticsWorkItemsRead(BaseModel):
+    current: OperatorAnalyticsWorkItemCountsRead
+    created: int
+    completed: int
+    failed: int
+    success_rate: float | None
+    average_completion_seconds: float | None
+    by_work_type: list[OperatorAnalyticsWorkBreakdownRead]
+
+
+class OperatorAnalyticsWorkforceRead(BaseModel):
+    employee_id: UUID
+    name: str
+    role: AIEmployeeRoleKey
+    department: DepartmentKind
+    workitems: int
+    completed: int
+    failed: int
+    success_rate: float | None
+    invocation_count: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    known_estimated_cost: Decimal
+    unknown_pricing_invocation_count: int
+
+
+class OperatorAnalyticsCapabilityRead(BaseModel):
+    capability_id: UUID
+    key: BusinessCapabilityKey
+    workitems: int
+    completed: int
+    failed: int
+    success_rate: float | None
+    invocation_count: int
+    total_tokens: int
+    known_estimated_cost: Decimal
+    unknown_pricing_invocation_count: int
+
+
+class OperatorAnalyticsApprovalsRead(BaseModel):
+    requests_created: int
+    pending: int
+    approved: int
+    rejected: int
+    workitems_with_approval_request: int
+    approval_request_rate: float | None
+
+
+class OperatorAnalyticsUsageBreakdownRead(BaseModel):
+    key: str
+    invocation_count: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    known_estimated_cost: Decimal
+    unknown_pricing_invocation_count: int
+
+
+class OperatorAnalyticsAIUsageRead(BaseModel):
+    invocation_count: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    known_estimated_cost: Decimal
+    unknown_pricing_invocation_count: int
+    by_provider: list[OperatorAnalyticsUsageBreakdownRead]
+    by_model: list[OperatorAnalyticsUsageBreakdownRead]
+
+
+class OperatorAnalyticsSalesOutcomesRead(BaseModel):
+    capture_lead_completed: int
+    qualification_completed: int
+    follow_up_completed: int
+
+
+class OperatorAnalyticsSalesRead(BaseModel):
+    total_leads: int
+    leads_created: int
+    won_leads: int
+    by_status: dict[str, int]
+    outcomes: OperatorAnalyticsSalesOutcomesRead
+
+
+class OperatorAnalyticsRead(BaseModel):
+    period: OperatorAnalyticsPeriodRead
+    workitems: OperatorAnalyticsWorkItemsRead
+    workforce: list[OperatorAnalyticsWorkforceRead]
+    capabilities: list[OperatorAnalyticsCapabilityRead]
+    approvals: OperatorAnalyticsApprovalsRead
+    ai_usage: OperatorAnalyticsAIUsageRead
+    sales: OperatorAnalyticsSalesRead
+
+
 class AIInvocationUsageSummaryRead(BaseModel):
     """Safe workspace-only AI usage aggregate without prompt or credential data."""
 

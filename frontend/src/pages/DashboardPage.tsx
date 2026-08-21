@@ -17,16 +17,11 @@ export function DashboardPage() {
   const { token, user } = useAuth();
   const { selectedWorkspace, selectedWorkspaceSlug, isLoading, error } = useWorkspace();
 
-  const [leadsQuery, approvalsQuery, integrationsQuery, operationsQuery, aiUsageQuery, workforceQuery, workItemsQuery] = useQueries({
+  const [leadsQuery, integrationsQuery, operationsQuery, analyticsQuery] = useQueries({
     queries: [
       {
         queryKey: queryKeys.leads(selectedWorkspaceSlug ?? "none"),
         queryFn: () => apiClient.leads(token as string, selectedWorkspaceSlug as string),
-        enabled: Boolean(token && selectedWorkspaceSlug)
-      },
-      {
-        queryKey: queryKeys.approvals(selectedWorkspaceSlug ?? "none"),
-        queryFn: () => apiClient.approvals(token as string, selectedWorkspaceSlug as string),
         enabled: Boolean(token && selectedWorkspaceSlug)
       },
       {
@@ -40,18 +35,8 @@ export function DashboardPage() {
         enabled: Boolean(token && selectedWorkspaceSlug)
       },
       {
-        queryKey: queryKeys.aiUsageSummary(selectedWorkspaceSlug ?? "none"),
-        queryFn: () => apiClient.aiUsageSummary(token as string, selectedWorkspaceSlug as string),
-        enabled: Boolean(token && selectedWorkspaceSlug)
-      },
-      {
-        queryKey: queryKeys.operatorWorkforce(selectedWorkspaceSlug ?? "none"),
-        queryFn: () => apiClient.operatorWorkforce(token as string, selectedWorkspaceSlug as string),
-        enabled: Boolean(token && selectedWorkspaceSlug)
-      },
-      {
-        queryKey: queryKeys.operatorWorkItems(selectedWorkspaceSlug ?? "none"),
-        queryFn: () => apiClient.operatorWorkItems(token as string, selectedWorkspaceSlug as string),
+        queryKey: queryKeys.operatorAnalytics(selectedWorkspaceSlug ?? "none", 30),
+        queryFn: () => apiClient.operatorAnalytics(token as string, selectedWorkspaceSlug as string, 30),
         enabled: Boolean(token && selectedWorkspaceSlug)
       }
     ]
@@ -81,18 +66,14 @@ export function DashboardPage() {
     );
   }
 
-  const pendingApprovals = approvalsQuery.data?.filter((approval) => approval.status === "pending") ?? [];
   const activeIntegrations = integrationsQuery.data?.filter((account) => account.active) ?? [];
-  const runningWorkItems = workItemsQuery.data?.filter((item) => item.status === "running") ?? [];
-  const failedWorkItems = workItemsQuery.data?.filter((item) => item.status === "failed") ?? [];
   const dashboardLoading =
     leadsQuery.isLoading ||
-    approvalsQuery.isLoading ||
     integrationsQuery.isLoading ||
     operationsQuery.isLoading ||
-    aiUsageQuery.isLoading || workforceQuery.isLoading || workItemsQuery.isLoading;
+    analyticsQuery.isLoading;
   const dashboardError =
-    leadsQuery.error || approvalsQuery.error || integrationsQuery.error || operationsQuery.error || aiUsageQuery.error || workforceQuery.error || workItemsQuery.error;
+    leadsQuery.error || integrationsQuery.error || operationsQuery.error || analyticsQuery.error;
 
   return (
     <div>
@@ -110,10 +91,10 @@ export function DashboardPage() {
         ) : null}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={Bot} label="AI employees" value={workforceQuery.data?.length ?? 0} helper="Configured workforce" />
-          <MetricCard icon={PlayCircle} label="Running WorkItems" value={runningWorkItems.length} helper="In progress" />
-          <MetricCard icon={CheckSquare} label="Approval required" value={pendingApprovals.length} helper="Human gate" />
-          <MetricCard icon={CircleAlert} label="Failed WorkItems" value={failedWorkItems.length} helper="Needs attention" />
+          <MetricCard icon={Bot} label="AI employees" value={analyticsQuery.data?.workforce.length ?? 0} helper="Configured workforce" />
+          <MetricCard icon={PlayCircle} label="Running WorkItems" value={analyticsQuery.data?.workitems.current.running ?? 0} helper="Current state" />
+          <MetricCard icon={CheckSquare} label="Approval required" value={analyticsQuery.data?.workitems.current.approval_required ?? 0} helper="Current WorkItem state" />
+          <MetricCard icon={CircleAlert} label="Failed WorkItems" value={analyticsQuery.data?.workitems.current.failed ?? 0} helper="Current state" />
         </div>
 
         <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
@@ -142,7 +123,7 @@ export function DashboardPage() {
               <div className="rounded-md border border-slate-200 p-4">
                 <p className="text-sm text-slate-500">Estimated AI spend</p>
                 <p className="mt-2 text-xl font-semibold text-slate-950">
-                  {aiUsageQuery.data?.known_estimated_spend ?? "0"}
+                  {analyticsQuery.data?.ai_usage.known_estimated_cost ?? "0"}
                 </p>
               </div>
             </div>
@@ -163,8 +144,8 @@ export function DashboardPage() {
             <div className="mt-5 space-y-3">
               <ReadinessRow label="Workspace selected" ready={Boolean(selectedWorkspaceSlug)} />
               <ReadinessRow label="Integration account active" ready={activeIntegrations.length > 0} />
-              <ReadinessRow label="Approval queue available" ready={!approvalsQuery.isError} />
-              <ReadinessRow label="AI usage endpoint available" ready={!aiUsageQuery.isError} />
+              <ReadinessRow label="Approval analytics available" ready={!analyticsQuery.isError} />
+              <ReadinessRow label="AI usage analytics available" ready={!analyticsQuery.isError} />
             </div>
           </Card>
         </div>

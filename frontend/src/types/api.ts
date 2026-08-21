@@ -159,6 +159,96 @@ export interface OperatorApprovalRead {
   integration_external_account_id: string | null;
 }
 
+export type AnalyticsDays = 7 | 30 | 90;
+
+export interface OperatorAnalyticsWorkBreakdownRead {
+  key: string;
+  total: number;
+  completed: number;
+  failed: number;
+  success_rate: number | null;
+}
+
+export interface OperatorAnalyticsUsageBreakdownRead {
+  key: string;
+  invocation_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  known_estimated_cost: string;
+  unknown_pricing_invocation_count: number;
+}
+
+export interface OperatorAnalyticsRead {
+  period: { days: AnalyticsDays; starts_at: string; ends_at: string };
+  workitems: {
+    current: Record<WorkItemStatus, number>;
+    created: number;
+    completed: number;
+    failed: number;
+    success_rate: number | null;
+    average_completion_seconds: number | null;
+    by_work_type: OperatorAnalyticsWorkBreakdownRead[];
+  };
+  workforce: Array<{
+    employee_id: string;
+    name: string;
+    role: string;
+    department: string;
+    workitems: number;
+    completed: number;
+    failed: number;
+    success_rate: number | null;
+    invocation_count: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    known_estimated_cost: string;
+    unknown_pricing_invocation_count: number;
+  }>;
+  capabilities: Array<{
+    capability_id: string;
+    key: string;
+    workitems: number;
+    completed: number;
+    failed: number;
+    success_rate: number | null;
+    invocation_count: number;
+    total_tokens: number;
+    known_estimated_cost: string;
+    unknown_pricing_invocation_count: number;
+  }>;
+  approvals: {
+    requests_created: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+    workitems_with_approval_request: number;
+    approval_request_rate: number | null;
+  };
+  ai_usage: {
+    invocation_count: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    known_estimated_cost: string;
+    unknown_pricing_invocation_count: number;
+    by_provider: OperatorAnalyticsUsageBreakdownRead[];
+    by_model: OperatorAnalyticsUsageBreakdownRead[];
+  };
+  sales: {
+    total_leads: number;
+    leads_created: number;
+    won_leads: number;
+    by_status: Record<string, number>;
+    outcomes: {
+      capture_lead_completed: number;
+      qualification_completed: number;
+      follow_up_completed: number;
+    };
+  };
+}
+
 export interface IntegrationAccountRead {
   id: string;
   workspace_id: string;

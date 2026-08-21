@@ -10,6 +10,8 @@ export const queryKeys = {
   operatorWorkItems: (workspaceSlug: string, status = "", workType = "") =>
     ["operator", workspaceSlug, "work-items", status, workType] as const,
   operatorApprovals: (workspaceSlug: string) => ["operator", workspaceSlug, "approvals"] as const,
+  operatorAnalytics: (workspaceSlug: string, days: number) =>
+    ["operator", workspaceSlug, "analytics", days] as const,
   integrations: (workspaceSlug: string) => ["integrations", workspaceSlug] as const,
   integrationSummary: (workspaceSlug: string) => ["integrations", workspaceSlug, "summary"] as const,
   aiUsageSummary: (workspaceSlug: string) => ["ai", workspaceSlug, "usage-summary"] as const

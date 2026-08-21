@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { renderApp } from "./test/renderApp";
-import { fixtures, installFetchMock, mockJson } from "./test/mockApi";
+import { analyticsFixture, fixtures, installFetchMock, mockJson } from "./test/mockApi";
 import type { ConversationMessageRead, DirectSalesReply, LeadRead } from "./types/api";
 
 const leadFixtures: Record<string, LeadRead[]> = {
@@ -121,6 +121,9 @@ function installDefaultApi() {
     }
     if (url.includes("/api/operator/work-items")) {
       return mockJson([]);
+    }
+    if (url.includes("/api/operator/analytics")) {
+      return mockJson(analyticsFixture);
     }
     if (url.endsWith("/api/integrations/accounts")) {
       return mockJson([]);
@@ -327,6 +330,9 @@ describe("HIRI frontend foundation", () => {
       }
       if (url.endsWith("/api/leads")) {
         return mockJson({ detail: "database secret should not render" }, 500);
+      }
+      if (url.includes("/api/operator/analytics")) {
+        return mockJson(analyticsFixture);
       }
       return mockJson([]);
     });
