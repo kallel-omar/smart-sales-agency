@@ -11,16 +11,16 @@ Repository state verified directly on 2026-08-21.
 - `ui/hiri-full-redesign` points to this checkpoint
 - `feat/integration-credential-references` was created from this checkpoint but feature coding has not started
 
-### Current documentation-cleanup working state
+### Documentation-cleanup checkpoint
 
 - Current branch: `docs/hiri-project-cleanup`
-- Current HEAD: `fb981d4`
-- Ahead of `origin/main`: 44 commits
-- Behind `origin/main`: 0 commits
-- Working tree: **documentation cleanup in progress**
-- Current modified/untracked files are documentation and documentation-archive changes only
+- Verified documentation-cleanup checkpoint: `febef23`
+- At cleanup checkpoint: 45 commits ahead of `origin/main`, 0 behind
+- Working tree was **clean** immediately after documentation cleanup commit `febef23`
+- Documentation cleanup is committed; no product/backend/frontend feature code was included in that cleanup commit
 
 No product/backend/frontend feature code has been added on the documentation-cleanup branch.
+
 ## Frontend redesign checkpoint
 
 The public HIRI spatial landing hero is committed at `fb981d4`.
@@ -145,13 +145,13 @@ Those areas must be treated as existing implementation to preserve and extend.
 
 The frontend redesign checkpoint is complete.
 
-Current work is the documentation and remaining-MVP-gap cleanup before new feature coding resumes.
+Current work is the remaining Sales MVP gap audit and dependency-ordered NOW planning before new feature coding resumes.
 
 ### Immediate priorities
 
-1. Finish and commit the documentation cleanup on `docs/hiri-project-cleanup`.
-2. Verify the final documentation branch state and source-of-truth files.
-3. Audit the remaining Sales MVP gaps without reopening already-completed workforce foundations.
+1. Audit the remaining Sales MVP gaps against the cleaned HIRI Master Plan.
+2. Build the dependency-ordered NOW queue from verified remaining gaps.
+3. Classify every remaining gap as Implemented / Partial / Missing / NEXT / LATER without reopening completed workforce foundations.
 4. Preserve existing business-service, outbound-action and DeliveryAdapter/provider-adapter architecture.
 5. Add generic integration credential references where direct provider adapters require multiple external credentials.
 6. Complete the direct WhatsApp Cloud outbound adapter path.
@@ -163,6 +163,7 @@ Current work is the documentation and remaining-MVP-gap cleanup before new featu
 Redis, Celery, Temporal or another background runtime must not be introduced merely because they are available. Add worker infrastructure only when a demonstrated asynchronous or durable-execution requirement justifies it.
 
 Do not reopen already-completed generic workforce foundations unless a concrete defect or missing MVP behavior is identified.
+
 ## Source-of-truth rule
 
 For repository state, Git and verified tests win over older documents and conversation memory.
