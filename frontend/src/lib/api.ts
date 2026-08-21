@@ -74,6 +74,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export const apiClient = {
+  register(email: string, password: string, displayName: string) {
+    return request<UserRead>("/api/auth/register", {
+      method: "POST",
+      body: { email, password, display_name: displayName }
+    });
+  },
   login(email: string, password: string) {
     return request<AccessTokenRead>("/api/auth/login", {
       method: "POST",

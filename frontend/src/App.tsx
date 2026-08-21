@@ -15,6 +15,10 @@ import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { WorkforcePage } from "./pages/WorkforcePage";
 import { WorkItemsPage } from "./pages/WorkItemsPage";
 import { WorkspaceProvider } from "./workspaces/WorkspaceProvider";
+import { AppExperienceProvider } from "./app/AppExperience";
+import { PublicLayout } from "./components/public/PublicLayout";
+import { PublicPage } from "./pages/PublicPage";
+import { RegisterPage } from "./pages/RegisterPage";
 
 function makeQueryClient() {
   return new QueryClient({
@@ -38,11 +42,20 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <WorkspaceProvider>
+      <AppExperienceProvider>
+        <AuthProvider>
+          <WorkspaceProvider>
           <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<LoginPage />} />
+            <Route element={<PublicLayout />}>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/platform" element={<PublicPage page="platform" />} />
+              <Route path="/how-it-works" element={<PublicPage page="how" />} />
+              <Route path="/sales" element={<PublicPage page="sales" />} />
+              <Route path="/about" element={<PublicPage page="about" />} />
+              <Route path="/contact" element={<PublicPage page="contact" />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+            </Route>
             <Route element={<ProtectedRoute />}>
               <Route path="/app" element={<AppShell />}>
                 <Route index element={<DashboardPage />} />
@@ -59,8 +72,9 @@ export function App() {
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </WorkspaceProvider>
-      </AuthProvider>
+          </WorkspaceProvider>
+        </AuthProvider>
+      </AppExperienceProvider>
     </QueryClientProvider>
   );
 }

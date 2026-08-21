@@ -2,7 +2,7 @@ import { Languages, LogOut, Menu, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 
-import { AppExperienceProvider, type AppLocale, useAppExperience } from "../../app/AppExperience";
+import { type AppLocale, useAppExperience } from "../../app/AppExperience";
 import { useAuth } from "../../auth/AuthProvider";
 import { useWorkspace } from "../../workspaces/WorkspaceProvider";
 import { Avatar } from "../ui/Avatar";
@@ -14,7 +14,7 @@ const routeKeys: [string, string][] = [
 ];
 
 export function AppShell() {
-  return <AppExperienceProvider><AuthenticatedShell /></AppExperienceProvider>;
+  return <AuthenticatedShell />;
 }
 
 function AuthenticatedShell() {

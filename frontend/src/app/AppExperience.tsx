@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type AppTheme = "light" | "dark";
 export type AppLocale = "en" | "fr" | "ar";
@@ -243,6 +243,75 @@ const messages: Record<AppLocale, Record<string, string>> = {
   }
 };
 
+const publicMessages: Record<AppLocale, Record<string, string>> = {
+  en: {
+    publicNavigation: "Public navigation", mobileNavigation: "Mobile navigation", skipContent: "Skip to content",
+    platformNav: "Platform", howItWorksNav: "How it works", salesNav: "Sales", aboutNav: "About",
+    contactNav: "Contact", loginAction: "Log in", createAccount: "Create account", openPublicNavigation: "Open navigation",
+    closePublicNavigation: "Close navigation", productLabel: "AI Workforce Platform", homepageTitle: "Hire your AI workforce.",
+    homepageDescription: "Build AI employees, specialized teams and departments that perform real business work—with permissions, approvals, cost control and auditability.",
+    explorePlatform: "Explore the platform", permissionAware: "Permission-aware", humanGoverned: "Human-governed", businessReady: "Business-ready",
+    footerStatement: "The operating system for your AI workforce.", footerDescription: "AI employees and departments performing real business work with human control.",
+    product: "Product", companyLabel: "Company", footerControl: "AI workforce. Human control.",
+    platformPageTitle: "A controlled platform for AI business work", platformPageDescription: "Organize AI employees, capabilities, tools, permissions and WorkItems within one accountable operating structure.",
+    howPageTitle: "From business request to accountable result", howPageDescription: "HIRI turns business demand into governed WorkItems, assigns eligible AI employees and records outcomes for review.",
+    salesPageTitle: "Operate Sales work through specialized AI employees", salesPageDescription: "Coordinate lead handling, conversations and follow-up while approvals and permissions keep sensitive actions controlled.",
+    aboutPageTitle: "Built for accountable AI operations", aboutPageDescription: "HIRI is an AI Workforce Platform designed around clear ownership, human control and operational visibility.",
+    contactPageTitle: "Talk with HIRI", contactPageDescription: "Contact the HIRI team to discuss how an AI workforce could fit your operating model.",
+    foundationLabel: "Phase 1 foundation", foundationNote: "Detailed page content and final visual composition will follow in Phase 2.",
+    registerTitle: "Create your HIRI account", registerDescription: "Set up your operator identity, then continue into your workspace environment.",
+    displayName: "Display name", displayNameRequired: "Display name is required", passwordMinimum: "Use at least 12 characters",
+    confirmPassword: "Confirm password", passwordsMismatch: "Passwords do not match", creatingAccount: "Creating account",
+    accountExists: "An account with this email already exists", unableCreateAccount: "Unable to create your account",
+    alreadyHaveAccount: "Already have an account?", needAccount: "Need an account?", authFoundation: "HIRI operator access",
+    authStatement: "Secure access to your AI workforce operating environment."
+  },
+  fr: {
+    publicNavigation: "Navigation publique", mobileNavigation: "Navigation mobile", skipContent: "Aller au contenu",
+    platformNav: "Plateforme", howItWorksNav: "Fonctionnement", salesNav: "Ventes", aboutNav: "À propos",
+    contactNav: "Contact", loginAction: "Se connecter", createAccount: "Créer un compte", openPublicNavigation: "Ouvrir la navigation",
+    closePublicNavigation: "Fermer la navigation", productLabel: "Plateforme de workforce IA", homepageTitle: "Constituez votre workforce IA.",
+    homepageDescription: "Créez des employés IA, des équipes spécialisées et des départements qui réalisent un véritable travail métier, avec permissions, approbations, contrôle des coûts et traçabilité.",
+    explorePlatform: "Découvrir la plateforme", permissionAware: "Permissions intégrées", humanGoverned: "Sous contrôle humain", businessReady: "Prêt pour l’entreprise",
+    footerStatement: "Le système d’exploitation de votre workforce IA.", footerDescription: "Des employés et départements IA qui réalisent un travail métier réel sous contrôle humain.",
+    product: "Produit", companyLabel: "Entreprise", footerControl: "Workforce IA. Contrôle humain.",
+    platformPageTitle: "Une plateforme maîtrisée pour le travail métier assisté par IA", platformPageDescription: "Organisez employés IA, capacités, outils, permissions et WorkItems dans une structure opérationnelle responsable.",
+    howPageTitle: "De la demande métier au résultat traçable", howPageDescription: "HIRI transforme la demande en WorkItems gouvernés, les attribue aux employés IA compétents et enregistre les résultats pour révision.",
+    salesPageTitle: "Pilotez les ventes avec des employés IA spécialisés", salesPageDescription: "Coordonnez le traitement des prospects, les conversations et les relances tout en contrôlant les actions sensibles par des permissions et approbations.",
+    aboutPageTitle: "Conçu pour des opérations IA responsables", aboutPageDescription: "HIRI est une plateforme de workforce IA fondée sur la responsabilité, le contrôle humain et la visibilité opérationnelle.",
+    contactPageTitle: "Échangez avec HIRI", contactPageDescription: "Contactez l’équipe HIRI pour étudier l’intégration d’une workforce IA à votre modèle opérationnel.",
+    foundationLabel: "Fondation de la phase 1", foundationNote: "Le contenu détaillé et la composition visuelle finale seront réalisés en phase 2.",
+    registerTitle: "Créez votre compte HIRI", registerDescription: "Configurez votre identité d’opérateur, puis accédez à votre environnement de travail.",
+    displayName: "Nom affiché", displayNameRequired: "Le nom affiché est requis", passwordMinimum: "Utilisez au moins 12 caractères",
+    confirmPassword: "Confirmer le mot de passe", passwordsMismatch: "Les mots de passe ne correspondent pas", creatingAccount: "Création du compte",
+    accountExists: "Un compte existe déjà avec cette adresse e-mail", unableCreateAccount: "Impossible de créer votre compte",
+    alreadyHaveAccount: "Vous avez déjà un compte ?", needAccount: "Besoin d’un compte ?", authFoundation: "Accès opérateur HIRI",
+    authStatement: "Accès sécurisé à votre environnement opérationnel de workforce IA."
+  },
+  ar: {
+    publicNavigation: "التنقل العام", mobileNavigation: "التنقل عبر الهاتف", skipContent: "الانتقال إلى المحتوى",
+    platformNav: "المنصة", howItWorksNav: "آلية العمل", salesNav: "المبيعات", aboutNav: "حول HIRI",
+    contactNav: "تواصل معنا", loginAction: "تسجيل الدخول", createAccount: "إنشاء حساب", openPublicNavigation: "فتح قائمة التنقل",
+    closePublicNavigation: "إغلاق قائمة التنقل", productLabel: "منصة القوى العاملة بالذكاء الاصطناعي", homepageTitle: "وظّف قواك العاملة بالذكاء الاصطناعي.",
+    homepageDescription: "أنشئ موظفين وفرقًا متخصصة وأقسامًا بالذكاء الاصطناعي تنفذ أعمالًا حقيقية، ضمن صلاحيات وموافقات وضوابط تكلفة وسجل قابل للتدقيق.",
+    explorePlatform: "استكشف المنصة", permissionAware: "مدرك للصلاحيات", humanGoverned: "بإشراف بشري", businessReady: "جاهز للأعمال",
+    footerStatement: "نظام تشغيل قواك العاملة بالذكاء الاصطناعي.", footerDescription: "موظفون وأقسام بالذكاء الاصطناعي ينفذون أعمالًا حقيقية تحت إشراف بشري.",
+    product: "المنتج", companyLabel: "الشركة", footerControl: "قوى عاملة ذكية. تحكم بشري.",
+    platformPageTitle: "منصة منضبطة لأعمال الذكاء الاصطناعي", platformPageDescription: "نظّم الموظفين والقدرات والأدوات والصلاحيات وWorkItems ضمن هيكل تشغيلي واضح المسؤولية.",
+    howPageTitle: "من طلب العمل إلى نتيجة قابلة للمساءلة", howPageDescription: "تحوّل HIRI احتياجات العمل إلى WorkItems محكومة، وتسندها إلى موظفي الذكاء الاصطناعي المؤهلين، وتسجل النتائج للمراجعة.",
+    salesPageTitle: "أدِر أعمال المبيعات بموظفين متخصصين بالذكاء الاصطناعي", salesPageDescription: "نسّق معالجة العملاء المحتملين والمحادثات والمتابعة مع إبقاء الإجراءات الحساسة تحت تحكم الصلاحيات والموافقات.",
+    aboutPageTitle: "مصممة لعمليات ذكاء اصطناعي خاضعة للمساءلة", aboutPageDescription: "HIRI منصة للقوى العاملة بالذكاء الاصطناعي ترتكز على وضوح المسؤولية والتحكم البشري والرؤية التشغيلية.",
+    contactPageTitle: "تواصل مع HIRI", contactPageDescription: "تواصل مع فريق HIRI لمناقشة ملاءمة القوى العاملة بالذكاء الاصطناعي لنموذجك التشغيلي.",
+    foundationLabel: "أساس المرحلة الأولى", foundationNote: "سيُستكمل المحتوى التفصيلي والتكوين البصري النهائي في المرحلة الثانية.",
+    registerTitle: "أنشئ حسابك في HIRI", registerDescription: "أنشئ هوية المشغّل ثم انتقل إلى بيئة مساحة عملك.",
+    displayName: "الاسم المعروض", displayNameRequired: "الاسم المعروض مطلوب", passwordMinimum: "استخدم 12 حرفًا على الأقل",
+    confirmPassword: "تأكيد كلمة المرور", passwordsMismatch: "كلمتا المرور غير متطابقتين", creatingAccount: "جارٍ إنشاء الحساب",
+    accountExists: "يوجد حساب مسجل بهذا البريد الإلكتروني", unableCreateAccount: "تعذر إنشاء حسابك",
+    alreadyHaveAccount: "لديك حساب بالفعل؟", needAccount: "تحتاج إلى حساب؟", authFoundation: "دخول مشغّل HIRI",
+    authStatement: "وصول آمن إلى بيئة تشغيل قواك العاملة بالذكاء الاصطناعي."
+  }
+};
+
 type ExperienceValue = {
   theme: AppTheme;
   locale: AppLocale;
@@ -268,17 +337,23 @@ function initialLocale(): AppLocale {
 export function AppExperienceProvider({ children }: { children: React.ReactNode }) {
   const [theme, updateTheme] = useState<AppTheme>(initialTheme);
   const [locale, updateLocale] = useState<AppLocale>(initialLocale);
+  const direction = locale === "ar" ? "rtl" : "ltr";
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.documentElement.dir = direction;
+    document.documentElement.dataset.hiriTheme = theme;
+  }, [direction, locale, theme]);
   const value = useMemo<ExperienceValue>(() => ({
     theme,
     locale,
-    direction: locale === "ar" ? "rtl" : "ltr",
+    direction,
     setTheme: (next) => { localStorage.setItem("hiri-theme", next); updateTheme(next); },
     setLocale: (next) => { localStorage.setItem("hiri-locale", next); updateLocale(next); },
     t: (key, values = {}) => Object.entries(values).reduce(
       (message, [name, replacement]) => message.replaceAll(`{${name}}`, String(replacement)),
-      messages[locale][key] ?? messages.en[key] ?? key
+      publicMessages[locale][key] ?? messages[locale][key] ?? publicMessages.en[key] ?? messages.en[key] ?? key
     )
-  }), [locale, theme]);
+  }), [direction, locale, theme]);
   return <ExperienceContext.Provider value={value}>{children}</ExperienceContext.Provider>;
 }
 
