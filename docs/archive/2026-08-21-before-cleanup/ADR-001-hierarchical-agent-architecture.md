@@ -1,16 +1,3 @@
-> **STATUS: HISTORICAL ADR - PARTIALLY SUPERSEDED**
->
-> This ADR records the earlier hierarchical multi-agent design that helped shape HIRI.
->
-> Its principles around deterministic routing, department supervision, shared business data, permissions, approvals, AI cost control, typed execution and auditability remain relevant.
->
-> The hard-coded three-department hierarchy and Business Supervisor as the platform root are superseded by HIRI's current generic architecture:
->
-> Workspace / Tenant -> Department -> Department Supervisor -> AIEmployee -> Capability -> Allowed Tool / Integration / MCP -> Permissions / Policies -> WorkItem -> Approval when required -> Business Result -> Audit / Analytics
->
-> Current architecture decisions are defined in:
-> docs/project/HIRI_MASTER_PLAN.md
-
 # ADR-001: Hierarchical Multi-Agent Architecture
 
 ## Status

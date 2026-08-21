@@ -1,20 +1,3 @@
-> **STATUS: ACTIVE PRODUCTION REFERENCE WITH PARTIALLY SUPERSEDED INTEGRATION OWNERSHIP**
->
-> This document remains authoritative for production FastAPI runtime hardening,
-> PostgreSQL requirements, migrations, startup safety, Docker behavior, health,
-> metrics, CORS, proxy handling, and recovery guidance.
->
-> The older statements that assign WhatsApp Cloud transport credentials
-> exclusively to n8n are superseded.
->
-> Current HIRI direction:
-> - HIRI/FastAPI owns provider integration state and business decisions.
-> - Provider secrets remain external to PostgreSQL and are referenced safely.
-> - Direct provider adapters are the target production integration path.
-> - n8n remains optional compatibility / smoke infrastructure only.
->
-> Current architecture decisions are defined in:
-> docs/project/HIRI_MASTER_PLAN.md
 # Production Runtime
 
 Task 295 defines the supported FastAPI runtime policy. This is startup and

@@ -1,21 +1,3 @@
-> **STATUS: PARTIALLY SUPERSEDED — REFERENCE / MIGRATION DOCUMENT**
->
-> This document records the original WhatsApp Cloud foundation, including an
-> n8n-based transport design. That transport is no longer the target production
-> architecture for HIRI.
->
-> Current direction:
-> - HIRI/FastAPI owns provider integration state and business decisions.
-> - WhatsApp should progressively use direct HIRI provider adapters.
-> - n8n remains optional compatibility/smoke infrastructure only.
-> - Existing provider-neutral IntegrationAccount, WorkItem, approval, outbound
->   delivery, retry and audit architecture must be preserved.
->
-> Current architecture decisions are defined in:
-> docs/project/HIRI_MASTER_PLAN.md
->
-> Parts of this document covering payload normalization, provider identity,
-> idempotency and WhatsApp API contracts remain useful reference material.
 # WhatsApp Cloud Channel Foundation
 
 Task 286 introduces `whatsapp_cloud` as the first concrete customer-channel

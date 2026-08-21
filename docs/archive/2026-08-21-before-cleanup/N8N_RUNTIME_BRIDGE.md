@@ -1,13 +1,3 @@
-> **STATUS: OPTIONAL LEGACY / SMOKE-TEST INTEGRATION**
->
-> This document describes an existing n8n compatibility and smoke-test bridge.
-> n8n is **not required for HIRI production** and must not be treated as HIRI's
-> business logic, workflow owner, or execution architecture.
->
-> Current HIRI architecture and runtime decisions are defined in:
-> docs/project/HIRI_MASTER_PLAN.md
->
-> Preserve this bridge only as an optional integration/testing path.
 # Self-hosted n8n runtime bridge
 
 Task 285 adds an isolated, optional n8n runtime bridge for local smoke testing

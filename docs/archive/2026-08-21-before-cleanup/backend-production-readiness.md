@@ -1,17 +1,3 @@
-> **STATUS: HISTORICAL BACKEND ACCEPTANCE RECORD - PARTIALLY SUPERSEDED**
->
-> This document records the Task 300 backend production-readiness milestone as it was actually tested and accepted at that time.
->
-> It must not be used as HIRI's current implementation-status document.
->
-> Some statements are now historical, including frontend-not-implemented status and the n8n-based WhatsApp transport/credential ownership model. The real n8n WhatsApp acceptance path documented below is intentionally preserved as historical test evidence, not as the target production architecture.
->
-> Current implementation status:
-> docs/project/HIRI_CURRENT_IMPLEMENTATION_STATUS.md
->
-> Current architecture and integration direction:
-> docs/project/HIRI_MASTER_PLAN.md
-
 # Backend Production Readiness
 
 Task 300 is the final backend acceptance boundary before frontend work begins.

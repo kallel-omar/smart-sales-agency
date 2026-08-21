@@ -1,27 +1,28 @@
-# Architecture
+# HIRI Architecture
 
-```text
-Inbound event
-    |
-    v
-Supervisor Agent (deterministic router)
-    |
-    +--> New lead: Lead Researcher -> Qualifier -> Outreach Draft -> Human Approval
-    |
-    +--> Customer message: Sales Conversation Agent -> Human Approval
-    |
-    +--> Follow-up due: Follow-up Agent
+> **STATUS: SUPERSEDED**
+>
+> The previous contents of this file described an early Sales-only MVP
+> architecture and no longer represent the HIRI platform.
+>
+> The authoritative HIRI architecture is defined in:
+>
+> docs/project/HIRI_MASTER_PLAN.md
 
-Shared services
-- SQL database: leads, products, research, conversations, approvals, follow-ups
-- LLM provider abstraction: offline demo or OpenAI-compatible API
-- Channel adapters: console demo; WhatsApp safe stub
-```
+## Permanent Architecture
 
-## Why this MVP is intentionally bounded
+Workspace / Tenant
+→ Department
+→ Department Supervisor
+→ AIEmployee
+→ Capability
+→ Allowed Tool / Integration / MCP
+→ Permissions / Policies
+→ WorkItem
+→ Approval when required
+→ Business Result
+→ Audit / Analytics
 
-- It does not scrape websites automatically.
-- It does not send messages without approval by default.
-- It does not invent prices or stock.
-- The supervisor uses deterministic routing before introducing LLM autonomy.
-- Every future external tool should be tenant-scoped, permissioned, logged, and rate-limited.
+The historical version is preserved in:
+
+docs/archive/2026-08-21-before-cleanup/ARCHITECTURE.md

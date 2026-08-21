@@ -63,9 +63,9 @@ Create the archive outside the repository or under an ignored backup directory:
 
 ```powershell
 New-Item -ItemType Directory -Force .\backups | Out-Null
-pg_dump --format=custom --no-owner --no-acl --file .\backups\hiri.dump
-Get-FileHash .\backups\hiri.dump -Algorithm SHA256 |
-  Set-Content .\backups\hiri.dump.sha256
+pg_dump --format=custom --no-owner --no-acl --file .\backups\smart-sales-agency.dump
+Get-FileHash .\backups\smart-sales-agency.dump -Algorithm SHA256 |
+  Set-Content .\backups\smart-sales-agency.dump.sha256
 ```
 
 Verify the command exits zero, the archive exists, the archive is non-empty, and
@@ -82,7 +82,7 @@ production unless an operator has deliberately selected that recovery path.
 ```powershell
 $env:PGDATABASE = "<fresh-restore-database>"
 pg_restore --exit-on-error --single-transaction --no-owner --no-acl `
-  --dbname $env:PGDATABASE .\backups\hiri.dump
+  --dbname $env:PGDATABASE .\backups\smart-sales-agency.dump
 ```
 
 After restore:
