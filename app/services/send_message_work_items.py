@@ -90,9 +90,24 @@ class SendMessageWorkItemService:
         external_target_id: str | None = None,
         idempotency_source: str | None = None,
         correlation_id: UUID | None = None,
+        approval_id: UUID | None = None,
     ) -> SendMessageWorkItemResult:
         work_item = self.work_items.get_work_item(workspace, work_item_id)
-        if WorkItemStatus(work_item.status) != WorkItemStatus.ASSIGNED:
+        approval_authorized = approval_id is not None
+        approval_payload: dict = {}
+        if approval_authorized:
+            if WorkItemStatus(work_item.status) != WorkItemStatus.APPROVAL_REQUIRED:
+                raise ValueError(
+                    "send_message WorkItem must require approval before approved execution"
+                )
+            resumed = WorkItemApprovalService(self.session).resume_after_approval(
+                workspace,
+                work_item.id,
+                approval_id,
+            )
+            approval_payload = dict(resumed.approval.payload)
+            work_item = self.work_items.get_work_item(workspace, work_item.id)
+        elif WorkItemStatus(work_item.status) != WorkItemStatus.ASSIGNED:
             raise ValueError("send_message WorkItem must be assigned before execution")
         if work_item.assignment_id is None:
             raise ValueError("send_message WorkItem requires an assignment")
@@ -124,13 +139,29 @@ class SendMessageWorkItemService:
         stored_account = self.session.get(IntegrationAccount, account.id)
         if stored_account is None or stored_account.workspace_id != workspace.id:
             raise PermissionError("IntegrationAccount does not belong to this workspace")
-        message = message or self._required_input_text(work_item, "message")
-        external_target_id = external_target_id or self._required_input_text(work_item, "recipient")
+        configured_account_id = work_item.input.get("integration_account_id")
+        if configured_account_id is not None and str(stored_account.id) != str(
+            configured_account_id
+        ):
+            raise PermissionError(
+                "send_message WorkItem is configured for another IntegrationAccount"
+            )
+        message = (
+            message
+            or self._optional_text(approval_payload.get("message"))
+            or self._required_input_text(work_item, "message")
+        )
+        external_target_id = (
+            external_target_id
+            or self._optional_text(approval_payload.get("external_target_id"))
+            or self._required_input_text(work_item, "recipient")
+        )
         idempotency_source = idempotency_source or str(work_item.id)
         correlation_id = correlation_id or work_item.correlation_id
-        work_item = self.work_items.transition_work_item(
-            workspace, work_item.id, WorkItemStatus.RUNNING
-        )
+        if WorkItemStatus(work_item.status) == WorkItemStatus.ASSIGNED:
+            work_item = self.work_items.transition_work_item(
+                workspace, work_item.id, WorkItemStatus.RUNNING
+            )
 
         try:
             decision = AIEmployeeCapabilityToolAccessService(self.session).evaluate(
@@ -163,7 +194,7 @@ class SendMessageWorkItemService:
                     work_item=completed,
                 )
 
-            if decision.requires_human_approval:
+            if decision.requires_human_approval and not approval_authorized:
                 approval = WorkItemApprovalService(self.session).request_approval(
                     workspace,
                     work_item.id,
@@ -181,7 +212,7 @@ class SendMessageWorkItemService:
                     approval_id=approval.approval.id,
                 )
 
-            if not decision.may_execute_automatically:
+            if not decision.may_execute_automatically and not approval_authorized:
                 failed = self._fail(
                     workspace,
                     work_item,
@@ -282,4 +313,10 @@ class SendMessageWorkItemService:
         value = work_item.input.get(field)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"send_message WorkItem input requires {field}")
+        return value.strip()
+
+    @staticmethod
+    def _optional_text(value: object) -> str | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
         return value.strip()

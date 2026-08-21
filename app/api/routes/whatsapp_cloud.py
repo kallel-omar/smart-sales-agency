@@ -21,6 +21,11 @@ from app.schemas import (
 from app.services.inbound_integrations import (
     InboundIntegrationEventIdValidationError,
     InboundIntegrationService,
+    InboundSalesWorkItemRoutingError,
+)
+from app.services.meta_inbound import (
+    AmbiguousExternalIdentityLeadError,
+    InboundExternalIdentityService,
 )
 from app.services.repository import NotFoundError
 from app.services.workspaces import ensure_workspace_lead_capture_foundation
@@ -88,7 +93,15 @@ async def receive_whatsapp_cloud_text_event(
                 lead_id=existing_lead.id if existing_lead is not None else None,
             ),
         )
-        result = await integration_service.handle_event(
+        InboundExternalIdentityService(session).bind_captured_identity(
+            workspace,
+            account,
+            channel=WHATSAPP_CLOUD_PROVIDER,
+            external_subject_id=payload.sender_external_id,
+            contact_id=capture.contact_id,
+            lead_id=capture.lead_id,
+        )
+        result = await integration_service.handle_work_item_event(
             InboundIntegrationEvent(
                 lead_id=capture.lead_id,
                 channel=WHATSAPP_CLOUD_PROVIDER,
@@ -96,11 +109,17 @@ async def receive_whatsapp_cloud_text_event(
                 external_event_id=payload.provider_event_id,
             ),
             workspace,
+            account,
+            correlation_id=reservation.receipt.correlation_id,
         )
     except InboundIntegrationEventIdValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lead not found") from exc
+    except AmbiguousExternalIdentityLeadError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except InboundSalesWorkItemRoutingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return InboundIntegrationReplyRead(
         lead_id=capture.lead_id,

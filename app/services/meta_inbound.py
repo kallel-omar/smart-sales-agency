@@ -13,7 +13,14 @@ from app.integrations.providers import (
     FACEBOOK_MESSENGER_PROVIDER,
     INSTAGRAM_DM_PROVIDER,
 )
-from app.models import Contact, InboundExternalIdentity, IntegrationAccount, Lead, Workspace
+from app.models import (
+    Contact,
+    InboundExternalIdentity,
+    IntegrationAccount,
+    Lead,
+    Workspace,
+    utc_now,
+)
 from app.services.customer_contacts import CustomerContactService
 from app.services.inbound_integrations import (
     InboundEventReservation,
@@ -238,6 +245,64 @@ class InboundExternalIdentityService:
             if winner is None:
                 raise
             return winner
+
+    def bind_captured_identity(
+        self,
+        workspace: Workspace,
+        account: IntegrationAccount,
+        *,
+        channel: str,
+        external_subject_id: str,
+        contact_id: UUID,
+        lead_id: UUID,
+    ) -> InboundExternalIdentity:
+        """Persist channel/account context for an identity captured by another inbound adapter."""
+
+        self._validate_account(workspace, account)
+        self._validate_targets(workspace, contact_id, lead_id)
+        existing = self.get(workspace, account, channel, external_subject_id)
+        if existing is not None:
+            if existing.contact_id != contact_id or existing.lead_id not in {None, lead_id}:
+                raise AmbiguousExternalIdentityLeadError(
+                    "External identity is already linked to another target"
+                )
+            existing.lead_id = lead_id
+            existing.updated_at = utc_now()
+            self.session.add(existing)
+            self.session.commit()
+            self.session.refresh(existing)
+            return existing
+
+        identity = InboundExternalIdentity(
+            workspace_id=workspace.id,
+            integration_account_id=account.id,
+            channel=channel,
+            external_subject_id=external_subject_id,
+            contact_id=contact_id,
+            lead_id=lead_id,
+        )
+        self.session.add(identity)
+        try:
+            self.session.commit()
+            self.session.refresh(identity)
+            return identity
+        except IntegrityError:
+            self.session.rollback()
+            winner = self.get(workspace, account, channel, external_subject_id)
+            if (
+                winner is None
+                or winner.contact_id != contact_id
+                or winner.lead_id not in {None, lead_id}
+            ):
+                raise
+            return self.bind_captured_identity(
+                workspace,
+                account,
+                channel=channel,
+                external_subject_id=external_subject_id,
+                contact_id=contact_id,
+                lead_id=lead_id,
+            )
 
     def prepare_for_capture(
         self,

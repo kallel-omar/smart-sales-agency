@@ -2,22 +2,38 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.config import Settings
+from app.core.capabilities import BusinessCapabilityKey
+from app.core.events import Department as DepartmentKind
 from app.core.lead_capture import LeadCaptureResult, LeadCaptureSignal
+from app.core.work_items import WorkItemStatus
 from app.departments.sales.services import (
     SalesConversationTurnInput,
     SalesConversationTurnResult,
     SalesConversationTurnService,
+    SalesWorkItemExecutionService,
 )
-from app.models import InboundIntegrationEventReceipt, IntegrationAccount, Workspace
+from app.models import (
+    Capability,
+    Department,
+    InboundIntegrationEventReceipt,
+    IntegrationAccount,
+    SalesHandoffReasonCode,
+    SalesStage,
+    Workspace,
+)
 from app.schemas import InboundIntegrationEvent
 from app.services.ai_invocation_gateway import AIInvocationGateway
+from app.services.department_supervisors import DepartmentSupervisorRoutingService
 from app.services.lead_capture import LeadCaptureService
 from app.services.repository import NotFoundError, SalesRepository
+from app.services.send_message_work_items import SendMessageWorkItemService
+from app.services.work_items import WorkItemService
 
 
 class InboundIntegrationService:
@@ -130,6 +146,146 @@ class InboundIntegrationService:
             )
         )
 
+    async def handle_work_item_event(
+        self,
+        event: InboundIntegrationEvent,
+        workspace: Workspace,
+        account: IntegrationAccount,
+        *,
+        correlation_id: UUID,
+    ) -> SalesConversationTurnResult:
+        """Execute one live inbound Sales turn through routed, persisted WorkItems."""
+
+        lead = self.repository.get_lead(event.lead_id)
+        if lead.tenant_id != workspace.slug or account.workspace_id != workspace.id:
+            raise NotFoundError("Lead not found")
+        department = self.repository.session.exec(
+            select(Department).where(
+                Department.workspace_id == workspace.id,
+                Department.kind == DepartmentKind.SALES,
+            )
+        ).first()
+        if department is None:
+            raise InboundSalesWorkItemRoutingError("Sales Department is not configured")
+        answer_capability = self._capability(
+            workspace, department, BusinessCapabilityKey.ANSWER_CUSTOMER
+        )
+        work_items = WorkItemService(self.repository.session)
+        answer = work_items.create_work_item(
+            workspace,
+            department,
+            work_type=BusinessCapabilityKey.ANSWER_CUSTOMER.value,
+            title="Answer inbound customer message",
+            capability=answer_capability,
+            input={
+                "lead_id": str(lead.id),
+                "channel": event.channel,
+                "customer_message": event.content,
+                "integration_account_id": str(account.id),
+                "external_event_id": event.external_event_id,
+            },
+        )
+        decision = DepartmentSupervisorRoutingService(self.repository.session).route_and_assign(
+            workspace, answer.id
+        )
+        answer = work_items.get_work_item(workspace, answer.id)
+        if not decision.routable or WorkItemStatus(answer.status) != WorkItemStatus.ASSIGNED:
+            raise InboundSalesWorkItemRoutingError(
+                "No eligible answer_customer AIEmployee assignment is configured"
+            )
+
+        # The outbound send_message WorkItem owns human/tool governance for live
+        # channel delivery, so the inner conversation service only produces its reply.
+        execution_settings = self.settings.model_copy(update={"require_human_approval": False})
+        answer = await SalesWorkItemExecutionService(
+            self.repository.session,
+            execution_settings,
+            ai_invocation_gateway=AIInvocationGateway(
+                self.repository.session,
+                self.settings,
+            ),
+        ).execute(workspace, answer.id)
+        result = dict(answer.result or {})
+        reply = self._required_result_text(result, "draft_reply")
+
+        send_capability = self._capability(
+            workspace, department, BusinessCapabilityKey.SEND_MESSAGE
+        )
+        send_item = work_items.create_work_item(
+            workspace,
+            department,
+            work_type="sales_reply_message",
+            title="Send Sales conversation reply",
+            capability=send_capability,
+            parent_work_item_id=answer.id,
+            input={
+                "lead_id": str(lead.id),
+                "integration_account_id": str(account.id),
+                "channel": event.channel,
+                "recipient": lead.phone or lead.email or lead.full_name,
+                "external_subject_id": lead.phone,
+                "message": reply,
+                "source_answer_work_item_id": str(answer.id),
+            },
+        )
+        send_decision = DepartmentSupervisorRoutingService(
+            self.repository.session
+        ).route_and_assign(workspace, send_item.id)
+        send_item = work_items.get_work_item(workspace, send_item.id)
+        if (
+            not send_decision.routable
+            or WorkItemStatus(send_item.status) != WorkItemStatus.ASSIGNED
+        ):
+            raise InboundSalesWorkItemRoutingError(
+                "No eligible send_message AIEmployee assignment is configured"
+            )
+        SendMessageWorkItemService(self.repository.session, self.settings).execute_work_item(
+            workspace,
+            send_item.id,
+            account,
+            idempotency_source=(f"inbound:{workspace.id}:{account.id}:{event.external_event_id}"),
+            correlation_id=correlation_id,
+        )
+
+        return SalesConversationTurnResult(
+            lead_id=lead.id,
+            detected_stage=SalesStage(result["detected_stage"]),
+            draft_reply=reply,
+            approval_id=None,
+            handoff_required=bool(result.get("handoff_required", False)),
+            handoff_reason_code=(
+                SalesHandoffReasonCode(result["handoff_reason_code"])
+                if result.get("handoff_reason_code")
+                else None
+            ),
+            ai_invoked=bool(result.get("ai_invoked", False)),
+        )
+
+    def _capability(
+        self,
+        workspace: Workspace,
+        department: Department,
+        key: BusinessCapabilityKey,
+    ) -> Capability:
+        capability = self.repository.session.exec(
+            select(Capability).where(
+                Capability.workspace_id == workspace.id,
+                Capability.department_id == department.id,
+                Capability.key == key,
+                Capability.active.is_(True),
+            )
+        ).first()
+        if capability is None:
+            raise InboundSalesWorkItemRoutingError(f"{key.value} Capability is not configured")
+        return capability
+
+    @staticmethod
+    def _required_result_text(result: dict, field: str) -> str:
+        value = result.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise InboundSalesWorkItemRoutingError(f"Sales WorkItem result requires {field}")
+        return value.strip()
+
     @staticmethod
     def _normalize_external_event_id(value: str) -> str:
         normalized = value.strip()
@@ -142,6 +298,10 @@ class InboundIntegrationService:
 
 class InboundIntegrationEventIdValidationError(ValueError):
     """Raised when a provider event identifier is not safe to persist."""
+
+
+class InboundSalesWorkItemRoutingError(RuntimeError):
+    """Raised when live inbound Sales work cannot use configured routed execution."""
 
 
 @dataclass(frozen=True)

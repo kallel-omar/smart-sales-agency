@@ -8,7 +8,16 @@ from sqlmodel import Session, select
 
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
-from app.models import Capability, Department, FollowUpTask, Lead, WorkItem, Workspace
+from app.models import (
+    Capability,
+    Department,
+    FollowUpTask,
+    InboundExternalIdentity,
+    IntegrationAccount,
+    Lead,
+    WorkItem,
+    Workspace,
+)
 from app.services.department_supervisors import (
     DepartmentSupervisorRoutingDecision,
     DepartmentSupervisorRoutingService,
@@ -59,18 +68,20 @@ class FollowUpWorkItemMaterializationService:
 
         department, capability = self._sales_follow_up_context(workspace)
         try:
+            input_data = {
+                "follow_up_task_id": str(task.id),
+                "lead_id": str(lead.id),
+                "reason": task.reason,
+                "scheduled_at": due_at.isoformat(),
+            }
+            input_data.update(self._captured_outbound_context(workspace, lead, task))
             work_item = self.work_items.create_work_item(
                 workspace,
                 department,
                 work_type="sales_follow_up",
                 title="Follow up with lead",
                 capability=capability,
-                input={
-                    "follow_up_task_id": str(task.id),
-                    "lead_id": str(lead.id),
-                    "reason": task.reason,
-                    "scheduled_at": due_at.isoformat(),
-                },
+                input=input_data,
                 source_follow_up_task_id=task.id,
             )
         except IntegrityError:
@@ -114,3 +125,41 @@ class FollowUpWorkItemMaterializationService:
                 "follow_up_lead is not configured for the Sales Department"
             )
         return department, capability
+
+    def _captured_outbound_context(
+        self,
+        workspace: Workspace,
+        lead: Lead,
+        task: FollowUpTask,
+    ) -> dict[str, str]:
+        identities = list(
+            self.session.exec(
+                select(InboundExternalIdentity)
+                .where(
+                    InboundExternalIdentity.workspace_id == workspace.id,
+                    InboundExternalIdentity.lead_id == lead.id,
+                )
+                .order_by(InboundExternalIdentity.updated_at.desc())
+                .limit(2)
+            ).all()
+        )
+        if not identities:
+            return {}
+        if len(identities) > 1:
+            raise FollowUpWorkItemConfigurationError("Follow-up outbound identity is ambiguous")
+        identity = identities[0]
+        account = self.session.exec(
+            select(IntegrationAccount).where(
+                IntegrationAccount.id == identity.integration_account_id,
+                IntegrationAccount.workspace_id == workspace.id,
+                IntegrationAccount.active.is_(True),
+            )
+        ).first()
+        if account is None:
+            raise FollowUpWorkItemConfigurationError("Follow-up IntegrationAccount is unavailable")
+        return {
+            "integration_account_id": str(account.id),
+            "channel": identity.channel,
+            "recipient": identity.external_subject_id,
+            "message": f"Following up: {task.reason.strip()}",
+        }

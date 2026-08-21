@@ -3,17 +3,23 @@ from uuid import UUID
 import pytest
 from sqlmodel import select
 
+from app.core.ai_employees import AIEmployeeRoleKey
+from app.core.ai_tool_access import AIEmployeeAutonomyLevel
+from app.core.capabilities import BusinessCapabilityKey
 from app.db import get_session
 from app.main import app
 from app.models import (
+    AIEmployeeCapabilityAssignment,
     AIInvocationUsage,
     Capability,
     Contact,
     ConversationMessage,
     Department,
     InboundIntegrationEventReceipt,
+    IntegrationAccount,
     Lead,
     OutboundIntegrationAction,
+    OutboundIntegrationActionType,
     SalesConversationHandoff,
     User,
     WorkItem,
@@ -21,6 +27,13 @@ from app.models import (
     WorkspaceMember,
     WorkspaceMemberRole,
 )
+from app.services.ai_employee_capability_assignments import (
+    AIEmployeeCapabilityAssignmentService,
+)
+from app.services.ai_employee_tool_access import AIEmployeeCapabilityToolAccessService
+from app.services.ai_employees import AIEmployeeService
+from app.services.capabilities import CapabilityService
+from app.services.departments import DepartmentService
 from app.services.lead_capture import LeadCaptureService
 
 PHONE_NUMBER_ID = "555666777888999"
@@ -37,9 +50,40 @@ def _workspace_headers(slug: str) -> dict[str, str]:
 def _create_workspace(client, slug: str) -> None:
     response = client.post("/api/workspaces", json={"slug": slug, "name": slug})
     assert response.status_code == 201
+    _provision_sales_workforce(slug)
 
 
-def _create_legacy_workspace(client, slug: str) -> None:
+def _provision_sales_workforce(slug: str) -> None:
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        workspace = session.exec(select(Workspace).where(Workspace.slug == slug)).one()
+        department = DepartmentService(session).ensure_sales_department(workspace)
+        capabilities = {
+            capability.key: capability
+            for capability in CapabilityService(session).ensure_sales_capabilities(
+                workspace, department
+            )
+        }
+        employee = AIEmployeeService(session).create_for_department(
+            workspace,
+            department,
+            AIEmployeeRoleKey.SALES_CONVERSATION,
+            name="WhatsApp Sales",
+        )
+        assignments = AIEmployeeCapabilityAssignmentService(session)
+        assignments.assign(
+            workspace,
+            employee,
+            capabilities[BusinessCapabilityKey.ANSWER_CUSTOMER],
+        )
+        assignments.assign(
+            workspace,
+            employee,
+            capabilities[BusinessCapabilityKey.SEND_MESSAGE],
+        )
+
+
+def _create_legacy_workspace(client, slug: str, *, provision_workforce: bool = True) -> None:
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         user = session.exec(select(User)).first()
@@ -55,6 +99,8 @@ def _create_legacy_workspace(client, slug: str) -> None:
             )
         )
         session.commit()
+    if provision_workforce:
+        _provision_sales_workforce(slug)
 
 
 def _create_lead(client, slug: str, *, phone: str = CUSTOMER_EXTERNAL_ID) -> str:
@@ -79,6 +125,7 @@ def _provision_account(
     *,
     provider: str = "whatsapp_cloud",
     phone_number_id: str = PHONE_NUMBER_ID,
+    grant_tool_access: bool = True,
 ) -> dict:
     response = client.post(
         "/api/integrations/accounts",
@@ -90,7 +137,34 @@ def _provision_account(
         },
     )
     assert response.status_code == 201
-    return response.json()
+    account_data = response.json()
+    if not grant_tool_access:
+        return account_data
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        workspace = session.exec(select(Workspace).where(Workspace.slug == slug)).one()
+        account = session.get(IntegrationAccount, UUID(account_data["id"]))
+        assert account is not None
+        capability = session.exec(
+            select(Capability).where(
+                Capability.workspace_id == workspace.id,
+                Capability.key == BusinessCapabilityKey.SEND_MESSAGE,
+            )
+        ).one()
+        assignment = session.exec(
+            select(AIEmployeeCapabilityAssignment).where(
+                AIEmployeeCapabilityAssignment.workspace_id == workspace.id,
+                AIEmployeeCapabilityAssignment.capability_id == capability.id,
+            )
+        ).one()
+        AIEmployeeCapabilityToolAccessService(session).grant(
+            workspace,
+            assignment,
+            account,
+            OutboundIntegrationActionType.SEND_MESSAGE,
+            AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+        )
+    return account_data
 
 
 def _normalized_payload(**overrides) -> dict:
@@ -123,9 +197,7 @@ def _message_count(lead_id: str) -> int:
     with next(session_dependency()) as session:
         return len(
             session.exec(
-                select(ConversationMessage).where(
-                    ConversationMessage.lead_id == UUID(lead_id)
-                )
+                select(ConversationMessage).where(ConversationMessage.lead_id == UUID(lead_id))
             ).all()
         )
 
@@ -185,15 +257,18 @@ def test_duplicate_whatsapp_event_reuses_task251_receipt_without_second_turn(
         "duplicate": True,
         "correlation_id": first.json()["correlation_id"],
     }
-    assert _message_count(lead_id) == 1
+    # One governed sales turn persists the inbound message and its assistant reply;
+    # replay must not add either message again.
+    assert _message_count(lead_id) == 2
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         receipt = session.exec(select(InboundIntegrationEventReceipt)).one()
         assert receipt.external_event_id == EVENT_ID
         assert len(session.exec(select(Lead)).all()) == 1
-        assert len(
-            session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all()
-        ) == 2
+        assert (
+            len(session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all())
+            == 2
+        )
 
 
 def test_whatsapp_first_delivery_can_capture_a_new_lead(
@@ -214,11 +289,14 @@ def test_whatsapp_first_delivery_can_capture_a_new_lead(
         assert lead and lead.tenant_id == "company-a"
         assert lead.phone == CUSTOMER_EXTERNAL_ID
         assert lead.contact_id is not None
-        assert len(
-            session.exec(
-                select(ConversationMessage).where(ConversationMessage.lead_id == lead_id)
-            ).all()
-        ) == 1
+        assert (
+            len(
+                session.exec(
+                    select(ConversationMessage).where(ConversationMessage.lead_id == lead_id)
+                ).all()
+            )
+            == 2
+        )
 
 
 def test_legacy_workspace_whatsapp_capture_ensures_foundation(
@@ -234,27 +312,39 @@ def test_legacy_workspace_whatsapp_capture_ensures_foundation(
     assert response.status_code == 200
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
-        workspace = session.exec(
-            select(Workspace).where(Workspace.slug == "legacy-whatsapp")
-        ).one()
-        assert len(
-            session.exec(
-                select(Department).where(Department.workspace_id == workspace.id)
-            ).all()
-        ) == 1
-        assert len(
-            session.exec(
-                select(Capability).where(Capability.workspace_id == workspace.id)
-            ).all()
-        ) == 1
+        workspace = session.exec(select(Workspace).where(Workspace.slug == "legacy-whatsapp")).one()
+        assert (
+            len(
+                session.exec(
+                    select(Department).where(Department.workspace_id == workspace.id)
+                ).all()
+            )
+            == 1
+        )
+        assert (
+            len(
+                session.exec(
+                    select(Capability).where(Capability.workspace_id == workspace.id)
+                ).all()
+            )
+            == 6
+        )
 
 
 def test_invalid_whatsapp_auth_does_not_provision_legacy_workspace(
     client,
     signed_webhook_request,
 ):
-    _create_legacy_workspace(client, "legacy-invalid-auth")
-    account = _provision_account(client, "legacy-invalid-auth")
+    _create_legacy_workspace(
+        client,
+        "legacy-invalid-auth",
+        provision_workforce=False,
+    )
+    account = _provision_account(
+        client,
+        "legacy-invalid-auth",
+        grant_tool_access=False,
+    )
     headers, body = _signed_request(signed_webhook_request, account, _normalized_payload())
     headers["X-Webhook-Signature"] = "invalid"
 
@@ -266,12 +356,14 @@ def test_invalid_whatsapp_auth_does_not_provision_legacy_workspace(
         workspace = session.exec(
             select(Workspace).where(Workspace.slug == "legacy-invalid-auth")
         ).one()
-        assert session.exec(
-            select(Department).where(Department.workspace_id == workspace.id)
-        ).all() == []
-        assert session.exec(
-            select(Capability).where(Capability.workspace_id == workspace.id)
-        ).all() == []
+        assert (
+            session.exec(select(Department).where(Department.workspace_id == workspace.id)).all()
+            == []
+        )
+        assert (
+            session.exec(select(Capability).where(Capability.workspace_id == workspace.id)).all()
+            == []
+        )
 
 
 def test_capture_failure_releases_receipt_for_one_successful_retry(
@@ -308,11 +400,12 @@ def test_capture_failure_releases_receipt_for_one_successful_retry(
     assert duplicate.json()["duplicate"] is True
     with next(session_dependency()) as session:
         assert len(session.exec(select(InboundIntegrationEventReceipt)).all()) == 1
-        assert len(session.exec(select(ConversationMessage)).all()) == 1
+        assert len(session.exec(select(ConversationMessage)).all()) == 2
         assert len(session.exec(select(Lead)).all()) == 1
-        assert len(
-            session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all()
-        ) == 1
+        assert (
+            len(session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all())
+            == 1
+        )
 
 
 def test_whatsapp_explicit_human_request_creates_handoff_without_ai(
@@ -341,7 +434,8 @@ def test_whatsapp_explicit_human_request_creates_handoff_without_ai(
     assert handoffs[0].reason_code == "human_requested"
     assert usage == []
     assert [message.content for message in messages] == [
-        "I need a human agent now - task287-live-5"
+        "I need a human agent now - task287-live-5",
+        "I can't confirm that request right now. A team member needs to assist with this request.",
     ]
 
 
