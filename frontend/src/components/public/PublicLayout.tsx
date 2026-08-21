@@ -1,4 +1,4 @@
-import { Languages, Menu, X } from "lucide-react";
+import { Languages, Menu, Moon, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
@@ -40,6 +40,7 @@ export function PublicLayout() {
           </nav>
           <div className="public-header-actions">
             <LanguageSelector />
+            <ThemeControl />
             <Link className="public-login-link" to="/login">{t("loginAction")}</Link>
             <Link className="public-primary-action" to="/register">{t("createAccount")}</Link>
           </div>
@@ -56,8 +57,8 @@ export function PublicLayout() {
         </div>
         {mobileOpen ? (
           <nav id="public-mobile-navigation" className="public-mobile-nav" aria-label={t("mobileNavigation")}>
-            {navigation.map(([key, path]) => <NavLink key={path} to={path}>{t(key)}</NavLink>)}
-            <div className="public-mobile-controls"><LanguageSelector /><Link to="/login">{t("loginAction")}</Link><Link className="public-primary-action" to="/register">{t("createAccount")}</Link></div>
+            {navigation.map(([key, path]) => <NavLink key={path} to={path} className={({ isActive }) => isActive ? "is-active" : undefined}>{t(key)}</NavLink>)}
+            <div className="public-mobile-controls"><LanguageSelector /><ThemeControl /><Link to="/login">{t("loginAction")}</Link><Link className="public-primary-action" to="/register">{t("createAccount")}</Link></div>
           </nav>
         ) : null}
       </header>
@@ -66,12 +67,19 @@ export function PublicLayout() {
         <div className="public-footer-grid">
           <div><Link to="/" className="public-brand"><img src="/hiri-logo.svg" alt="" /><span>HIRI</span></Link><p className="public-footer-statement">{t("footerStatement")}</p><p>{t("footerDescription")}</p></div>
           <div><h2>{t("product")}</h2><Link to="/platform">{t("platformNav")}</Link><Link to="/sales">{t("salesNav")}</Link><Link to="/how-it-works">{t("howItWorksNav")}</Link></div>
-          <div><h2>{t("companyLabel")}</h2><Link to="/about">{t("aboutNav")}</Link><Link to="/contact">{t("contactNav")}</Link><Link to="/login">{t("loginAction")}</Link></div>
+          <div><h2>{t("companyLabel")}</h2><Link to="/about">{t("aboutNav")}</Link><Link to="/contact">{t("contactNav")}</Link></div>
+          <div><h2>{t("accessLabel")}</h2><Link to="/login">{t("loginAction")}</Link><Link to="/register">{t("createAccount")}</Link></div>
         </div>
         <div className="public-footer-meta"><span>© 2026 HIRI</span><span>{t("footerControl")}</span></div>
       </footer>
     </div>
   );
+}
+
+function ThemeControl() {
+  const { setTheme, t, theme } = useAppExperience();
+  const next = theme === "light" ? "dark" : "light";
+  return <button type="button" className="public-theme-control" aria-label={t(next === "dark" ? "darkTheme" : "lightTheme")} onClick={() => setTheme(next)}>{theme === "light" ? <Moon aria-hidden="true" /> : <Sun aria-hidden="true" />}</button>;
 }
 
 function LanguageSelector() {
