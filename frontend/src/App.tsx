@@ -7,6 +7,7 @@ import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppShell } from "./components/layout/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
 import { InboxPage } from "./pages/InboxPage";
+import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
@@ -40,7 +41,7 @@ export function App() {
       <AuthProvider>
         <WorkspaceProvider>
           <Routes>
-            <Route path="/" element={<Navigate to="/app" replace />} />
+            <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route element={<ProtectedRoute />}>
               <Route path="/app" element={<AppShell />}>
@@ -56,7 +57,7 @@ export function App() {
                 <Route path="settings" element={<PlaceholderPage title="Settings" />} />
               </Route>
             </Route>
-            <Route path="*" element={<Navigate to="/app" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </WorkspaceProvider>
       </AuthProvider>

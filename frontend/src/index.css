@@ -3,6 +3,18 @@
 @tailwind utilities;
 
 :root {
+  --hiri-primary: #2563ea;
+  --hiri-page: #f8fafc;
+  --hiri-surface: #ffffff;
+  --hiri-text: #0f172a;
+  --hiri-text-secondary: #475569;
+  --hiri-muted: #64748b;
+  --hiri-border: #e2e8f0;
+  --hiri-success: #059669;
+  --hiri-warning: #d97706;
+  --hiri-danger: #dc2626;
+  --hiri-radius: 0.75rem;
+  --hiri-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
   color: #111827;
   background: #f8fafc;
   font-family:
@@ -15,6 +27,103 @@ body {
   margin: 0;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
+.section-anchor {
+  scroll-margin-top: 4rem;
+}
+
+.marketing-grid {
+  background-image:
+    linear-gradient(rgba(37, 99, 235, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.045) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, black, transparent 90%);
+}
+
+.marketing-grid-dark {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(to right, transparent, black 30%, black 70%, transparent);
+}
+
+.hiri-hero-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(to bottom, black, transparent 88%);
+}
+
+.hiri-mark-geometry,
+.hiri-cta-mark {
+  background:
+    linear-gradient(45deg, transparent 43%, rgba(59, 130, 246, 0.7) 43% 48%, transparent 48%),
+    linear-gradient(-45deg, transparent 43%, rgba(59, 130, 246, 0.7) 43% 48%, transparent 48%);
+  transform: rotate(12deg);
+}
+
+.hiri-cta-mark {
+  background:
+    linear-gradient(45deg, transparent 42%, white 42% 48%, transparent 48%),
+    linear-gradient(-45deg, transparent 42%, white 42% 48%, transparent 48%);
+}
+
+.hiri-product-frame {
+  border-radius: 0.875rem;
+}
+
+.hiri-sales-lines {
+  background-image: linear-gradient(90deg, transparent 0 49.95%, rgba(59, 130, 246, 0.08) 50%, transparent 50.05%);
+  background-size: 25% 100%;
+  mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
+}
+
+.hiri-workflow-grid {
+  background:
+    linear-gradient(rgba(37, 99, 235, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.035) 1px, transparent 1px),
+    #f8fafc;
+  background-size: 64px 64px;
+  mask-image: linear-gradient(to right, transparent, black 28%, black);
+}
+
+.hiri-platform-orbit::before,
+.hiri-platform-orbit::after {
+  position: absolute;
+  width: 0.45rem;
+  height: 0.45rem;
+  content: "";
+  background: #3b82f6;
+  border-radius: 999px;
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.1);
+}
+
+.hiri-platform-orbit::before {
+  top: 15%;
+  right: 14%;
+}
+
+.hiri-platform-orbit::after {
+  bottom: 15%;
+  left: 14%;
+}
+
+@media (max-width: 639px) {
+  .hiri-product-frame {
+    border-radius: 0.75rem;
+  }
+
+  .marketing-page h1,
+  .marketing-page h2 {
+    overflow-wrap: anywhere;
+  }
+}
+
 button,
 input,
 select {
@@ -24,4 +133,17 @@ select {
 *:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.36);
   outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
