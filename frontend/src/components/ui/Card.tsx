@@ -6,7 +6,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <section className={`rounded-lg border border-slate-200 bg-white shadow-sm ${className}`}>
+    <section className={`rounded-[0.625rem] border border-slate-200 bg-white shadow-sm ${className}`}>
       {children}
     </section>
   );

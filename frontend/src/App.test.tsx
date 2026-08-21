@@ -237,7 +237,8 @@ describe("HIRI frontend foundation", () => {
     await user.type(screen.getByLabelText(/password/i), "correct-password");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
-    expect(await screen.findByText("Smart Sales Agency")).toBeInTheDocument();
+    expect(await screen.findAllByText("Workspace A")).not.toHaveLength(0);
+    expect(screen.getByText("HIRI")).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: /dashboard/i })).toBeInTheDocument();
   });
 

@@ -24,10 +24,12 @@ import { apiClient } from "../lib/api";
 import { queryKeys } from "../lib/queryKeys";
 import type { AnalyticsDays } from "../types/api";
 import { useWorkspace } from "../workspaces/WorkspaceProvider";
+import { useAppExperience } from "../app/AppExperience";
 
 const periods: AnalyticsDays[] = [7, 30, 90];
 
 export function AnalyticsPage() {
+  const { t } = useAppExperience();
   const { token } = useAuth();
   const { selectedWorkspace, selectedWorkspaceSlug } = useWorkspace();
   const [days, setDays] = useState<AnalyticsDays>(30);
@@ -48,15 +50,15 @@ export function AnalyticsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Analytics"
-        title="Business and workforce analytics"
-        description="Workspace-scoped operational facts from persisted WorkItems, approvals, AI accounting, and Sales leads."
-        action={<Badge tone="blue">{selectedWorkspace?.name ?? "No workspace"}</Badge>}
+        eyebrow={t("analytics")}
+        title={t("analytics")}
+        description={t("analyticsDescription")}
+        action={<Badge tone="blue">{selectedWorkspace?.name ?? t("noWorkspace")}</Badge>}
       />
       <div className="space-y-6 p-5 sm:p-7">
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-slate-700" htmlFor="analytics-period">
-            Reporting period
+            {t("period")}
           </label>
           <select
             id="analytics-period"
@@ -66,59 +68,59 @@ export function AnalyticsPage() {
           >
             {periods.map((period) => (
               <option key={period} value={period}>
-                Last {period} days
+                {t("lastDays", { days: period })}
               </option>
             ))}
           </select>
         </div>
 
-        {query.isLoading ? <LoadingState label="Loading analytics" /> : null}
+        {query.isLoading ? <LoadingState label={t("loadingAnalytics")} /> : null}
         {query.error ? (
-          <ErrorState description="Unable to load analytics for this workspace." />
+          <ErrorState description={t("unableLoadAnalytics")} />
         ) : null}
         {!query.isLoading && !query.error && noActivity ? (
           <EmptyState
             icon={Activity}
-            title="No activity in this period"
-            description={`No WorkItems, approvals, AI invocations, or leads were created in the last ${days} days.`}
+            title={t("noActivityPeriod")}
+            description={t("noActivityDescription", { days })}
           />
         ) : null}
 
         {data ? (
           <>
             <section aria-labelledby="analytics-overview">
-              <SectionTitle id="analytics-overview" title="Overview" />
+              <SectionTitle id="analytics-overview" title={t("overview")} />
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <MetricCard icon={Activity} label="WorkItems created" value={data.workitems.created} />
-                <MetricCard icon={CheckCircle2} label="Completed" value={data.workitems.completed} />
-                <MetricCard icon={CircleX} label="Failed" value={data.workitems.failed} />
-                <MetricCard icon={Activity} label="Success rate" value={formatRate(data.workitems.success_rate)} helper="Completed ÷ (completed + failed)" />
+                <MetricCard icon={Activity} label={t("workItemsCreated")} value={data.workitems.created} />
+                <MetricCard icon={CheckCircle2} label={t("completed")} value={data.workitems.completed} />
+                <MetricCard icon={CircleX} label={t("failed")} value={data.workitems.failed} />
+                <MetricCard icon={Activity} label={t("successRate")} value={formatRate(data.workitems.success_rate)} helper={t("successRateFormula")} />
               </div>
             </section>
 
             <section aria-labelledby="analytics-control">
-              <SectionTitle id="analytics-control" title="Human control" />
+              <SectionTitle id="analytics-control" title={t("humanControl")} />
               <div className="grid gap-4 md:grid-cols-3">
-                <MetricCard icon={ShieldCheck} label="Pending approvals" value={data.approvals.pending} />
-                <MetricCard icon={ShieldCheck} label="Approval requests" value={data.approvals.requests_created} />
-                <MetricCard icon={ShieldCheck} label="Approval request rate" value={formatRate(data.approvals.approval_request_rate)} helper="Distinct requested WorkItems ÷ WorkItems created" />
+                <MetricCard icon={ShieldCheck} label={t("pendingApprovals")} value={data.approvals.pending} />
+                <MetricCard icon={ShieldCheck} label={t("approvalRequests")} value={data.approvals.requests_created} />
+                <MetricCard icon={ShieldCheck} label={t("approvalRequestRate")} value={formatRate(data.approvals.approval_request_rate)} helper={t("approvalRateFormula")} />
               </div>
             </section>
 
             <section aria-labelledby="analytics-ai">
-              <SectionTitle id="analytics-ai" title="AI usage" />
+              <SectionTitle id="analytics-ai" title={t("aiUsage")} />
               <div className="grid gap-4 md:grid-cols-3">
-                <MetricCard icon={BrainCircuit} label="Invocations" value={data.ai_usage.invocation_count} />
-                <MetricCard icon={BrainCircuit} label="Tokens" value={data.ai_usage.total_tokens.toLocaleString()} />
-                <MetricCard icon={Coins} label="Known estimated cost" value={data.ai_usage.known_estimated_cost} helper={data.ai_usage.unknown_pricing_invocation_count ? `${data.ai_usage.unknown_pricing_invocation_count} invocation(s) have unknown pricing` : "Persisted accounting value"} />
+                <MetricCard icon={BrainCircuit} label={t("invocations")} value={data.ai_usage.invocation_count} />
+                <MetricCard icon={BrainCircuit} label={t("tokens")} value={data.ai_usage.total_tokens.toLocaleString()} />
+                <MetricCard icon={Coins} label={t("knownEstimatedCost")} value={data.ai_usage.known_estimated_cost} helper={data.ai_usage.unknown_pricing_invocation_count ? t("unknownPricingInvocations", { count: data.ai_usage.unknown_pricing_invocation_count }) : t("persistedAccountingValue")} />
               </div>
             </section>
 
             <div className="grid gap-6 xl:grid-cols-2">
               <AnalyticsTable
-                title="Workforce activity"
+                title={t("workforceActivity")}
                 icon={Bot}
-                headers={["Employee", "WorkItems", "Completed", "Failed", "Success", "Invocations", "Cost"]}
+                headers={[t("employee"), "WorkItems", t("completed"), t("failed"), t("success"), t("invocations"), t("cost")]}
                 rows={data.workforce.map((employee) => [
                   <div key={employee.employee_id}><span className="font-medium text-slate-900">{employee.name}</span><span className="block text-xs text-slate-500">{label(employee.role)} · {label(employee.department)}</span></div>,
                   employee.workitems,
@@ -130,9 +132,9 @@ export function AnalyticsPage() {
                 ])}
               />
               <AnalyticsTable
-                title="Capability activity"
+                title={t("capabilityActivity")}
                 icon={Activity}
-                headers={["Capability", "WorkItems", "Completed", "Failed", "Success", "Invocations", "Cost"]}
+                headers={[t("capability"), "WorkItems", t("completed"), t("failed"), t("success"), t("invocations"), t("cost")]}
                 rows={data.capabilities.map((capability) => [
                   label(capability.key),
                   capability.workitems,
@@ -146,18 +148,18 @@ export function AnalyticsPage() {
             </div>
 
             <section aria-labelledby="analytics-sales">
-              <SectionTitle id="analytics-sales" title="Sales" />
+              <SectionTitle id="analytics-sales" title={t("sales")} />
               <div className="grid gap-4 md:grid-cols-3">
-                <MetricCard icon={UsersRound} label="Total leads" value={data.sales.total_leads} />
-                <MetricCard icon={UsersRound} label="Leads created" value={data.sales.leads_created} />
-                <MetricCard icon={CheckCircle2} label="Won leads" value={data.sales.won_leads} helper="Persisted won status" />
+                <MetricCard icon={UsersRound} label={t("totalLeads")} value={data.sales.total_leads} />
+                <MetricCard icon={UsersRound} label={t("leadsCreated")} value={data.sales.leads_created} />
+                <MetricCard icon={CheckCircle2} label={t("wonLeads")} value={data.sales.won_leads} helper={t("persistedWonStatus")} />
               </div>
               <Card className="mt-4 p-5">
-                <h3 className="text-sm font-semibold text-slate-900">Lead status breakdown</h3>
+                <h3 className="text-sm font-semibold text-slate-900">{t("leadStatusBreakdown")}</h3>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                   {Object.entries(data.sales.by_status).map(([status, count]) => (
                     <div key={status} className="rounded-md border border-slate-200 px-3 py-3">
-                      <p className="text-xs font-medium text-slate-500">{label(status)}</p>
+                      <p className="text-xs font-medium text-slate-500">{t(status) === status ? label(status) : t(status)}</p>
                       <p className="mt-1 text-lg font-semibold text-slate-900">{count}</p>
                     </div>
                   ))}
@@ -190,6 +192,7 @@ function AnalyticsTable({
   headers: string[];
   rows: React.ReactNode[][];
 }) {
+  const { t } = useAppExperience();
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-2 border-b border-slate-200 p-5">
@@ -205,7 +208,7 @@ function AnalyticsTable({
             {rows.map((row, rowIndex) => (
               <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className="whitespace-nowrap px-4 py-3 text-slate-700">{cell}</td>)}</tr>
             ))}
-            {!rows.length ? <tr><td className="px-4 py-5 text-slate-500" colSpan={headers.length}>No configured activity.</td></tr> : null}
+            {!rows.length ? <tr><td className="px-4 py-5 text-slate-500" colSpan={headers.length}>{t("noConfiguredActivity")}</td></tr> : null}
           </tbody>
         </table>
       </div>

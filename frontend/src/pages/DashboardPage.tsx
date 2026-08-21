@@ -12,9 +12,11 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { apiClient } from "../lib/api";
 import { queryKeys } from "../lib/queryKeys";
 import { useWorkspace } from "../workspaces/WorkspaceProvider";
+import { useAppExperience } from "../app/AppExperience";
 
 export function DashboardPage() {
-  const { token, user } = useAuth();
+  const { t } = useAppExperience();
+  const { token } = useAuth();
   const { selectedWorkspace, selectedWorkspaceSlug, isLoading, error } = useWorkspace();
 
   const [leadsQuery, integrationsQuery, operationsQuery, analyticsQuery] = useQueries({
@@ -43,13 +45,13 @@ export function DashboardPage() {
   });
 
   if (isLoading) {
-    return <LoadingState label="Loading dashboard" />;
+    return <LoadingState label={t("loadingDashboard")} />;
   }
 
   if (error) {
     return (
       <div className="p-6">
-        <ErrorState description="Unable to load your accessible workspaces." />
+        <ErrorState description={t("unableLoadWorkspaces")} />
       </div>
     );
   }
@@ -59,8 +61,8 @@ export function DashboardPage() {
       <div className="p-6">
         <EmptyState
           icon={AlertCircle}
-          title="No workspace available"
-          description="Create or join a workspace before using the operating dashboard."
+          title={t("noWorkspaceAvailable")}
+          description={t("noWorkspaceDescription")}
         />
       </div>
     );
@@ -78,50 +80,50 @@ export function DashboardPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Overview"
-        title={`Good to see you${user?.display_name ? `, ${user.display_name}` : ""}`}
-        description={`${selectedWorkspace.name} is selected. This shell reads only FastAPI APIs and uses workspace slug headers for scoped requests.`}
-        action={<Badge tone={selectedWorkspace.active ? "green" : "amber"}>{selectedWorkspace.active ? "Active" : "Inactive"}</Badge>}
+        eyebrow={t("overview")}
+        title={t("commandCenter")}
+        description={t("commandDescription")}
+        action={<Badge tone={selectedWorkspace.active ? "green" : "amber"}>{selectedWorkspace.active ? t("active") : t("inactive")}</Badge>}
       />
 
       <div className="space-y-6 p-5 sm:p-7">
-        {dashboardLoading ? <LoadingState label="Loading dashboard data" /> : null}
+        {dashboardLoading ? <LoadingState label={t("loadingDashboardData")} /> : null}
         {dashboardError ? (
-          <ErrorState description="One or more dashboard sections could not be loaded. No sensitive backend details are shown here." />
+          <ErrorState description={t("dashboardSectionsError")} />
         ) : null}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={Bot} label="AI employees" value={analyticsQuery.data?.workforce.length ?? 0} helper="Configured workforce" />
-          <MetricCard icon={PlayCircle} label="Running WorkItems" value={analyticsQuery.data?.workitems.current.running ?? 0} helper="Current state" />
-          <MetricCard icon={CheckSquare} label="Approval required" value={analyticsQuery.data?.workitems.current.approval_required ?? 0} helper="Current WorkItem state" />
-          <MetricCard icon={CircleAlert} label="Failed WorkItems" value={analyticsQuery.data?.workitems.current.failed ?? 0} helper="Current state" />
+          <MetricCard icon={Bot} label={t("aiEmployees")} value={analyticsQuery.data?.workforce.length ?? 0} helper={t("configuredWorkforce")} />
+          <MetricCard icon={PlayCircle} label={t("runningWork")} value={analyticsQuery.data?.workitems.current.running ?? 0} helper={t("currentState")} />
+          <MetricCard icon={CheckSquare} label={t("approvalRequired")} value={analyticsQuery.data?.workitems.current.approval_required ?? 0} helper={t("currentWorkItemState")} />
+          <MetricCard icon={CircleAlert} label={t("failedWork")} value={analyticsQuery.data?.workitems.current.failed ?? 0} helper={t("currentState")} />
         </div>
 
         <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
           <Card className="p-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-base font-semibold text-slate-950">Recent operational state</h2>
-                <p className="mt-1 text-sm text-slate-600">Safe aggregates from FastAPI, not generated facts.</p>
+                <h2 className="text-base font-semibold text-slate-950">{t("recentState")}</h2>
+                <p className="mt-1 text-sm text-slate-600">{t("safeAggregates")}</p>
               </div>
-              <Badge tone="blue">Sales department</Badge>
+              <Badge tone="blue">{t("salesDepartment")}</Badge>
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <div className="rounded-md border border-slate-200 p-4">
-                <p className="text-sm text-slate-500">Delivered actions</p>
+                <p className="text-sm text-slate-500">{t("deliveredActions")}</p>
                 <p className="mt-2 text-xl font-semibold text-slate-950">
                   {operationsQuery.data?.delivered_outbound_action_count ?? 0}
                 </p>
               </div>
               <div className="rounded-md border border-slate-200 p-4">
-                <p className="text-sm text-slate-500">Failed actions</p>
+                <p className="text-sm text-slate-500">{t("failedActions")}</p>
                 <p className="mt-2 text-xl font-semibold text-slate-950">
                   {operationsQuery.data?.failed_outbound_action_count ?? 0}
                 </p>
               </div>
               <div className="rounded-md border border-slate-200 p-4">
-                <p className="text-sm text-slate-500">Estimated AI spend</p>
+                <p className="text-sm text-slate-500">{t("estimatedAiSpend")}</p>
                 <p className="mt-2 text-xl font-semibold text-slate-950">
                   {analyticsQuery.data?.ai_usage.known_estimated_cost ?? "0"}
                 </p>
@@ -132,20 +134,20 @@ export function DashboardPage() {
               <div className="mt-5">
                 <EmptyState
                   icon={UsersRound}
-                  title="No leads yet"
-                  description="When workspace leads exist, this dashboard will summarize them from FastAPI."
+                  title={t("noLeadsYet")}
+                  description={t("noLeadsDescription")}
                 />
               </div>
             ) : null}
           </Card>
 
           <Card className="p-5">
-            <h2 className="text-base font-semibold text-slate-950">Workspace readiness</h2>
+            <h2 className="text-base font-semibold text-slate-950">{t("readiness")}</h2>
             <div className="mt-5 space-y-3">
-              <ReadinessRow label="Workspace selected" ready={Boolean(selectedWorkspaceSlug)} />
-              <ReadinessRow label="Integration account active" ready={activeIntegrations.length > 0} />
-              <ReadinessRow label="Approval analytics available" ready={!analyticsQuery.isError} />
-              <ReadinessRow label="AI usage analytics available" ready={!analyticsQuery.isError} />
+              <ReadinessRow label={t("workspaceSelected")} ready={Boolean(selectedWorkspaceSlug)} readyLabel={t("ready")} emptyLabel={t("empty")} />
+              <ReadinessRow label={t("integrationAccountActive")} ready={activeIntegrations.length > 0} readyLabel={t("ready")} emptyLabel={t("empty")} />
+              <ReadinessRow label={t("approvalAnalyticsAvailable")} ready={!analyticsQuery.isError} readyLabel={t("ready")} emptyLabel={t("empty")} />
+              <ReadinessRow label={t("aiUsageAnalyticsAvailable")} ready={!analyticsQuery.isError} readyLabel={t("ready")} emptyLabel={t("empty")} />
             </div>
           </Card>
         </div>
@@ -154,11 +156,11 @@ export function DashboardPage() {
   );
 }
 
-function ReadinessRow({ label, ready }: { label: string; ready: boolean }) {
+function ReadinessRow({ label, ready, readyLabel, emptyLabel }: { label: string; ready: boolean; readyLabel: string; emptyLabel: string }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-md border border-slate-200 px-3 py-3">
       <span className="text-sm font-medium text-slate-700">{label}</span>
-      <Badge tone={ready ? "green" : "slate"}>{ready ? "Ready" : "Empty"}</Badge>
+      <Badge tone={ready ? "green" : "slate"}>{ready ? readyLabel : emptyLabel}</Badge>
     </div>
   );
 }

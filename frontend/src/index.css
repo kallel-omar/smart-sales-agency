@@ -130,6 +130,78 @@ select {
   font: inherit;
 }
 
+/* Authenticated HIRI application system. Deliberately scoped so the public site is unaffected. */
+.hiri-app {
+  --app-bg: #f3f6fa;
+  --app-surface: #ffffff;
+  --app-surface-2: #f8fafc;
+  --app-sidebar: #07101f;
+  --app-border: #dbe3ee;
+  --app-border-subtle: #e9eef5;
+  --app-text: #0b1220;
+  --app-text-secondary: #475569;
+  --app-text-muted: #718096;
+  --app-primary: #2563eb;
+  --app-primary-hover: #1d4ed8;
+  --app-success: #047857;
+  --app-warning: #b45309;
+  --app-danger: #b91c1c;
+  --app-info: #1d4ed8;
+  --app-focus: rgba(37, 99, 235, 0.36);
+  --app-shadow: 0 12px 35px rgba(15, 23, 42, 0.06);
+  --app-radius: 0.625rem;
+  min-width: 320px;
+  color: var(--app-text);
+  background: var(--app-bg);
+  font-family: Inter, "Segoe UI", Tahoma, Arial, sans-serif;
+}
+
+.hiri-app[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #09111e;
+  --app-surface: #101a2a;
+  --app-surface-2: #0c1625;
+  --app-sidebar: #050c17;
+  --app-border: #243247;
+  --app-border-subtle: #1b293c;
+  --app-text: #f1f5f9;
+  --app-text-secondary: #bac5d4;
+  --app-text-muted: #8492a6;
+  --app-success: #34d399;
+  --app-warning: #fbbf24;
+  --app-danger: #f87171;
+  --app-info: #60a5fa;
+  --app-shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
+}
+
+.hiri-app .app-content { background: var(--app-bg); }
+.hiri-app .app-sidebar { background: var(--app-sidebar); }
+.hiri-app .app-topbar { border-color: var(--app-border); background: color-mix(in srgb, var(--app-surface) 94%, transparent); backdrop-filter: blur(16px); }
+.hiri-app .app-text { color: var(--app-text); }
+.hiri-app .app-muted { color: var(--app-text-muted); }
+.hiri-app .app-nav-active { color: #fff; background: #2563eb; box-shadow: 0 8px 24px rgba(37, 99, 235, 0.22); }
+.hiri-app .app-icon-button { display: inline-grid; width: 2.5rem; height: 2.5rem; place-items: center; color: var(--app-text-secondary); border: 1px solid var(--app-border); border-radius: 0.5rem; background: var(--app-surface); transition: 150ms ease; }
+.hiri-app .app-icon-button:hover { color: var(--app-text); border-color: var(--app-primary); }
+.hiri-app .app-control { min-height: 2.5rem; padding-inline: 0.65rem; color: var(--app-text-secondary); border: 1px solid var(--app-border); border-radius: 0.5rem; background: var(--app-surface); }
+.hiri-app .app-control select { color: var(--app-text); background: transparent; outline: none; }
+
+.hiri-app .bg-white { background-color: var(--app-surface); }
+.hiri-app .bg-slate-50, .hiri-app .bg-slate-100 { background-color: var(--app-surface-2); }
+.hiri-app .text-slate-950, .hiri-app .text-slate-900, .hiri-app .text-slate-800 { color: var(--app-text); }
+.hiri-app .text-slate-700, .hiri-app .text-slate-600 { color: var(--app-text-secondary); }
+.hiri-app .text-slate-500, .hiri-app .text-slate-400 { color: var(--app-text-muted); }
+.hiri-app .border-slate-100, .hiri-app .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: var(--app-border-subtle); }
+.hiri-app .border-slate-200, .hiri-app .border-slate-300, .hiri-app .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--app-border); }
+.hiri-app .shadow-sm, .hiri-app .shadow-soft { box-shadow: var(--app-shadow); }
+.hiri-app table { text-align: start; }
+.hiri-app input, .hiri-app textarea, .hiri-app select { color: var(--app-text); border-color: var(--app-border); background-color: var(--app-surface); }
+.hiri-app option { color: var(--app-text); background: var(--app-surface); }
+.hiri-app [dir="ltr"], .hiri-app [dir="auto"], .hiri-app .bidi-data { unicode-bidi: plaintext; }
+.hiri-app img[src$="hiri-logo.svg"] { transform: none !important; }
+.hiri-app[dir="rtl"] { font-family: Tahoma, "Segoe UI", Arial, sans-serif; line-height: 1.65; }
+.hiri-app[dir="rtl"] .lucide-arrow-left { transform: scaleX(-1); }
+.hiri-app :focus-visible { outline-color: var(--app-focus); }
+
 *:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.36);
   outline-offset: 2px;

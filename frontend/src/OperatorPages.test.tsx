@@ -57,7 +57,7 @@ describe("operator pages", () => {
     await user.click(screen.getByText("Send proposal follow-up"));
     const dialog = await screen.findByRole("dialog", { name: /workitem details/i });
     expect(within(dialog).getByText("Here is the proposed follow-up.")).toBeInTheDocument();
-    expect(within(dialog).getByText("Correlation Id")).toBeInTheDocument();
+    expect(within(dialog).getByText("Correlation ID")).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /complete|fail|run/i })).not.toBeInTheDocument();
   });
 
