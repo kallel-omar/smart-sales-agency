@@ -1,6 +1,14 @@
+
+import hmac
+import json
+from hashlib import sha256
+from pathlib import Path
 from uuid import UUID
 
 import pytest
+from sqlmodel import select
+
+
 from sqlmodel import select
 
 from app.core.ai_employees import AIEmployeeRoleKey
@@ -41,6 +49,7 @@ WRONG_PHONE_NUMBER_ID = "999888777666555"
 CUSTOMER_EXTERNAL_ID = "15557654321"
 EVENT_ID = "wamid.HBgLMTU1NTc2NTQzMjEVAgASGBQzQUMzRjA0N0Y2MzY2QzA0AA=="
 ENDPOINT = "/api/integrations/inbound-events/whatsapp-cloud"
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "whatsapp_cloud"
 
 
 def _workspace_headers(slug: str) -> dict[str, str]:
@@ -189,6 +198,54 @@ def _signed_request(signed_webhook_request, account: dict, payload: dict):
         account["inbound_credential"],
         payload,
         event_id=payload["provider_event_id"],
+    )
+
+def _raw_fixture(name: str) -> dict:
+    return json.loads(
+        (FIXTURE_DIR / name).read_text(encoding="utf-8")
+    )
+
+
+def _configure_credential_reference(
+    client,
+    slug: str,
+    account: dict,
+    purpose: str,
+    secret_reference: str,
+) -> None:
+    response = client.put(
+        (
+            f"/api/integrations/accounts/{account['id']}"
+            f"/credential-references/{purpose}"
+        ),
+        headers=_workspace_headers(slug),
+        json={"secret_reference": secret_reference},
+    )
+    assert response.status_code == 200
+
+
+def _signed_meta_request(
+    fixture_name: str,
+    secret: str,
+) -> tuple[dict[str, str], bytes]:
+    payload = _raw_fixture(fixture_name)
+    body = json.dumps(
+        payload,
+        separators=(",", ":"),
+    ).encode()
+
+    signature = "sha256=" + hmac.new(
+        secret.encode(),
+        body,
+        sha256,
+    ).hexdigest()
+
+    return (
+        {
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": signature,
+        },
+        body,
     )
 
 
@@ -546,3 +603,315 @@ def test_whatsapp_outbound_action_rejects_provider_token_persistence(client):
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+def test_direct_whatsapp_webhook_verification_uses_account_verify_token(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-verify"
+    _create_workspace(client, slug)
+    account = _provision_account(client, slug)
+
+    monkeypatch.setenv(
+        "INTEGRATION_SECRET_WHATSAPP_VERIFY_TOKEN",
+        "hiri-meta-verify-token",
+    )
+
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_verify_token",
+        "INTEGRATION_SECRET_WHATSAPP_VERIFY_TOKEN",
+    )
+
+    endpoint = f"{ENDPOINT}/{account['id']}"
+
+    response = client.get(
+        endpoint,
+        params={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "hiri-meta-verify-token",
+            "hub.challenge": "123456789",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.text == "123456789"
+
+    rejected = client.get(
+        endpoint,
+        params={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "wrong-token",
+            "hub.challenge": "123456789",
+        },
+    )
+
+    assert rejected.status_code == 401
+
+
+def test_direct_whatsapp_text_enters_existing_sales_pipeline(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-text"
+    _create_workspace(client, slug)
+    lead_id = _create_lead(client, slug)
+    account = _provision_account(client, slug)
+
+    monkeypatch.setenv(
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+        "test-whatsapp-app-secret",
+    )
+
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+    )
+
+    headers, body = _signed_meta_request(
+        "valid_text.json",
+        "test-whatsapp-app-secret",
+    )
+
+    response = client.post(
+        f"{ENDPOINT}/{account['id']}",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["lead_id"] == lead_id
+    assert data["correlation_id"]
+
+
+def test_direct_whatsapp_duplicate_event_is_idempotent(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-duplicate"
+    _create_workspace(client, slug)
+    lead_id = _create_lead(client, slug)
+    account = _provision_account(client, slug)
+
+    monkeypatch.setenv(
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+        "test-whatsapp-app-secret",
+    )
+
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+    )
+
+    headers, body = _signed_meta_request(
+        "valid_text.json",
+        "test-whatsapp-app-secret",
+    )
+
+    endpoint = f"{ENDPOINT}/{account['id']}"
+
+    first = client.post(
+        endpoint,
+        headers=headers,
+        content=body,
+    )
+
+    assert first.status_code == 200
+
+    messages_after_first = _message_count(lead_id)
+
+    duplicate = client.post(
+        endpoint,
+        headers=headers,
+        content=body,
+    )
+
+    assert duplicate.status_code == 200
+    assert duplicate.json()["duplicate"] is True
+    assert _message_count(lead_id) == messages_after_first
+
+
+def test_direct_whatsapp_rejects_invalid_meta_signature(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-invalid-signature"
+    _create_workspace(client, slug)
+    account = _provision_account(client, slug)
+
+    monkeypatch.setenv(
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+        "test-whatsapp-app-secret",
+    )
+
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+    )
+
+    _, body = _signed_meta_request(
+        "valid_text.json",
+        "test-whatsapp-app-secret",
+    )
+
+    response = client.post(
+        f"{ENDPOINT}/{account['id']}",
+        headers={
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": "sha256=invalid",
+        },
+        content=body,
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid webhook authentication"
+
+
+def test_direct_whatsapp_requires_webhook_app_secret_reference(
+    client,
+):
+    slug = "direct-wa-missing-secret"
+    _create_workspace(client, slug)
+    account = _provision_account(client, slug)
+
+    headers, body = _signed_meta_request(
+        "valid_text.json",
+        "some-secret",
+    )
+
+    response = client.post(
+        f"{ENDPOINT}/{account['id']}",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid webhook authentication"
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "status_only.json",
+        "unsupported_media.json",
+    ],
+)
+def test_direct_whatsapp_acknowledges_valid_non_text_events(
+    client,
+    monkeypatch,
+    fixture_name,
+):
+    slug = f"direct-wa-ignore-{fixture_name.replace('.', '-')}"
+    _create_workspace(client, slug)
+    account = _provision_account(client, slug)
+
+    monkeypatch.setenv(
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+        "test-whatsapp-app-secret",
+    )
+
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+    )
+
+    headers, body = _signed_meta_request(
+        fixture_name,
+        "test-whatsapp-app-secret",
+    )
+
+    response = client.post(
+        f"{ENDPOINT}/{account['id']}",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 204
+
+
+def test_direct_whatsapp_rejects_provider_account_mismatch(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-account-mismatch"
+    _create_workspace(client, slug)
+    account = _provision_account(client, slug)
+
+    monkeypatch.setenv(
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+        "test-whatsapp-app-secret",
+    )
+
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+    )
+
+    headers, body = _signed_meta_request(
+        "wrong_account_phone.json",
+        "test-whatsapp-app-secret",
+    )
+
+    response = client.post(
+        f"{ENDPOINT}/{account['id']}",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Integration account not found"
+
+
+def test_direct_whatsapp_rejects_malformed_signed_payload(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-malformed"
+    _create_workspace(client, slug)
+    account = _provision_account(client, slug)
+
+    monkeypatch.setenv(
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+        "test-whatsapp-app-secret",
+    )
+
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+    )
+
+    headers, body = _signed_meta_request(
+        "malformed.json",
+        "test-whatsapp-app-secret",
+    )
+
+    response = client.post(
+        f"{ENDPOINT}/{account['id']}",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 422

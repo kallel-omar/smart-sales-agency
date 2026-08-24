@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.integrations.providers import META_MESSAGING_PROVIDERS
+
 from app.models import IntegrationAccount, Workspace, WorkspaceMember
 from app.services.authentication import (
     AuthenticationService,
@@ -49,6 +49,20 @@ from app.services.workspaces import (
     get_workspace_by_slug,
     resolve_integration_account,
     resolve_integration_workspace_for_account,
+)
+from app.integrations.providers import (
+    META_MESSAGING_PROVIDERS,
+    WHATSAPP_CLOUD_PROVIDER,
+)
+
+from app.services.integration_credential_references import (
+    IntegrationCredentialReferenceNotFoundError,
+    IntegrationCredentialReferenceService,
+)
+from app.services.secret_resolver import EnvironmentSecretResolver
+from app.services.whatsapp_cloud import (
+    WhatsAppCloudSignatureVerificationError,
+    verify_meta_signature,
 )
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -449,6 +463,69 @@ VerifiedMetaIntegrationContextDep = Annotated[
     IntegrationContext,
     Depends(get_verified_meta_integration_context),
 ]
+async def get_verified_whatsapp_cloud_integration_context(
+    account_id: UUID,
+    request: Request,
+    session: SessionDep,
+    signature: MetaWebhookSignatureHeader = None,
+) -> IntegrationContext:
+    """Authenticate a raw WhatsApp Cloud webhook against its configured account."""
+    try:
+        account = session.exec(
+            select(IntegrationAccount).where(
+                IntegrationAccount.id == account_id,
+                IntegrationAccount.active.is_(True),
+                IntegrationAccount.provider == WHATSAPP_CLOUD_PROVIDER,
+            )
+        ).first()
+
+        if account is None:
+            raise InvalidIntegrationContextError(
+                "Integration context is not recognized"
+            )
+
+        credential_reference = IntegrationCredentialReferenceService(
+            session
+        ).get_for_integration_account(
+            account,
+            "webhook_app_secret",
+        )
+
+        app_secret = EnvironmentSecretResolver().resolve(
+            credential_reference.secret_reference
+        )
+
+        verify_meta_signature(
+            payload=await request.body(),
+            signature_header=signature,
+            app_secret=app_secret,
+        )
+
+        workspace = resolve_integration_workspace_for_account(
+            session,
+            account,
+        )
+
+        return IntegrationContext(
+            account=account,
+            workspace=workspace,
+        )
+
+    except (
+        InvalidIntegrationContextError,
+        IntegrationCredentialReferenceNotFoundError,
+        WhatsAppCloudSignatureVerificationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid webhook authentication",
+        ) from exc
+
+
+VerifiedWhatsAppCloudIntegrationContextDep = Annotated[
+    IntegrationContext,
+    Depends(get_verified_whatsapp_cloud_integration_context),
+]
 
 
 def get_rate_limit_service(
@@ -525,6 +602,25 @@ def enforce_meta_integration_ingest_rate_limit(
 MetaIntegrationIngestRateLimitDep = Annotated[
     None,
     Depends(enforce_meta_integration_ingest_rate_limit),
+]
+def enforce_whatsapp_cloud_integration_ingest_rate_limit(
+    integration_context: VerifiedWhatsAppCloudIntegrationContextDep,
+    service: RateLimitServiceDep,
+    settings: SettingsDep,
+) -> None:
+    _enforce_rate_limit(
+        service,
+        _rate_limit_policy(settings, RateLimitPolicyId.INTEGRATION_INGEST),
+        _scope_key(
+            "integration_account",
+            str(integration_context.account.id),
+        ),
+    )
+
+
+WhatsAppCloudIntegrationIngestRateLimitDep = Annotated[
+    None,
+    Depends(enforce_whatsapp_cloud_integration_ingest_rate_limit),
 ]
 
 
