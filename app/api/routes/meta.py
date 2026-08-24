@@ -1,7 +1,8 @@
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
+from sqlmodel import select
 
 from app.api.dependencies import (
     MetaIntegrationIngestRateLimitDep,
@@ -11,6 +12,7 @@ from app.api.dependencies import (
 )
 from app.core.lead_capture import LeadCaptureSignal
 from app.integrations.providers import META_MESSAGING_PROVIDERS
+from app.models import IntegrationAccount
 from app.schemas import (
     InboundIntegrationDuplicateRead,
     InboundIntegrationEvent,
@@ -20,6 +22,11 @@ from app.schemas import (
 from app.services.inbound_integrations import (
     InboundIntegrationEventIdValidationError,
     InboundIntegrationService,
+    InboundSalesWorkItemRoutingError,
+)
+from app.services.integration_credential_references import (
+    IntegrationCredentialReferenceNotFoundError,
+    IntegrationCredentialReferenceService,
 )
 from app.services.meta_inbound import (
     AmbiguousExternalIdentityLeadError,
@@ -28,12 +35,55 @@ from app.services.meta_inbound import (
     MetaInboundAccountMismatchError,
     MetaInboundNormalizationError,
     MetaInboundNormalizer,
+    MetaWebhookVerificationError,
+    verify_meta_webhook_challenge,
 )
 from app.services.repository import NotFoundError
+from app.services.secret_resolver import EnvironmentSecretResolver
 from app.services.social_comment_automation import SocialCommentAutomationService
 from app.services.workspaces import ensure_workspace_lead_capture_foundation
 
 router = APIRouter(prefix="/integrations/inbound-events/meta", tags=["integrations"])
+
+
+@router.get("/{account_id}")
+def verify_meta_webhook(
+    account_id: UUID,
+    request: Request,
+    session: SessionDep,
+) -> Response:
+    """Verify a Messenger or Instagram callback URL for one account."""
+    account = session.exec(
+        select(IntegrationAccount).where(
+            IntegrationAccount.id == account_id,
+            IntegrationAccount.active.is_(True),
+            IntegrationAccount.provider.in_(META_MESSAGING_PROVIDERS),
+        )
+    ).first()
+    if account is None:
+        raise HTTPException(status_code=401, detail="Invalid webhook verification")
+    try:
+        credential_reference = IntegrationCredentialReferenceService(
+            session
+        ).get_for_integration_account(account, "webhook_verify_token")
+        configured_verify_token = EnvironmentSecretResolver().resolve(
+            credential_reference.secret_reference
+        )
+        challenge = verify_meta_webhook_challenge(
+            mode=request.query_params.get("hub.mode"),
+            verify_token=request.query_params.get("hub.verify_token"),
+            challenge=request.query_params.get("hub.challenge"),
+            configured_verify_token=configured_verify_token,
+        )
+    except (
+        IntegrationCredentialReferenceNotFoundError,
+        MetaWebhookVerificationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid webhook verification",
+        ) from exc
+    return Response(content=challenge, media_type="text/plain", status_code=200)
 
 
 @router.post(
@@ -162,7 +212,7 @@ async def receive_meta_event(
             )
         except InboundExternalIdentityBindingError:
             pass
-        result = await integration_service.handle_event(
+        result = await integration_service.handle_work_item_event(
             InboundIntegrationEvent(
                 lead_id=capture.lead_id,
                 channel=event.channel,
@@ -170,11 +220,16 @@ async def receive_meta_event(
                 external_event_id=event.provider_event_id,
             ),
             workspace,
+            account,
+            correlation_id=reservation.receipt.correlation_id,
+            external_target_id=event.sender_external_id,
         )
     except InboundIntegrationEventIdValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail="Lead not found") from exc
+    except InboundSalesWorkItemRoutingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return InboundIntegrationReplyRead(
         lead_id=capture.lead_id,

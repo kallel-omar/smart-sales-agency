@@ -107,6 +107,12 @@ class Settings(BaseSettings):
         gt=0,
         le=120,
     )
+    # First Instagram Sales MVP uses Instagram API with Facebook Login.
+    # Supporting the graph.instagram.com Instagram Login mode is a separate phase.
+    meta_graph_api_base_url: str = "https://graph.facebook.com"
+    meta_graph_api_version: str = "v23.0"
+    meta_graph_connect_timeout_seconds: float = Field(default=5, gt=0, le=60)
+    meta_graph_read_timeout_seconds: float = Field(default=15, gt=0, le=120)
     integration_health_window_days: int = Field(default=30, ge=1, le=90)
 
     @field_validator("app_host")

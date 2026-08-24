@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
@@ -30,6 +31,28 @@ from app.services.inbound_integrations import (
 
 class MetaInboundNormalizationError(ValueError):
     pass
+
+
+class MetaWebhookVerificationError(PermissionError):
+    pass
+
+
+def verify_meta_webhook_challenge(
+    *,
+    mode: str | None,
+    verify_token: str | None,
+    challenge: str | None,
+    configured_verify_token: str | None,
+) -> str:
+    if (
+        mode != "subscribe"
+        or not verify_token
+        or not challenge
+        or not configured_verify_token
+        or not hmac.compare_digest(verify_token, configured_verify_token)
+    ):
+        raise MetaWebhookVerificationError("Meta webhook verification failed")
+    return challenge
 
 
 class MetaInboundAccountMismatchError(MetaInboundNormalizationError):

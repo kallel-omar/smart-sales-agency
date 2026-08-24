@@ -153,6 +153,7 @@ class InboundIntegrationService:
         account: IntegrationAccount,
         *,
         correlation_id: UUID,
+        external_target_id: str | None = None,
     ) -> SalesConversationTurnResult:
         """Execute one live inbound Sales turn through routed, persisted WorkItems."""
 
@@ -211,6 +212,7 @@ class InboundIntegrationService:
         send_capability = self._capability(
             workspace, department, BusinessCapabilityKey.SEND_MESSAGE
         )
+        recipient = external_target_id or lead.phone or lead.email or lead.full_name
         send_item = work_items.create_work_item(
             workspace,
             department,
@@ -222,8 +224,8 @@ class InboundIntegrationService:
                 "lead_id": str(lead.id),
                 "integration_account_id": str(account.id),
                 "channel": event.channel,
-                "recipient": lead.phone or lead.email or lead.full_name,
-                "external_subject_id": lead.phone,
+                "recipient": recipient,
+                "external_subject_id": external_target_id or lead.phone,
                 "message": reply,
                 "source_answer_work_item_id": str(answer.id),
             },

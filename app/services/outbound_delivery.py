@@ -20,17 +20,18 @@ from app.services.delivery_adapters import (
     DeliveryAdapterRegistry,
     DeliveryAdapterResult,
     GenericWebhookDeliveryAdapter,
+    MetaGraphDeliveryAdapter,
     WhatsAppCloudDeliveryAdapter,
     default_delivery_adapter_registry,
 )
 from app.services.integration_accounts import IntegrationAccountService
+from app.services.integration_credential_references import (
+    IntegrationCredentialReferenceService,
+)
 from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
 from app.services.outbound_action_state_transitions import (
     OutboundIntegrationActionInvalidStateTransitionError,
     OutboundIntegrationActionStateTransitionGuard,
-)
-from app.services.integration_credential_references import (
-    IntegrationCredentialReferenceService,
 )
 from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
 from app.services.outbound_integrations import InactiveIntegrationAccountError
@@ -108,18 +109,26 @@ class OutboundIntegrationDeliveryService:
             signing_enabled=settings.outbound_webhook_signing_enabled,
         )
         whatsapp_cloud_adapter = WhatsAppCloudDeliveryAdapter(
-        IntegrationCredentialReferenceService(session),
-        graph_api_base_url=settings.whatsapp_cloud_graph_api_base_url,
-        graph_api_version=settings.whatsapp_cloud_graph_api_version,
-        connect_timeout_seconds=settings.whatsapp_cloud_connect_timeout_seconds,
-        read_timeout_seconds=settings.whatsapp_cloud_read_timeout_seconds,
-       )
+            IntegrationCredentialReferenceService(session),
+            graph_api_base_url=settings.whatsapp_cloud_graph_api_base_url,
+            graph_api_version=settings.whatsapp_cloud_graph_api_version,
+            connect_timeout_seconds=settings.whatsapp_cloud_connect_timeout_seconds,
+            read_timeout_seconds=settings.whatsapp_cloud_read_timeout_seconds,
+        )
+        meta_graph_adapter = MetaGraphDeliveryAdapter(
+            IntegrationCredentialReferenceService(session),
+            graph_api_base_url=settings.meta_graph_api_base_url,
+            graph_api_version=settings.meta_graph_api_version,
+            connect_timeout_seconds=settings.meta_graph_connect_timeout_seconds,
+            read_timeout_seconds=settings.meta_graph_read_timeout_seconds,
+        )
         return cls(
             session,
             adapter_registry=default_delivery_adapter_registry(
-    webhook_adapter,
-    whatsapp_cloud_adapter,
-),
+                webhook_adapter,
+                whatsapp_cloud_adapter,
+                meta_graph_adapter,
+            ),
             retry_policy=retry_policy,
         )
 
@@ -175,7 +184,6 @@ class OutboundIntegrationDeliveryService:
             raise InactiveIntegrationAccountError("Integration account is inactive")
 
         action = self._get_action_for_account(workspace, account, action_id)
-        previous_status = action.status
         try:
             self.transition_guard.require_retry_attempt(action)
         except OutboundIntegrationActionInvalidStateTransitionError as exc:

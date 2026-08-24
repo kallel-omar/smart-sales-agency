@@ -1,20 +1,20 @@
-from uuid import UUID
 from datetime import datetime
+from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.integrations.providers import WHATSAPP_CLOUD_PROVIDER
+from app.integrations.providers import META_MESSAGING_PROVIDERS, WHATSAPP_CLOUD_PROVIDER
 from app.models import (
     IntegrationAccount,
     OutboundIntegrationAction,
-    OutboundIntegrationAuditAction,
     OutboundIntegrationActionType,
+    OutboundIntegrationAuditAction,
     Workspace,
 )
 from app.services.integration_accounts import IntegrationAccountService
 from app.services.outbound_action_audit import OutboundIntegrationActionAuditService
 from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
-from app.services.whatsapp_cloud import assert_no_outbound_payload_secrets
+from app.services.outbound_payload_security import assert_no_outbound_payload_secrets
 
 
 class InactiveIntegrationAccountError(ValueError):
@@ -51,7 +51,10 @@ class OutboundIntegrationService:
         account = self.account_service.get_for_workspace(workspace, account_id)
         if not account.active:
             raise InactiveIntegrationAccountError("Integration account is inactive")
-        if account.provider == WHATSAPP_CLOUD_PROVIDER:
+        if (
+            account.provider == WHATSAPP_CLOUD_PROVIDER
+            or account.provider in META_MESSAGING_PROVIDERS
+        ):
             assert_no_outbound_payload_secrets(payload)
 
         normalized_input = {

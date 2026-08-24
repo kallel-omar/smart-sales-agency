@@ -8,21 +8,13 @@ from hashlib import sha256
 from typing import Any
 
 from app.integrations.providers import WHATSAPP_CLOUD_PROVIDER
+from app.services.outbound_payload_security import OutboundPayloadSecretError
+from app.services.outbound_payload_security import (
+    assert_no_outbound_payload_secrets as _assert_no_outbound_payload_secrets,
+)
 
 WHATSAPP_CLOUD_CHANNEL = WHATSAPP_CLOUD_PROVIDER
 WHATSAPP_CLOUD_GRAPH_API_BASE_URL = "https://graph.facebook.com"
-
-_FORBIDDEN_OUTBOUND_SECRET_KEYS = {
-    "access_token",
-    "app_secret",
-    "authorization",
-    "bearer_token",
-    "client_secret",
-    "permanent_token",
-    "token",
-    "verify_token",
-    "whatsapp_access_token",
-}
 
 
 class WhatsAppCloudWebhookVerificationError(PermissionError):
@@ -57,8 +49,14 @@ class WhatsAppCloudIgnoredEvent(WhatsAppCloudNormalizationError):
         super().__init__(f"Ignored WhatsApp Cloud event: {reason}")
 
 
-class WhatsAppCloudOutboundPayloadSecretError(ValueError):
-    """Raised when persisted outbound payload data contains provider credentials."""
+# Compatibility export for existing callers and tests.
+WhatsAppCloudOutboundPayloadSecretError = OutboundPayloadSecretError
+
+
+def assert_no_outbound_payload_secrets(payload: Any) -> None:
+    """Compatibility wrapper for the provider-neutral payload safeguard."""
+
+    _assert_no_outbound_payload_secrets(payload)
 
 
 @dataclass(frozen=True)
@@ -239,16 +237,6 @@ def build_text_send_request(
     )
 
 
-def assert_no_outbound_payload_secrets(payload: Any) -> None:
-    """Reject provider credentials inside FastAPI-persisted outbound payloads."""
-
-    forbidden = _find_forbidden_secret_key(payload)
-    if forbidden is not None:
-        raise WhatsAppCloudOutboundPayloadSecretError(
-            f"WhatsApp Cloud outbound payload must not contain provider credential key: {forbidden}"
-        )
-
-
 def _normalize_message(
     message: dict[str, Any],
     *,
@@ -318,28 +306,3 @@ def _parse_timestamp(value: Any) -> int | None:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     raise WhatsAppCloudNormalizationError("WhatsApp Cloud timestamp is invalid")
-
-
-def _find_forbidden_secret_key(value: Any) -> str | None:
-    if isinstance(value, dict):
-        for key, nested_value in value.items():
-            normalized_key = _normalize_key(str(key))
-            if (
-                normalized_key in _FORBIDDEN_OUTBOUND_SECRET_KEYS
-                or normalized_key.endswith("_secret")
-                or normalized_key.endswith("_token")
-            ):
-                return str(key)
-            nested = _find_forbidden_secret_key(nested_value)
-            if nested is not None:
-                return nested
-    elif isinstance(value, list):
-        for nested_value in value:
-            nested = _find_forbidden_secret_key(nested_value)
-            if nested is not None:
-                return nested
-    return None
-
-
-def _normalize_key(value: str) -> str:
-    return value.strip().lower().replace("-", "_").replace(" ", "_")

@@ -8,12 +8,12 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Protocol
 
+from app.config import Settings
 from app.integrations.providers import (
     GENERIC_HMAC_PROVIDER,
     META_MESSAGING_PROVIDERS,
     WHATSAPP_CLOUD_PROVIDER,
 )
-from app.config import Settings
 from app.models import IntegrationAccount
 from app.services.secret_resolver import EnvironmentSecretResolver, SecretResolver
 
@@ -149,12 +149,15 @@ class ProviderWebhookAuthenticationService:
         signature: str | None,
         timestamp: str | None,
         event_id: str | None,
+        secret_reference: str | None = None,
     ) -> VerifiedWebhookMetadata:
         verifier = self.verifiers.get(account.provider)
         if not verifier:
             raise WebhookAuthenticationError("Webhook authentication failed")
 
-        secret = self.secret_resolver.resolve(account.secret_reference)
+        secret = self.secret_resolver.resolve(
+            secret_reference or account.secret_reference
+        )
 
         return verifier.verify(
             payload=payload,

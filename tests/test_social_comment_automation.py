@@ -38,16 +38,42 @@ from app.services.ai_employees import AIEmployeeService
 from app.services.capabilities import CapabilityService
 from app.services.comment_trigger_rules import CommentTriggerRuleService
 from app.services.delivery_adapters import (
-    DeliveryAdapterRegistry,
-    NoopDeliveryAdapter,
+    HttpxMetaGraphHttpTransport,
+    MetaGraphHttpResponse,
 )
 from app.services.departments import DepartmentService
-from app.services.outbound_delivery import OutboundIntegrationDeliveryService
+from app.services.integration_credential_references import (
+    IntegrationCredentialReferenceService,
+)
 from app.services.workspaces import ensure_workspace_lead_capture_foundation
 
 ENDPOINT = "/api/integrations/inbound-events/meta"
 META_SECRET_REFERENCE = "INTEGRATION_SECRET_META_TEST"
 META_SECRET = "test-meta-comment-secret"
+
+
+@pytest.fixture(autouse=True)
+def fake_meta_graph_transport(monkeypatch):
+    calls = []
+
+    def fake_post(self, url, *, payload, headers, timeout):
+        del self
+        calls.append(
+            {
+                "url": url,
+                "payload": payload,
+                "headers": headers,
+                "timeout": timeout,
+            }
+        )
+        return MetaGraphHttpResponse(
+            status_code=200,
+            headers={},
+            body={"id": f"private-reply-{len(calls)}"},
+        )
+
+    monkeypatch.setattr(HttpxMetaGraphHttpTransport, "post", fake_post)
+    return calls
 
 
 def _setup(
@@ -85,6 +111,19 @@ def _setup(
         session.add(account)
         session.commit()
         session.refresh(account)
+        credential_references = IntegrationCredentialReferenceService(session)
+        credential_references.set_reference(
+            workspace,
+            account.id,
+            "webhook_app_secret",
+            META_SECRET_REFERENCE,
+        )
+        credential_references.set_reference(
+            workspace,
+            account.id,
+            "api_access_token",
+            META_SECRET_REFERENCE,
+        )
         channel = (
             InboundCommentChannel.FACEBOOK_COMMENT
             if provider == "facebook_messenger"
@@ -193,21 +232,6 @@ def _grant(workspace, account, assignment, autonomy):
         )
 
 
-def _enable_noop_meta_delivery(monkeypatch, provider):
-    def from_settings(cls, session, settings, **kwargs):
-        del cls, settings, kwargs
-        return OutboundIntegrationDeliveryService(
-            session,
-            adapter_registry=DeliveryAdapterRegistry({provider: NoopDeliveryAdapter()}),
-        )
-
-    monkeypatch.setattr(
-        OutboundIntegrationDeliveryService,
-        "from_settings",
-        classmethod(from_settings),
-    )
-
-
 @pytest.mark.parametrize("provider", ["facebook_messenger", "instagram_dm"])
 @pytest.mark.parametrize("rule_state", ["missing", "disabled", "unmatched"])
 def test_ordinary_comments_create_no_business_state(client, monkeypatch, provider, rule_state):
@@ -280,13 +304,24 @@ def test_matching_comment_captures_identity_lead_and_default_denied_send_work(
         (AIEmployeeAutonomyLevel.HIGH_AUTOMATION, "outbound_delivered", 0, 1),
     ],
 )
+@pytest.mark.parametrize("provider", ["facebook_messenger", "instagram_dm"])
 def test_autonomy_governs_comment_dm_delivery(
-    client, monkeypatch, autonomy, expected, approval_count, action_count
+    client,
+    monkeypatch,
+    autonomy,
+    expected,
+    approval_count,
+    action_count,
+    provider,
+    fake_meta_graph_transport,
 ):
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
-    workspace, account, assignment, rule = _setup(client, slug=f"comment-autonomy-{autonomy.value}")
+    workspace, account, assignment, rule = _setup(
+        client,
+        slug=f"comment-autonomy-{provider}-{autonomy.value}",
+        provider=provider,
+    )
     _grant(workspace, account, assignment, autonomy)
-    _enable_noop_meta_delivery(monkeypatch, account.provider)
 
     response = _post(client, account, _comment(account))
 
@@ -308,6 +343,16 @@ def test_autonomy_governs_comment_dm_delivery(
             assert actions[0].status == OutboundIntegrationActionStatus.DELIVERED
             assert actions[0].payload["work_item_id"] == str(send_item.id)
             assert "secret" not in json.dumps(actions[0].payload).casefold()
+    assert len(fake_meta_graph_transport) == action_count
+    if fake_meta_graph_transport:
+        call = fake_meta_graph_transport[0]
+        assert call["url"].endswith(
+            f"/{account.external_account_id}/messages"
+        )
+        assert call["payload"] == {
+            "recipient": {"comment_id": "comment-1"},
+            "message": {"text": rule.dm_message},
+        }
 
 
 def test_wrong_account_grant_is_denied_and_duplicate_comment_is_suppressed(client, monkeypatch):
@@ -376,6 +421,15 @@ def test_ambiguous_rules_and_invalid_signature_fail_closed(client, monkeypatch):
 def test_identity_and_lead_reused_across_distinct_comments_and_failure_is_durable(
     client, monkeypatch
 ):
+    def failing_post(self, url, *, payload, headers, timeout):
+        del self, url, payload, headers, timeout
+        return MetaGraphHttpResponse(
+            status_code=503,
+            headers={},
+            body={"error": {"message": "Synthetic provider outage"}},
+        )
+
+    monkeypatch.setattr(HttpxMetaGraphHttpTransport, "post", failing_post)
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
     workspace, account, assignment, _ = _setup(client, slug="comment-reuse-failure")
     _grant(

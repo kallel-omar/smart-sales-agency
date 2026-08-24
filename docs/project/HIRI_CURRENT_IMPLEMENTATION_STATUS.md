@@ -21,6 +21,35 @@ delivery attempts, audit records, credential-value hygiene, and workspace isolat
 
 The legacy normalized WhatsApp endpoint remains available as a compatibility path.
 
+### Direct Sales messaging channel status
+
+| Channel | Automated status | Provider status |
+| --- | --- | --- |
+| WhatsApp Cloud | Direct signed inbound → governed Sales WorkItems → native outbound delivery is covered end to end. | Ready for real Meta test-business validation. |
+| Facebook Messenger | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end with a fake HTTP transport. | Ready for real Meta Page/app validation; no live Meta request has been made. |
+| Instagram Direct | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end with a fake HTTP transport. | Ready for real professional-account/app validation; no live Meta request has been made. |
+
+The first Instagram Sales MVP explicitly uses **Instagram API with Facebook
+Login** for professional accounts linked through Meta's Facebook Login model.
+The configured `graph.facebook.com` host and Page access-token direction are
+intentional for this mode. Supporting Instagram API with Instagram Login and
+`graph.instagram.com` is a NEXT capability, not part of this implementation.
+
+Messenger and Instagram use the existing IntegrationAccount, credential-reference,
+Lead Capture, WorkItem, approval/tool-access, outbound-action, delivery-attempt, and
+audit architecture. Their webhook app secret and API access token are resolved from
+purpose-specific Integration Credential References. Existing legacy Meta accounts
+may temporarily fall back to the account secret reference for webhook signature
+verification.
+
+Facebook/Instagram comment-to-DM remains an additional Sales Lead Capture trigger,
+not the direct-messaging core. It reuses the normal Meta IntegrationAccount,
+governed `send_message` WorkItem path, outbound action, credential references, and
+native provider adapter; provider private-reply mapping is only a channel-specific
+delivery detail. Both current Meta comment-private-reply contracts use the
+configured provider account's `/messages` edge with `recipient.comment_id`;
+Facebook uses the Page ID and Instagram uses the professional account ID.
+
 ### Stable product checkpoint
 
 - Product checkpoint commit: `fb981d4`
@@ -55,13 +84,14 @@ The public-site redesign task is closed.
 
 ## Backend test baseline
 
-Most recent verified full backend suite after direct WhatsApp E2E readiness work:
+Most recent verified full backend suite after direct Messenger and Instagram DM
+readiness work:
 
-- 843 passed
+- 862 passed
 - 6 skipped
 - 7 warnings
-- 849 collected
-- runtime: 187.21s
+- 868 collected
+- runtime: 199.59s
 
 Current warnings remain non-blocking:
 - Starlette/FastAPI TestClient deprecation
@@ -125,6 +155,8 @@ The current test suite verifies substantial implementation beyond the old checkp
 - inbound integrations
 - Meta inbound lead capture
 - social comment automation
+- native Facebook Messenger direct inbound/outbound Sales messaging
+- native Instagram Direct inbound/outbound Sales messaging
 - WhatsApp Cloud architecture
 - WhatsApp Cloud integration
 - WhatsApp normalization
@@ -142,6 +174,7 @@ The current test suite verifies substantial implementation beyond the old checkp
 - generic webhook delivery adapter
 - generic integration credential references
 - native WhatsApp Cloud outbound delivery adapter
+- native Meta Graph delivery adapter for Messenger and Instagram Direct
 - integration health / operational summaries
 
 ### UI / analytics
@@ -163,7 +196,8 @@ Those areas must be treated as existing implementation to preserve and extend.
 
 The frontend redesign checkpoint is complete.
 
-Current work is real direct WhatsApp Sales end-to-end validation and pilot readiness.
+Current work is real-provider validation and pilot readiness for direct WhatsApp,
+Facebook Messenger, and Instagram Direct Sales messaging.
 
 ### Immediate priorities
 
@@ -173,6 +207,15 @@ Current work is real direct WhatsApp Sales end-to-end validation and pilot readi
 4. Exercise an approval-required reply and an operator-approved continuation with the pilot account.
 5. Validate production callback TLS, secret injection/rotation, observability, rate limits, and operational runbooks.
 6. Use real pilot-business testing to determine the next genuine Sales MVP gaps.
+
+For Messenger, validate the Page access token, Page/app subscription permissions,
+webhook callback, sender recipient mapping, Graph API version, and delivery/status
+events with a Meta test user. For Instagram Direct, validate the supported
+professional-account linkage, required messaging permissions, webhook subscription,
+recipient mapping, Graph API version, and the platform's allowed messaging window
+with a Meta test user. Rich media, templates, reactions, read receipts, delivery
+status reconciliation, and provider-specific retry policy remain later work unless
+the pilot proves one is required for the first useful Sales flow.
 
 Redis, Celery, Temporal or another background runtime must not be introduced merely because they are available. Add worker infrastructure only when a demonstrated asynchronous or durable-execution requirement justifies it.
 

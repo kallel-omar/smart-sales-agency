@@ -9,14 +9,16 @@ from sqlmodel import Session, select
 
 from app.config import Settings, get_settings
 from app.db import get_session
-
+from app.integrations.providers import (
+    META_MESSAGING_PROVIDERS,
+    WHATSAPP_CLOUD_PROVIDER,
+)
 from app.models import IntegrationAccount, Workspace, WorkspaceMember
+from app.services.approval_decisions import ApprovalDecisionActor
 from app.services.authentication import (
     AuthenticationService,
     InvalidAccessTokenError,
 )
-from app.services.operator_assignments import OperatorAssignmentActor
-from app.services.approval_decisions import ApprovalDecisionActor
 from app.services.identity_memberships import (
     AuthenticatedPrincipal,
     IdentityMembershipService,
@@ -25,10 +27,11 @@ from app.services.identity_memberships import (
     UserNotFoundError,
     WorkspaceMembershipNotFoundError,
 )
-from app.services.webhook_authentication import (
-    ProviderWebhookAuthenticationService,
-    WebhookAuthenticationError,
+from app.services.integration_credential_references import (
+    IntegrationCredentialReferenceNotFoundError,
+    IntegrationCredentialReferenceService,
 )
+from app.services.operator_assignments import OperatorAssignmentActor
 from app.services.rate_limiting import (
     InMemoryFixedWindowRateLimitBackend,
     RateLimitExceeded,
@@ -36,6 +39,15 @@ from app.services.rate_limiting import (
     RateLimitPolicyId,
     RateLimitService,
     rate_limit_headers,
+)
+from app.services.secret_resolver import EnvironmentSecretResolver
+from app.services.webhook_authentication import (
+    ProviderWebhookAuthenticationService,
+    WebhookAuthenticationError,
+)
+from app.services.whatsapp_cloud import (
+    WhatsAppCloudSignatureVerificationError,
+    verify_meta_signature,
 )
 from app.services.workspace_rbac import (
     WorkspacePermission,
@@ -49,20 +61,6 @@ from app.services.workspaces import (
     get_workspace_by_slug,
     resolve_integration_account,
     resolve_integration_workspace_for_account,
-)
-from app.integrations.providers import (
-    META_MESSAGING_PROVIDERS,
-    WHATSAPP_CLOUD_PROVIDER,
-)
-
-from app.services.integration_credential_references import (
-    IntegrationCredentialReferenceNotFoundError,
-    IntegrationCredentialReferenceService,
-)
-from app.services.secret_resolver import EnvironmentSecretResolver
-from app.services.whatsapp_cloud import (
-    WhatsAppCloudSignatureVerificationError,
-    verify_meta_signature,
 )
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -443,12 +441,22 @@ async def get_verified_meta_integration_context(
         ).first()
         if account is None:
             raise InvalidIntegrationContextError("Integration context is not recognized")
+        try:
+            credential_reference = IntegrationCredentialReferenceService(
+                session
+            ).get_for_integration_account(account, "webhook_app_secret")
+            secret_reference = credential_reference.secret_reference
+        except IntegrationCredentialReferenceNotFoundError:
+            # Compatibility for accounts created before credential purposes
+            # existed. New Meta accounts should configure webhook_app_secret.
+            secret_reference = account.secret_reference
         ProviderWebhookAuthenticationService(settings).authenticate(
             account,
             payload=await request.body(),
             signature=signature,
             timestamp=None,
             event_id=None,
+            secret_reference=secret_reference,
         )
         workspace = resolve_integration_workspace_for_account(session, account)
         return IntegrationContext(account=account, workspace=workspace)

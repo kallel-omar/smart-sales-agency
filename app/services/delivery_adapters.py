@@ -10,8 +10,11 @@ from typing import Any, Protocol
 import httpx
 
 from app.integrations.providers import (
+    FACEBOOK_MESSENGER_PROVIDER,
     GENERIC_HMAC_PROVIDER,
     GENERIC_WEBHOOK_DELIVERY_PROVIDERS,
+    INSTAGRAM_DM_PROVIDER,
+    META_MESSAGING_PROVIDERS,
     WHATSAPP_CLOUD_PROVIDER,
 )
 from app.models import (
@@ -24,9 +27,8 @@ from app.services.integration_credential_references import (
     IntegrationCredentialReferenceNotFoundError,
     IntegrationCredentialReferenceService,
 )
-from app.services.whatsapp_cloud import build_text_send_request
-
 from app.services.secret_resolver import EnvironmentSecretResolver, SecretResolver
+from app.services.whatsapp_cloud import build_text_send_request
 
 _GENERIC_FAILURE_CLASSIFICATIONS = {
     "adapter_execution_failed": OutboundDeliveryFailureClassification.TEMPORARY,
@@ -501,6 +503,241 @@ def normalize_whatsapp_cloud_response(
         "WhatsApp Cloud delivery returned an unknown response",
         OutboundDeliveryFailureClassification.UNKNOWN,
     )
+
+
+@dataclass(frozen=True)
+class MetaGraphHttpResponse:
+    status_code: int
+    headers: dict[str, str]
+    body: dict[str, Any] | None = None
+
+
+class MetaGraphHttpTransport(Protocol):
+    def post(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: httpx.Timeout,
+    ) -> MetaGraphHttpResponse: ...
+
+
+class HttpxMetaGraphHttpTransport:
+    """HTTP boundary shared by native Messenger and Instagram delivery."""
+
+    def post(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: httpx.Timeout,
+    ) -> MetaGraphHttpResponse:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(url, json=payload, headers=headers)
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        return MetaGraphHttpResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            body=body if isinstance(body, dict) else None,
+        )
+
+
+class MetaGraphDeliveryAdapter:
+    """Native Meta messaging for the Facebook Login-based Sales MVP."""
+
+    capabilities = DEFAULT_DELIVERY_ADAPTER_CAPABILITIES
+
+    def __init__(
+        self,
+        credential_reference_service: IntegrationCredentialReferenceService,
+        *,
+        graph_api_base_url: str,
+        graph_api_version: str,
+        connect_timeout_seconds: float = 5,
+        read_timeout_seconds: float = 15,
+        transport: MetaGraphHttpTransport | None = None,
+        secret_resolver: SecretResolver | None = None,
+    ) -> None:
+        self.credential_reference_service = credential_reference_service
+        self.graph_api_base_url = graph_api_base_url.strip().rstrip("/")
+        self.graph_api_version = graph_api_version.strip().lstrip("/")
+        self.timeout = httpx.Timeout(
+            connect=connect_timeout_seconds,
+            read=read_timeout_seconds,
+            write=read_timeout_seconds,
+            pool=connect_timeout_seconds,
+        )
+        self.transport = transport or HttpxMetaGraphHttpTransport()
+        self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
+
+    def deliver(
+        self,
+        action: OutboundIntegrationAction,
+        account: IntegrationAccount,
+    ) -> DeliveryAdapterResult:
+        validation_failure = self._validate(action, account)
+        if validation_failure is not None:
+            return validation_failure
+        try:
+            credential_reference = (
+                self.credential_reference_service.get_for_integration_account(
+                    account, "api_access_token"
+                )
+            )
+        except IntegrationCredentialReferenceNotFoundError:
+            return DeliveryAdapterResult.failure(
+                "meta_access_token_reference_missing",
+                "Meta API access token reference is not configured",
+                OutboundDeliveryFailureClassification.AUTHENTICATION,
+            )
+        access_token = self.secret_resolver.resolve(
+            credential_reference.secret_reference
+        )
+        if not access_token:
+            return DeliveryAdapterResult.failure(
+                "meta_access_token_unavailable",
+                "Meta API access token is unavailable",
+                OutboundDeliveryFailureClassification.AUTHENTICATION,
+            )
+        url, payload = self._request(action, account)
+        try:
+            response = self.transport.post(
+                url,
+                payload=payload,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=self.timeout,
+            )
+        except httpx.HTTPError:
+            return DeliveryAdapterResult.failure(
+                "meta_network_error",
+                "Meta message delivery failed",
+                OutboundDeliveryFailureClassification.TEMPORARY,
+            )
+        return normalize_meta_graph_response(response)
+
+    def _validate(
+        self,
+        action: OutboundIntegrationAction,
+        account: IntegrationAccount,
+    ) -> DeliveryAdapterResult | None:
+        if account.provider not in META_MESSAGING_PROVIDERS:
+            return DeliveryAdapterResult.failure(
+                "meta_provider_mismatch",
+                "Integration account is not a supported Meta messaging account",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if not account.external_account_id or not account.external_account_id.strip():
+            return DeliveryAdapterResult.failure(
+                "meta_account_id_missing",
+                "Meta account identifier is not configured",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if not action.external_target_id or not action.external_target_id.strip():
+            return DeliveryAdapterResult.failure(
+                "meta_recipient_missing",
+                "Meta message recipient is required",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if not action.content or not action.content.strip():
+            return DeliveryAdapterResult.failure(
+                "meta_content_missing",
+                "Meta message content is required",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if not self.graph_api_base_url or not self.graph_api_version:
+            return DeliveryAdapterResult.failure(
+                "meta_configuration_missing",
+                "Meta Graph API configuration is missing",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        return None
+
+    def _request(
+        self,
+        action: OutboundIntegrationAction,
+        account: IntegrationAccount,
+    ) -> tuple[str, dict[str, Any]]:
+        channel = str(action.payload.get("channel") or account.provider)
+        if channel in {"facebook_comment", "instagram_comment"}:
+            return (
+                (
+                    f"{self.graph_api_base_url}/{self.graph_api_version}/"
+                    f"{account.external_account_id}/messages"
+                ),
+                {
+                    "recipient": {"comment_id": action.external_target_id},
+                    "message": {"text": action.content},
+                },
+            )
+        body: dict[str, Any] = {
+            "recipient": {"id": action.external_target_id},
+            "message": {"text": action.content},
+        }
+        if account.provider == FACEBOOK_MESSENGER_PROVIDER:
+            body["messaging_type"] = "RESPONSE"
+        elif account.provider != INSTAGRAM_DM_PROVIDER:
+            raise ValueError("Unsupported Meta messaging provider")
+        return (
+            (
+                f"{self.graph_api_base_url}/{self.graph_api_version}/"
+                f"{account.external_account_id}/messages"
+            ),
+            body,
+        )
+
+
+def normalize_meta_graph_response(
+    response: MetaGraphHttpResponse,
+) -> DeliveryAdapterResult:
+    if 200 <= response.status_code < 300:
+        body = response.body or {}
+        provider_delivery_id = body.get("message_id") or body.get("id")
+        if isinstance(provider_delivery_id, str) and provider_delivery_id.strip():
+            return DeliveryAdapterResult.success(provider_delivery_id.strip())
+        return DeliveryAdapterResult.failure(
+            "meta_delivery_id_missing",
+            "Meta delivery response did not include a message identifier",
+            OutboundDeliveryFailureClassification.UNKNOWN,
+        )
+    if response.status_code in {401, 403}:
+        return DeliveryAdapterResult.failure(
+            "meta_authentication_failed",
+            "Meta rejected the configured credentials",
+            OutboundDeliveryFailureClassification.AUTHENTICATION,
+        )
+    if response.status_code == 429:
+        return DeliveryAdapterResult.failure(
+            "meta_rate_limited",
+            "Meta rate limited message delivery",
+            OutboundDeliveryFailureClassification.RATE_LIMIT,
+        )
+    if response.status_code in {400, 404}:
+        return DeliveryAdapterResult.failure(
+            "meta_request_rejected",
+            "Meta rejected the message request",
+            OutboundDeliveryFailureClassification.VALIDATION,
+        )
+    if 500 <= response.status_code < 600:
+        return DeliveryAdapterResult.failure(
+            "meta_server_error",
+            "Meta message delivery is temporarily unavailable",
+            OutboundDeliveryFailureClassification.TEMPORARY,
+        )
+    return DeliveryAdapterResult.failure(
+        "meta_response_unknown",
+        "Meta message delivery returned an unknown response",
+        OutboundDeliveryFailureClassification.UNKNOWN,
+    )
+
+
 class DeliveryAdapterRegistry:
     """Explicit mapping from a persisted provider name to an adapter."""
 
@@ -561,6 +798,7 @@ class NoopDeliveryAdapter:
 def default_delivery_adapter_registry(
     generic_webhook_adapter: DeliveryAdapter | None = None,
     whatsapp_cloud_adapter: DeliveryAdapter | None = None,
+    meta_graph_adapter: DeliveryAdapter | None = None,
 ) -> DeliveryAdapterRegistry:
     """Return the configured provider delivery adapters."""
     adapters: dict[str, DeliveryAdapter] = {
@@ -573,5 +811,9 @@ def default_delivery_adapter_registry(
 
     if whatsapp_cloud_adapter is not None:
         adapters[WHATSAPP_CLOUD_PROVIDER] = whatsapp_cloud_adapter
+
+    if meta_graph_adapter is not None:
+        for provider in META_MESSAGING_PROVIDERS:
+            adapters[provider] = meta_graph_adapter
 
     return DeliveryAdapterRegistry(adapters)
