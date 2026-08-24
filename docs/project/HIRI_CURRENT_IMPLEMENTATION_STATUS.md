@@ -41,12 +41,35 @@ Task 288 reliability hardening was verified with the following behavior:
 - Successfully processed duplicate events remain idempotent.
 - Full backend suite: 865 passed, 6 skipped, 7 existing warnings.
 
+### Task 289 — Real Facebook Messenger Sales E2E — VERIFIED / DONE
+
+On 2026-08-24, HIRI completed a real Facebook Messenger Sales end-to-end
+validation for provider `facebook_messenger`, Facebook Page ID
+`1302062409649643`, and HIRI IntegrationAccount ID
+`06c36437-c2c2-4bb4-be14-36a9a174d3ae`.
+
+- The Messenger Page Access Token is configured through
+  IntegrationCredentialReference purpose `api_access_token`; its secret value
+  is not stored in the database.
+- `webhook_app_secret` uses the existing Meta App Secret reference.
+- `webhook_verify_token` is configured separately for Messenger.
+- Meta webhook callback verification succeeded.
+- The Page webhook field `messages` was subscribed successfully.
+- A real Messenger inbound message reached HIRI and HIRI Sales routing executed.
+- HIRI sent a real automated reply through Facebook Messenger.
+
+Real Facebook Messenger Sales E2E is therefore **VERIFIED / DONE**.
+
+The real reply greeted the prospect as “Unknown”. Messenger identity and
+display-name enrichment is a **NOW — small hardening task**. This does not
+invalidate the successful Messenger transport or end-to-end validation.
+
 ### Direct Sales messaging channel status
 
 | Channel | Automated status | Provider status |
 | --- | --- | --- |
 | WhatsApp Cloud | Direct signed inbound → governed Sales WorkItems → native outbound delivery is covered end to end. | Real WhatsApp Sales E2E verified on 2026-08-24. |
-| Facebook Messenger | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end with a fake HTTP transport. | Ready for real Meta Page/app validation; no live Meta request has been made. |
+| Facebook Messenger | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end. | Real Facebook Messenger Sales E2E verified on 2026-08-24; identity/display-name enrichment is NOW hardening. |
 | Instagram Direct | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end with a fake HTTP transport. | Ready for real professional-account/app validation; no live Meta request has been made. |
 
 The first Instagram Sales MVP explicitly uses **Instagram API with Facebook
