@@ -9,10 +9,10 @@ import pytest
 from sqlalchemy import inspect as sa_inspect
 from sqlmodel import select
 
+from app.api.dependencies import get_settings
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.capabilities import BusinessCapabilityKey
-from app.api.dependencies import get_settings
 from app.db import get_session
 from app.main import app
 from app.models import (
@@ -28,11 +28,11 @@ from app.models import (
     InboundIntegrationEventReceipt,
     IntegrationAccount,
     Lead,
+    OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
+    OutboundIntegrationActionType,
     OutboundIntegrationAuditEvent,
     OutboundIntegrationDeliveryAttempt,
-    OutboundIntegrationAction,
-    OutboundIntegrationActionType,
     SalesConversationHandoff,
     User,
     WorkItem,
@@ -46,11 +46,15 @@ from app.services.ai_employee_capability_assignments import (
 from app.services.ai_employee_tool_access import AIEmployeeCapabilityToolAccessService
 from app.services.ai_employees import AIEmployeeService
 from app.services.capabilities import CapabilityService
-from app.services.departments import DepartmentService
 from app.services.delivery_adapters import (
     HttpxWhatsAppCloudHttpTransport,
     WhatsAppCloudDeliveryAdapter,
     WhatsAppCloudHttpResponse,
+)
+from app.services.departments import DepartmentService
+from app.services.inbound_integrations import (
+    InboundIntegrationService,
+    InboundSalesWorkItemRoutingError,
 )
 from app.services.lead_capture import LeadCaptureService
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
@@ -754,6 +758,65 @@ def test_direct_whatsapp_duplicate_event_is_idempotent(
     assert duplicate.status_code == 200
     assert duplicate.json()["duplicate"] is True
     assert _message_count(lead_id) == messages_after_first
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        assert len(session.exec(select(InboundIntegrationEventReceipt)).all()) == 1
+
+
+def test_direct_whatsapp_business_failure_releases_receipt_for_meta_retry(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-business-retry"
+    _create_workspace(client, slug)
+    _create_lead(client, slug)
+    account = _provision_account(client, slug)
+    app_secret = "test-whatsapp-app-secret"
+    monkeypatch.setenv("INTEGRATION_SECRET_WHATSAPP_APP_SECRET", app_secret)
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        "INTEGRATION_SECRET_WHATSAPP_APP_SECRET",
+    )
+    headers, body = _signed_meta_request("valid_text.json", app_secret)
+    endpoint = f"{ENDPOINT}/{account['id']}"
+    original_handler = InboundIntegrationService.handle_work_item_event
+    attempts = 0
+
+    async def fail_first_attempt(self, *args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise InboundSalesWorkItemRoutingError("Synthetic routing failure")
+        return await original_handler(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        InboundIntegrationService,
+        "handle_work_item_event",
+        fail_first_attempt,
+    )
+
+    first = client.post(endpoint, headers=headers, content=body)
+
+    assert first.status_code == 409
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        assert session.exec(select(InboundIntegrationEventReceipt)).all() == []
+
+    retry = client.post(endpoint, headers=headers, content=body)
+
+    assert retry.status_code == 200
+    assert attempts == 2
+    messages_after_retry = _message_count(retry.json()["lead_id"])
+    duplicate = client.post(endpoint, headers=headers, content=body)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["duplicate"] is True
+    assert attempts == 2
+    assert _message_count(retry.json()["lead_id"]) == messages_after_retry
+    with next(session_dependency()) as session:
+        assert len(session.exec(select(InboundIntegrationEventReceipt)).all()) == 1
 
 
 def test_direct_whatsapp_rejects_invalid_meta_signature(
@@ -1125,8 +1188,9 @@ def test_direct_whatsapp_raw_e2e_uses_native_delivery_without_secret_leakage(
     assert action_read.status_code == 200
     assert isolated_read.status_code == 404
 
-    externally_visible = "\n".join(
-        [first.text, duplicate.text, action_read.text, isolated_read.text, caplog.text]
+    externally_visible = (
+        f"{first.text}\n{duplicate.text}\n{action_read.text}\n"
+        f"{isolated_read.text}\n{caplog.text}"
     )
     for secret_value in (app_secret, access_token):
         assert secret_value not in persisted_state

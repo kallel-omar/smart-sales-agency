@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
+from sqlmodel import Session, create_engine
+
+from app.config import Settings
 from app.integrations.providers import WHATSAPP_CLOUD_PROVIDER
 from app.models import (
     IntegrationAccount,
@@ -16,9 +20,6 @@ from app.services.delivery_adapters import (
 from app.services.integration_credential_references import (
     IntegrationCredentialReferenceNotFoundError,
 )
-from sqlmodel import Session, create_engine
-
-from app.config import Settings
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
 
 
@@ -251,6 +252,54 @@ def test_whatsapp_cloud_adapter_maps_authentication_failure():
         result.failure_classification
         == OutboundDeliveryFailureClassification.AUTHENTICATION
     )
+
+
+def test_whatsapp_cloud_adapter_maps_permission_denied_separately():
+    account = make_account()
+    action = make_action(account)
+
+    adapter, _ = make_adapter(
+        response=WhatsAppCloudHttpResponse(
+            status_code=403,
+            headers={"Authorization": "must-not-be-persisted"},
+            body={"error": {"message": "sensitive provider response"}},
+        )
+    )
+
+    result = adapter.deliver(action, account)
+
+    assert result.delivered is False
+    assert result.failure_code == "provider_permission_denied"
+    assert result.failure_message == "Provider denied permission for message delivery"
+    assert (
+        result.failure_classification
+        == OutboundDeliveryFailureClassification.PERMANENT
+    )
+    assert "must-not-be-persisted" not in str(result)
+    assert "sensitive provider response" not in str(result)
+
+
+def test_whatsapp_cloud_adapter_maps_http_failure_as_temporary_network_error():
+    account = make_account()
+    action = make_action(account)
+    adapter, transport = make_adapter()
+
+    def raise_transport_error(url, *, payload, headers, timeout):
+        del url, payload, headers, timeout
+        raise httpx.ConnectError("synthetic transport failure with no credentials")
+
+    transport.post = raise_transport_error
+
+    result = adapter.deliver(action, account)
+
+    assert result.delivered is False
+    assert result.failure_code == "whatsapp_cloud_network_error"
+    assert result.failure_message == "WhatsApp Cloud delivery failed"
+    assert (
+        result.failure_classification
+        == OutboundDeliveryFailureClassification.TEMPORARY
+    )
+    assert "synthetic transport failure" not in str(result)
 
 
 def test_whatsapp_cloud_adapter_maps_rate_limit_failure():

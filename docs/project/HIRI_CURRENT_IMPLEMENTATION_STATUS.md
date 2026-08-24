@@ -21,11 +21,31 @@ delivery attempts, audit records, credential-value hygiene, and workspace isolat
 
 The legacy normalized WhatsApp endpoint remains available as a compatibility path.
 
+### Real WhatsApp Sales E2E — VERIFIED
+
+On 2026-08-24, HIRI completed a real WhatsApp Sales end-to-end validation. A
+real inbound WhatsApp message reached HIRI through the Meta Cloud API, HIRI
+identified the correct workspace and IntegrationAccount, and Sales routing
+assigned the work through the existing AIEmployee / Capability / WorkItem
+architecture. The `answer_customer` execution completed, and governed
+`send_message` execution used the native WhatsApp Cloud adapter. Meta's
+`POST /messages` returned HTTP 200, and the real reply was received on the
+phone. Real WhatsApp Sales E2E is therefore **VERIFIED**.
+
+Task 288 reliability hardening was verified with the following behavior:
+
+- HTTP 401 remains classified as an authentication failure.
+- HTTP 403 is classified separately as provider permission denied.
+- HTTP transport failures remain temporary network errors.
+- Failed inbound processing releases its event reservation for provider retry.
+- Successfully processed duplicate events remain idempotent.
+- Full backend suite: 865 passed, 6 skipped, 7 existing warnings.
+
 ### Direct Sales messaging channel status
 
 | Channel | Automated status | Provider status |
 | --- | --- | --- |
-| WhatsApp Cloud | Direct signed inbound → governed Sales WorkItems → native outbound delivery is covered end to end. | Ready for real Meta test-business validation. |
+| WhatsApp Cloud | Direct signed inbound → governed Sales WorkItems → native outbound delivery is covered end to end. | Real WhatsApp Sales E2E verified on 2026-08-24. |
 | Facebook Messenger | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end with a fake HTTP transport. | Ready for real Meta Page/app validation; no live Meta request has been made. |
 | Instagram Direct | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end with a fake HTTP transport. | Ready for real professional-account/app validation; no live Meta request has been made. |
 
@@ -84,14 +104,14 @@ The public-site redesign task is closed.
 
 ## Backend test baseline
 
-Most recent verified full backend suite after direct Messenger and Instagram DM
-readiness work:
+Most recent verified full backend suite after Task 288 WhatsApp live reliability
+hardening:
 
-- 862 passed
+- 865 passed
 - 6 skipped
-- 7 warnings
-- 868 collected
-- runtime: 199.59s
+- 7 existing warnings
+- 871 collected
+- runtime: 262.27s
 
 Current warnings remain non-blocking:
 - Starlette/FastAPI TestClient deprecation

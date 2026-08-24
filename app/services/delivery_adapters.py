@@ -477,11 +477,18 @@ def normalize_whatsapp_cloud_response(
             OutboundDeliveryFailureClassification.RATE_LIMIT,
         )
 
-    if status_code in {401, 403}:
+    if status_code == 401:
         return DeliveryAdapterResult.failure(
             "whatsapp_cloud_authentication_failed",
             "WhatsApp Cloud authentication was rejected",
             OutboundDeliveryFailureClassification.AUTHENTICATION,
+        )
+
+    if status_code == 403:
+        return DeliveryAdapterResult.failure(
+            "provider_permission_denied",
+            "Provider denied permission for message delivery",
+            OutboundDeliveryFailureClassification.PERMANENT,
         )
 
     if 400 <= status_code < 500:

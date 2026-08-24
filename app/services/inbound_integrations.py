@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -99,6 +101,21 @@ class InboundIntegrationService:
             return
         self.repository.session.delete(receipt)
         self.repository.session.commit()
+
+    @contextmanager
+    def release_event_reservation_on_failure(
+        self,
+        workspace: Workspace,
+        account: IntegrationAccount,
+        reservation: InboundEventReservation,
+    ) -> Iterator[None]:
+        """Keep successful receipts and release this reservation on processing failure."""
+
+        try:
+            yield
+        except Exception:
+            self.release_event_reservation(workspace, account, reservation)
+            raise
 
     def capture_reserved_event(
         self,

@@ -1,5 +1,6 @@
 import hmac
 from uuid import UUID
+
 from fastapi import APIRouter, HTTPException, Request, Response
 from sqlmodel import select
 
@@ -11,7 +12,6 @@ from app.api.dependencies import (
     VerifiedWhatsAppCloudIntegrationContextDep,
     WhatsAppCloudIntegrationIngestRateLimitDep,
 )
-
 from app.core.lead_capture import LeadCaptureSignal
 from app.integrations.providers import WHATSAPP_CLOUD_PROVIDER
 from app.models import IntegrationAccount, Lead
@@ -26,26 +26,26 @@ from app.services.inbound_integrations import (
     InboundIntegrationService,
     InboundSalesWorkItemRoutingError,
 )
+from app.services.integration_credential_references import (
+    IntegrationCredentialReferenceNotFoundError,
+    IntegrationCredentialReferenceService,
+)
 from app.services.meta_inbound import (
     AmbiguousExternalIdentityLeadError,
     InboundExternalIdentityService,
 )
 from app.services.repository import NotFoundError
-from app.services.workspaces import ensure_workspace_lead_capture_foundation
+from app.services.secret_resolver import EnvironmentSecretResolver
 from app.services.whatsapp_cloud import (
     WhatsAppCloudAccountMismatchError,
     WhatsAppCloudIgnoredEvent,
     WhatsAppCloudNormalizationError,
     WhatsAppCloudUnsupportedMessageError,
-    normalize_text_message,
     WhatsAppCloudWebhookVerificationError,
+    normalize_text_message,
     verify_webhook_challenge,
 )
-from app.services.integration_credential_references import (
-    IntegrationCredentialReferenceNotFoundError,
-    IntegrationCredentialReferenceService,
-)
-from app.services.secret_resolver import EnvironmentSecretResolver
+from app.services.workspaces import ensure_workspace_lead_capture_foundation
 
 router = APIRouter(
     prefix="/integrations/inbound-events/whatsapp-cloud",
@@ -210,40 +210,45 @@ async def receive_whatsapp_cloud_text_event(
             return InboundIntegrationDuplicateRead(
                 correlation_id=reservation.receipt.correlation_id,
             )
-        capture = integration_service.capture_reserved_event(
+        with integration_service.release_event_reservation_on_failure(
             workspace,
             account,
             reservation,
-            LeadCaptureSignal(
-                source=WHATSAPP_CLOUD_PROVIDER,
-                phone=payload.sender_external_id,
-                message=payload.content,
-                external_reference=payload.provider_event_id,
-                metadata={
-                    "timestamp": payload.timestamp,
-                },
-                lead_id=existing_lead.id if existing_lead is not None else None,
-            ),
-        )
-        InboundExternalIdentityService(session).bind_captured_identity(
-            workspace,
-            account,
-            channel=WHATSAPP_CLOUD_PROVIDER,
-            external_subject_id=payload.sender_external_id,
-            contact_id=capture.contact_id,
-            lead_id=capture.lead_id,
-        )
-        result = await integration_service.handle_work_item_event(
-            InboundIntegrationEvent(
-                lead_id=capture.lead_id,
+        ):
+            capture = integration_service.capture_reserved_event(
+                workspace,
+                account,
+                reservation,
+                LeadCaptureSignal(
+                    source=WHATSAPP_CLOUD_PROVIDER,
+                    phone=payload.sender_external_id,
+                    message=payload.content,
+                    external_reference=payload.provider_event_id,
+                    metadata={
+                        "timestamp": payload.timestamp,
+                    },
+                    lead_id=existing_lead.id if existing_lead is not None else None,
+                ),
+            )
+            InboundExternalIdentityService(session).bind_captured_identity(
+                workspace,
+                account,
                 channel=WHATSAPP_CLOUD_PROVIDER,
-                content=payload.content,
-                external_event_id=payload.provider_event_id,
-            ),
-            workspace,
-            account,
-            correlation_id=reservation.receipt.correlation_id,
-        )
+                external_subject_id=payload.sender_external_id,
+                contact_id=capture.contact_id,
+                lead_id=capture.lead_id,
+            )
+            result = await integration_service.handle_work_item_event(
+                InboundIntegrationEvent(
+                    lead_id=capture.lead_id,
+                    channel=WHATSAPP_CLOUD_PROVIDER,
+                    content=payload.content,
+                    external_event_id=payload.provider_event_id,
+                ),
+                workspace,
+                account,
+                correlation_id=reservation.receipt.correlation_id,
+            )
     except InboundIntegrationEventIdValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except NotFoundError as exc:
