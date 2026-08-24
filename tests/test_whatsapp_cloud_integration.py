@@ -6,26 +6,31 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from sqlmodel import select
-
-
+from sqlalchemy import inspect as sa_inspect
 from sqlmodel import select
 
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.capabilities import BusinessCapabilityKey
+from app.api.dependencies import get_settings
 from app.db import get_session
 from app.main import app
 from app.models import (
     AIEmployeeCapabilityAssignment,
     AIInvocationUsage,
+    ApprovalRequest,
+    ApprovalStatus,
     Capability,
     Contact,
     ConversationMessage,
     Department,
+    InboundExternalIdentity,
     InboundIntegrationEventReceipt,
     IntegrationAccount,
     Lead,
+    OutboundIntegrationActionStatus,
+    OutboundIntegrationAuditEvent,
+    OutboundIntegrationDeliveryAttempt,
     OutboundIntegrationAction,
     OutboundIntegrationActionType,
     SalesConversationHandoff,
@@ -42,7 +47,13 @@ from app.services.ai_employee_tool_access import AIEmployeeCapabilityToolAccessS
 from app.services.ai_employees import AIEmployeeService
 from app.services.capabilities import CapabilityService
 from app.services.departments import DepartmentService
+from app.services.delivery_adapters import (
+    HttpxWhatsAppCloudHttpTransport,
+    WhatsAppCloudDeliveryAdapter,
+    WhatsAppCloudHttpResponse,
+)
 from app.services.lead_capture import LeadCaptureService
+from app.services.outbound_delivery import OutboundIntegrationDeliveryService
 
 PHONE_NUMBER_ID = "555666777888999"
 WRONG_PHONE_NUMBER_ID = "999888777666555"
@@ -135,6 +146,9 @@ def _provision_account(
     provider: str = "whatsapp_cloud",
     phone_number_id: str = PHONE_NUMBER_ID,
     grant_tool_access: bool = True,
+    autonomy_level: AIEmployeeAutonomyLevel = (
+        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION
+    ),
 ) -> dict:
     response = client.post(
         "/api/integrations/accounts",
@@ -171,7 +185,7 @@ def _provision_account(
             assignment,
             account,
             OutboundIntegrationActionType.SEND_MESSAGE,
-            AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+            autonomy_level,
         )
     return account_data
 
@@ -915,3 +929,297 @@ def test_direct_whatsapp_rejects_malformed_signed_payload(
     )
 
     assert response.status_code == 422
+
+
+def test_direct_whatsapp_raw_e2e_uses_native_delivery_without_secret_leakage(
+    client,
+    monkeypatch,
+    caplog,
+):
+    workspace_slug = "direct-wa-e2e"
+    isolated_slug = "direct-wa-e2e-isolated"
+    app_secret_reference = "INTEGRATION_SECRET_DIRECT_WA_E2E_APP_SECRET"
+    access_token_reference = "INTEGRATION_SECRET_DIRECT_WA_E2E_ACCESS_TOKEN"
+    app_secret = "direct-wa-e2e-app-secret-value"
+    access_token = "direct-wa-e2e-access-token-value"
+    provider_delivery_id = "wamid.direct-wa-e2e-delivery"
+    direct_event_id = _raw_fixture("valid_text.json")["entry"][0]["changes"][0][
+        "value"
+    ]["messages"][0]["id"]
+    transport_calls: list[dict] = []
+
+    _create_workspace(client, workspace_slug)
+    _create_workspace(client, isolated_slug)
+    account = _provision_account(client, workspace_slug)
+    monkeypatch.setenv(app_secret_reference, app_secret)
+    monkeypatch.setenv(access_token_reference, access_token)
+    _configure_credential_reference(
+        client,
+        workspace_slug,
+        account,
+        "webhook_app_secret",
+        app_secret_reference,
+    )
+    _configure_credential_reference(
+        client,
+        workspace_slug,
+        account,
+        "api_access_token",
+        access_token_reference,
+    )
+
+    def fake_meta_post(self, url, *, payload, headers, timeout):
+        del self
+        transport_calls.append(
+            {
+                "url": url,
+                "payload": payload,
+                "headers": headers,
+                "timeout": timeout,
+            }
+        )
+        return WhatsAppCloudHttpResponse(
+            status_code=200,
+            headers={},
+            body={"messages": [{"id": provider_delivery_id}]},
+        )
+
+    monkeypatch.setattr(
+        HttpxWhatsAppCloudHttpTransport,
+        "post",
+        fake_meta_post,
+    )
+    headers, body = _signed_meta_request("valid_text.json", app_secret)
+    endpoint = f"{ENDPOINT}/{account['id']}"
+
+    first = client.post(endpoint, headers=headers, content=body)
+    duplicate = client.post(endpoint, headers=headers, content=body)
+
+    assert first.status_code == duplicate.status_code == 200
+    assert duplicate.json() == {
+        "duplicate": True,
+        "correlation_id": first.json()["correlation_id"],
+    }
+    assert len(transport_calls) == 1
+    transport_call = transport_calls[0]
+    assert transport_call["url"].endswith(f"/{PHONE_NUMBER_ID}/messages")
+    assert transport_call["payload"]["to"] == CUSTOMER_EXTERNAL_ID
+    assert transport_call["payload"]["type"] == "text"
+    assert transport_call["headers"] == {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        workspace = session.exec(
+            select(Workspace).where(Workspace.slug == workspace_slug)
+        ).one()
+        isolated_workspace = session.exec(
+            select(Workspace).where(Workspace.slug == isolated_slug)
+        ).one()
+        configured_settings = app.dependency_overrides[get_settings]()
+        native_adapter = OutboundIntegrationDeliveryService.from_settings(
+            session,
+            configured_settings,
+        ).adapter_registry.get("whatsapp_cloud")
+        assert isinstance(native_adapter, WhatsAppCloudDeliveryAdapter)
+
+        receipt = session.exec(
+            select(InboundIntegrationEventReceipt).where(
+                InboundIntegrationEventReceipt.workspace_id == workspace.id,
+                InboundIntegrationEventReceipt.external_event_id == direct_event_id,
+            )
+        ).one()
+        identity = session.exec(
+            select(InboundExternalIdentity).where(
+                InboundExternalIdentity.workspace_id == workspace.id,
+                InboundExternalIdentity.integration_account_id == UUID(account["id"]),
+            )
+        ).one()
+        lead = session.exec(
+            select(Lead).where(
+                Lead.tenant_id == workspace_slug,
+                Lead.phone == CUSTOMER_EXTERNAL_ID,
+            )
+        ).one()
+        action = session.exec(
+            select(OutboundIntegrationAction).where(
+                OutboundIntegrationAction.workspace_id == workspace.id,
+                OutboundIntegrationAction.integration_account_id == UUID(account["id"]),
+            )
+        ).one()
+        attempt = session.exec(
+            select(OutboundIntegrationDeliveryAttempt).where(
+                OutboundIntegrationDeliveryAttempt.workspace_id == workspace.id,
+                OutboundIntegrationDeliveryAttempt.outbound_integration_action_id
+                == action.id,
+            )
+        ).one()
+        audits = session.exec(
+            select(OutboundIntegrationAuditEvent).where(
+                OutboundIntegrationAuditEvent.workspace_id == workspace.id,
+                OutboundIntegrationAuditEvent.outbound_integration_action_id
+                == action.id,
+            )
+        ).all()
+        work_items = session.exec(
+            select(WorkItem).where(WorkItem.workspace_id == workspace.id)
+        ).all()
+
+        assert identity.lead_id == lead.id
+        assert identity.contact_id == lead.contact_id
+        assert receipt.integration_account_id == UUID(account["id"])
+        assert action.status == OutboundIntegrationActionStatus.DELIVERED
+        assert action.provider_delivery_id == provider_delivery_id
+        assert attempt.provider_delivery_id == provider_delivery_id
+        assert attempt.status == OutboundIntegrationActionStatus.DELIVERED
+        assert {item.work_type for item in work_items} >= {
+            "lead_capture",
+            BusinessCapabilityKey.ANSWER_CUSTOMER.value,
+            "sales_reply_message",
+        }
+        assert len(audits) == 3
+        assert session.exec(
+            select(InboundIntegrationEventReceipt).where(
+                InboundIntegrationEventReceipt.workspace_id == isolated_workspace.id,
+                InboundIntegrationEventReceipt.external_event_id == direct_event_id,
+            )
+        ).all() == []
+        assert session.exec(
+            select(InboundExternalIdentity).where(
+                InboundExternalIdentity.workspace_id == isolated_workspace.id,
+                InboundExternalIdentity.external_subject_id == CUSTOMER_EXTERNAL_ID,
+            )
+        ).all() == []
+
+        def column_state(model) -> dict:
+            return {
+                attribute.key: getattr(model, attribute.key)
+                for attribute in sa_inspect(model).mapper.column_attrs
+            }
+
+        persisted_state = json.dumps(
+            {
+                "receipt": column_state(receipt),
+                "identity": column_state(identity),
+                "lead": column_state(lead),
+                "action": column_state(action),
+                "attempt": column_state(attempt),
+                "audits": [column_state(audit) for audit in audits],
+                "work_items": [column_state(item) for item in work_items],
+            },
+            default=str,
+            sort_keys=True,
+        )
+        action_id = action.id
+
+    action_read = client.get(
+        f"/api/integrations/outbound-actions/{action_id}",
+        headers=_workspace_headers(workspace_slug),
+    )
+    isolated_read = client.get(
+        f"/api/integrations/outbound-actions/{action_id}",
+        headers=_workspace_headers(isolated_slug),
+    )
+    assert action_read.status_code == 200
+    assert isolated_read.status_code == 404
+
+    externally_visible = "\n".join(
+        [first.text, duplicate.text, action_read.text, isolated_read.text, caplog.text]
+    )
+    for secret_value in (app_secret, access_token):
+        assert secret_value not in persisted_state
+        assert secret_value not in externally_visible
+
+
+def test_direct_whatsapp_propagates_required_approval_without_delivery(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-approval"
+    app_secret_reference = "INTEGRATION_SECRET_DIRECT_WA_APPROVAL_APP_SECRET"
+    app_secret = "direct-wa-approval-app-secret-value"
+    _create_workspace(client, slug)
+    account = _provision_account(
+        client,
+        slug,
+        autonomy_level=AIEmployeeAutonomyLevel.DRAFT_REQUIRES_APPROVAL,
+    )
+    monkeypatch.setenv(app_secret_reference, app_secret)
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        app_secret_reference,
+    )
+
+    def fail_if_called(*args, **kwargs):
+        del args, kwargs
+        pytest.fail("approval-required WhatsApp send must not contact Meta")
+
+    monkeypatch.setattr(HttpxWhatsAppCloudHttpTransport, "post", fail_if_called)
+    headers, body = _signed_meta_request("valid_text.json", app_secret)
+    response = client.post(
+        f"{ENDPOINT}/{account['id']}",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval_id"] is not None
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        approval = session.get(ApprovalRequest, UUID(response.json()["approval_id"]))
+        assert approval is not None
+        assert approval.status == ApprovalStatus.PENDING
+        approval_work_item = session.get(WorkItem, approval.work_item_id)
+        workspace_id = session.exec(
+            select(Workspace.id).where(Workspace.slug == slug)
+        ).one()
+        assert approval_work_item is not None
+        assert approval_work_item.workspace_id == workspace_id
+        assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+def test_direct_whatsapp_enforces_missing_tool_access_without_delivery(
+    client,
+    monkeypatch,
+):
+    slug = "direct-wa-tool-denied"
+    app_secret_reference = "INTEGRATION_SECRET_DIRECT_WA_TOOL_DENIED_APP_SECRET"
+    app_secret = "direct-wa-tool-denied-app-secret-value"
+    _create_workspace(client, slug)
+    account = _provision_account(client, slug, grant_tool_access=False)
+    monkeypatch.setenv(app_secret_reference, app_secret)
+    _configure_credential_reference(
+        client,
+        slug,
+        account,
+        "webhook_app_secret",
+        app_secret_reference,
+    )
+
+    def fail_if_called(*args, **kwargs):
+        del args, kwargs
+        pytest.fail("tool-denied WhatsApp send must not contact Meta")
+
+    monkeypatch.setattr(HttpxWhatsAppCloudHttpTransport, "post", fail_if_called)
+    headers, body = _signed_meta_request("valid_text.json", app_secret)
+    response = client.post(
+        f"{ENDPOINT}/{account['id']}",
+        headers=headers,
+        content=body,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval_id"] is None
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        denied_send = session.exec(
+            select(WorkItem).where(WorkItem.work_type == "sales_reply_message")
+        ).one()
+        assert denied_send.status == "failed"
+        assert denied_send.error_code == "tool_access_denied"
+        assert session.exec(select(OutboundIntegrationAction)).all() == []

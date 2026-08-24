@@ -239,7 +239,9 @@ class InboundIntegrationService:
             raise InboundSalesWorkItemRoutingError(
                 "No eligible send_message AIEmployee assignment is configured"
             )
-        SendMessageWorkItemService(self.repository.session, self.settings).execute_work_item(
+        send_result = SendMessageWorkItemService(
+            self.repository.session, self.settings
+        ).execute_work_item(
             workspace,
             send_item.id,
             account,
@@ -251,7 +253,7 @@ class InboundIntegrationService:
             lead_id=lead.id,
             detected_stage=SalesStage(result["detected_stage"]),
             draft_reply=reply,
-            approval_id=None,
+            approval_id=send_result.approval_id,
             handoff_required=bool(result.get("handoff_required", False)),
             handoff_reason_code=(
                 SalesHandoffReasonCode(result["handoff_reason_code"])

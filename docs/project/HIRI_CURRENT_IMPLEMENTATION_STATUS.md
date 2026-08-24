@@ -2,7 +2,24 @@
 
 ## Verified checkpoint
 
-Repository state verified directly on 2026-08-21.
+Repository state verified directly on 2026-08-24.
+
+### Direct WhatsApp Cloud readiness checkpoint
+
+The direct WhatsApp provider path now includes these implemented milestones:
+
+- Generic Integration Credential References — `f872135`
+- Native WhatsApp Cloud outbound delivery — `63ec09d`
+- Direct WhatsApp Cloud inbound provider edge — `0da83c4`
+
+Automated verification covers the raw signed Meta webhook through normalized
+Sales execution and the native WhatsApp Cloud delivery adapter without making a
+real Meta network call. The coverage includes account and phone-number matching,
+idempotent replay handling, Lead / Contact / external-identity binding, governed
+WorkItems, approval and tool-access enforcement, provider delivery ID persistence,
+delivery attempts, audit records, credential-value hygiene, and workspace isolation.
+
+The legacy normalized WhatsApp endpoint remains available as a compatibility path.
 
 ### Stable product checkpoint
 
@@ -38,15 +55,13 @@ The public-site redesign task is closed.
 
 ## Backend test baseline
 
-Most recent verified full backend suite before the final frontend-only commit:
+Most recent verified full backend suite after direct WhatsApp E2E readiness work:
 
-- 803 passed
+- 843 passed
 - 6 skipped
 - 7 warnings
-- 809 collected
-- runtime: 207.02s
-
-The final commit `fb981d4` is frontend-only.
+- 849 collected
+- runtime: 187.21s
 
 Current warnings remain non-blocking:
 - Starlette/FastAPI TestClient deprecation
@@ -113,6 +128,7 @@ The current test suite verifies substantial implementation beyond the old checkp
 - WhatsApp Cloud architecture
 - WhatsApp Cloud integration
 - WhatsApp normalization
+- direct WhatsApp Cloud inbound provider edge
 
 ### Integrations / delivery / audit
 - integration lifecycle
@@ -124,6 +140,8 @@ The current test suite verifies substantial implementation beyond the old checkp
 - delivery readiness
 - provider status events
 - generic webhook delivery adapter
+- generic integration credential references
+- native WhatsApp Cloud outbound delivery adapter
 - integration health / operational summaries
 
 ### UI / analytics
@@ -145,20 +163,16 @@ Those areas must be treated as existing implementation to preserve and extend.
 
 The frontend redesign checkpoint is complete.
 
-Current work is the remaining Sales MVP gap audit and dependency-ordered NOW planning before new feature coding resumes.
+Current work is real direct WhatsApp Sales end-to-end validation and pilot readiness.
 
 ### Immediate priorities
 
-1. Audit the remaining Sales MVP gaps against the cleaned HIRI Master Plan.
-2. Build the dependency-ordered NOW queue from verified remaining gaps.
-3. Classify every remaining gap as Implemented / Partial / Missing / NEXT / LATER without reopening completed workforce foundations.
-4. Preserve existing business-service, outbound-action and DeliveryAdapter/provider-adapter architecture.
-5. Add generic integration credential references where direct provider adapters require multiple external credentials.
-6. Complete the direct WhatsApp Cloud outbound adapter path.
-7. Complete the direct WhatsApp Cloud inbound provider boundary so production does not require n8n.
-8. Verify the complete real-channel Sales flow: Capture → Understand → Qualify → Converse → Follow up → Convert.
-9. Validate workspace isolation, permissions, approvals, AI usage/cost controls and audit behavior end to end.
-10. Use real pilot-business testing to determine the next genuine MVP gaps.
+1. Configure a dedicated Meta test-business application, WhatsApp test number, and callback URL in a secure non-production environment.
+2. Run the signed webhook challenge and one real inbound text through the direct provider edge.
+3. Confirm the governed reply reaches the sender and Meta delivery/status identifiers reconcile with HIRI audit data.
+4. Exercise an approval-required reply and an operator-approved continuation with the pilot account.
+5. Validate production callback TLS, secret injection/rotation, observability, rate limits, and operational runbooks.
+6. Use real pilot-business testing to determine the next genuine Sales MVP gaps.
 
 Redis, Celery, Temporal or another background runtime must not be introduced merely because they are available. Add worker infrastructure only when a demonstrated asynchronous or durable-execution requirement justifies it.
 
