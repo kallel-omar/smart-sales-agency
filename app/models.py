@@ -479,7 +479,30 @@ class IntegrationAccount(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
+class IntegrationCredentialReference(SQLModel, table=True):
+    """Workspace-scoped external secret reference attached to an integration account."""
 
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "integration_account_id",
+            "purpose",
+            name="uq_integration_credential_reference_purpose",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
+    integration_account_id: UUID = Field(
+        foreign_key="integrationaccount.id",
+        index=True,
+    )
+    purpose: str = Field(max_length=100, index=True)
+    # Reference resolved through HIRI's configured secret backend.
+    # Never persist the actual credential value here.
+    secret_reference: str = Field(max_length=255)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 class IntegrationAccountAuditEvent(SQLModel, table=True):
     """Safe, workspace-scoped history for integration account lifecycle events."""
 

@@ -115,6 +115,7 @@ def test_migration_graph_is_single_linear_history_with_task297_baseline_root():
         INBOUND_EXTERNAL_IDENTITY_REVISION,
         INBOUND_COMMENT_TRIGGER_REVISION,
         FOLLOW_UP_WORK_ITEM_REVISION,
+        "20260820_011",
     )
 
 

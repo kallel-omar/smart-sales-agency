@@ -48,6 +48,8 @@ from app.schemas import (
     IntegrationAccountProvision,
     IntegrationAccountRead,
     IntegrationAccountSecretReferenceUpdate,
+    IntegrationCredentialReferenceRead,
+    IntegrationCredentialReferenceUpsert,
     IntegrationOperationalSummaryRead,
     OutboundActionExpirationCleanupRead,
     OutboundActionAnnotationCreate,
@@ -90,6 +92,11 @@ from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
     IntegrationAccountService,
 )
+from app.services.integration_credential_references import (
+    IntegrationCredentialPurposeValidationError,
+    IntegrationCredentialReferenceService,
+)
+from app.services.secret_reference_policy import SecretReferenceValidationError
 from app.services.integration_health import IntegrationHealthService
 from app.services.integration_runtime_readiness import IntegrationRuntimeReadinessService
 from app.services.integration_operational_summary import IntegrationOperationalSummaryService
@@ -828,6 +835,67 @@ def update_integration_account_secret_reference(
         ) from exc
     return account_read(account)
 
+@router.put(
+    "/accounts/{account_id}/credential-references/{purpose}",
+    response_model=IntegrationCredentialReferenceRead,
+)
+def set_integration_credential_reference(
+    account_id: UUID,
+    purpose: str,
+    payload: IntegrationCredentialReferenceUpsert,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _permission: IntegrationManagePermissionDep,
+) -> IntegrationCredentialReferenceRead:
+    try:
+        reference = IntegrationCredentialReferenceService(session).set_reference(
+            workspace,
+            account_id,
+            purpose,
+            payload.secret_reference,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Integration account not found",
+        ) from exc
+    except (
+        IntegrationCredentialPurposeValidationError,
+        SecretReferenceValidationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    return IntegrationCredentialReferenceRead.model_validate(reference)
+
+
+@router.get(
+    "/accounts/{account_id}/credential-references",
+    response_model=list[IntegrationCredentialReferenceRead],
+)
+def list_integration_credential_references(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _permission: IntegrationReadPermissionDep,
+) -> list[IntegrationCredentialReferenceRead]:
+    try:
+        references = IntegrationCredentialReferenceService(session).list_for_account(
+            workspace,
+            account_id,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Integration account not found",
+        ) from exc
+
+    return [
+        IntegrationCredentialReferenceRead.model_validate(reference)
+        for reference in references
+    ]
 
 @router.post(
     "/accounts/{account_id}/outbound-actions",

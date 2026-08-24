@@ -14,6 +14,7 @@ from app.db import get_session
 from app.main import app
 from app.models import IntegrationAccount
 from app.services.authentication import AuthenticationService
+from tests.test_ai_employee_tool_access import session
 
 
 @pytest.fixture
@@ -90,6 +91,7 @@ def integration_account_factory(client):
             )
             session.add(account)
             session.commit()
+            session.refresh(account)
             return account
     return create
 

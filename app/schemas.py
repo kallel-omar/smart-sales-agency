@@ -627,7 +627,24 @@ class IntegrationAccountProvision(BaseModel):
     # deliberately excluded from normal account responses.
     secret_reference: str = Field(min_length=1, max_length=255)
 
+class IntegrationCredentialReferenceUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
+    secret_reference: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+
+
+class IntegrationCredentialReferenceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workspace_id: UUID
+    integration_account_id: UUID
+    purpose: str
+    created_at: datetime
+    updated_at: datetime
 class IntegrationAccountSecretReferenceUpdate(BaseModel):
     """Internal secret-backend reference update for an integration account."""
 
