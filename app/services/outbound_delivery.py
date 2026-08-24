@@ -20,6 +20,7 @@ from app.services.delivery_adapters import (
     DeliveryAdapterRegistry,
     DeliveryAdapterResult,
     GenericWebhookDeliveryAdapter,
+    WhatsAppCloudDeliveryAdapter,
     default_delivery_adapter_registry,
 )
 from app.services.integration_accounts import IntegrationAccountService
@@ -27,6 +28,9 @@ from app.services.outbound_action_audit import OutboundIntegrationActionAuditSer
 from app.services.outbound_action_state_transitions import (
     OutboundIntegrationActionInvalidStateTransitionError,
     OutboundIntegrationActionStateTransitionGuard,
+)
+from app.services.integration_credential_references import (
+    IntegrationCredentialReferenceService,
 )
 from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
 from app.services.outbound_integrations import InactiveIntegrationAccountError
@@ -103,9 +107,19 @@ class OutboundIntegrationDeliveryService:
             read_timeout_seconds=settings.outbound_webhook_read_timeout_seconds,
             signing_enabled=settings.outbound_webhook_signing_enabled,
         )
+        whatsapp_cloud_adapter = WhatsAppCloudDeliveryAdapter(
+        IntegrationCredentialReferenceService(session),
+        graph_api_base_url=settings.whatsapp_cloud_graph_api_base_url,
+        graph_api_version=settings.whatsapp_cloud_graph_api_version,
+        connect_timeout_seconds=settings.whatsapp_cloud_connect_timeout_seconds,
+        read_timeout_seconds=settings.whatsapp_cloud_read_timeout_seconds,
+       )
         return cls(
             session,
-            adapter_registry=default_delivery_adapter_registry(webhook_adapter),
+            adapter_registry=default_delivery_adapter_registry(
+    webhook_adapter,
+    whatsapp_cloud_adapter,
+),
             retry_policy=retry_policy,
         )
 

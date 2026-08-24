@@ -95,6 +95,18 @@ class Settings(BaseSettings):
     outbound_webhook_connect_timeout_seconds: float = Field(default=5, gt=0, le=60)
     outbound_webhook_read_timeout_seconds: float = Field(default=15, gt=0, le=120)
     outbound_webhook_signing_enabled: bool = False
+    whatsapp_cloud_graph_api_base_url: str = "https://graph.facebook.com"
+    whatsapp_cloud_graph_api_version: str = "v23.0"
+    whatsapp_cloud_connect_timeout_seconds: float = Field(
+        default=5,
+        gt=0,
+        le=60,
+    )
+    whatsapp_cloud_read_timeout_seconds: float = Field(
+        default=15,
+        gt=0,
+        le=120,
+    )
     integration_health_window_days: int = Field(default=30, ge=1, le=90)
 
     @field_validator("app_host")

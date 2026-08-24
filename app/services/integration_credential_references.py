@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from app.models import (
+    IntegrationAccount,
     IntegrationCredentialReference,
     Workspace,
     utc_now,
@@ -122,7 +123,28 @@ class IntegrationCredentialReferenceService:
             )
 
         return reference
+    def get_for_integration_account(
+        self,
+        account: IntegrationAccount,
+        purpose: str,
+    ) -> IntegrationCredentialReference:
+        """Return a credential reference for an account already scoped by HIRI."""
+        normalized_purpose = self._validate_purpose(purpose)
 
+        reference = self.session.exec(
+            select(IntegrationCredentialReference).where(
+                IntegrationCredentialReference.workspace_id == account.workspace_id,
+                IntegrationCredentialReference.integration_account_id == account.id,
+                IntegrationCredentialReference.purpose == normalized_purpose,
+            )
+        ).first()
+
+        if reference is None:
+            raise IntegrationCredentialReferenceNotFoundError(
+                "Integration credential reference not found"
+            )
+
+        return reference
     @staticmethod
     def _validate_purpose(purpose: str) -> str:
         normalized = purpose.strip().lower()

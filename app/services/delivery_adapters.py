@@ -5,13 +5,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
 from app.integrations.providers import (
     GENERIC_HMAC_PROVIDER,
     GENERIC_WEBHOOK_DELIVERY_PROVIDERS,
+    WHATSAPP_CLOUD_PROVIDER,
 )
 from app.models import (
     IntegrationAccount,
@@ -19,6 +20,12 @@ from app.models import (
     OutboundIntegrationAction,
     OutboundIntegrationActionType,
 )
+from app.services.integration_credential_references import (
+    IntegrationCredentialReferenceNotFoundError,
+    IntegrationCredentialReferenceService,
+)
+from app.services.whatsapp_cloud import build_text_send_request
+
 from app.services.secret_resolver import EnvironmentSecretResolver, SecretResolver
 
 _GENERIC_FAILURE_CLASSIFICATIONS = {
@@ -267,7 +274,233 @@ def normalize_webhook_response(response: WebhookHttpResponse) -> DeliveryAdapter
         OutboundDeliveryFailureClassification.UNKNOWN,
     )
 
+_WHATSAPP_CLOUD_API_ACCESS_TOKEN_PURPOSE = "api_access_token"
 
+
+@dataclass(frozen=True)
+class WhatsAppCloudHttpResponse:
+    status_code: int
+    headers: dict[str, str]
+    body: dict[str, Any] | None = None
+
+
+class WhatsAppCloudHttpTransport(Protocol):
+    def post(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: httpx.Timeout,
+    ) -> WhatsAppCloudHttpResponse: ...
+
+
+class HttpxWhatsAppCloudHttpTransport:
+    """HTTP boundary for direct WhatsApp Cloud API delivery."""
+
+    def post(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: httpx.Timeout,
+    ) -> WhatsAppCloudHttpResponse:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                url,
+                json=payload,
+                headers=headers,
+            )
+
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+
+        if not isinstance(body, dict):
+            body = None
+
+        return WhatsAppCloudHttpResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            body=body,
+        )
+
+
+class WhatsAppCloudDeliveryAdapter:
+    """Direct outbound text delivery through the WhatsApp Cloud API."""
+
+    capabilities = DEFAULT_DELIVERY_ADAPTER_CAPABILITIES
+
+    def __init__(
+        self,
+        credential_reference_service: IntegrationCredentialReferenceService,
+        *,
+        graph_api_base_url: str,
+        graph_api_version: str,
+        connect_timeout_seconds: float = 5,
+        read_timeout_seconds: float = 15,
+        transport: WhatsAppCloudHttpTransport | None = None,
+        secret_resolver: SecretResolver | None = None,
+    ) -> None:
+        self.credential_reference_service = credential_reference_service
+        self.graph_api_base_url = graph_api_base_url.strip()
+        self.graph_api_version = graph_api_version.strip()
+        self.timeout = httpx.Timeout(
+            connect=connect_timeout_seconds,
+            read=read_timeout_seconds,
+            write=read_timeout_seconds,
+            pool=connect_timeout_seconds,
+        )
+        self.transport = transport or HttpxWhatsAppCloudHttpTransport()
+        self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
+
+    def deliver(
+        self,
+        action: OutboundIntegrationAction,
+        account: IntegrationAccount,
+    ) -> DeliveryAdapterResult:
+        if account.provider != WHATSAPP_CLOUD_PROVIDER:
+            return DeliveryAdapterResult.failure(
+                "whatsapp_cloud_provider_mismatch",
+                "Integration account is not a WhatsApp Cloud account",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+
+        if not account.external_account_id or not account.external_account_id.strip():
+            return DeliveryAdapterResult.failure(
+                "whatsapp_cloud_phone_number_id_missing",
+                "WhatsApp Cloud phone number ID is not configured",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+
+        if not action.external_target_id or not action.external_target_id.strip():
+            return DeliveryAdapterResult.failure(
+                "whatsapp_cloud_recipient_missing",
+                "WhatsApp Cloud recipient is required",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+
+        if not action.content or not action.content.strip():
+            return DeliveryAdapterResult.failure(
+                "whatsapp_cloud_content_missing",
+                "WhatsApp Cloud message content is required",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+
+        if not self.graph_api_base_url or not self.graph_api_version:
+            return DeliveryAdapterResult.failure(
+                "whatsapp_cloud_configuration_missing",
+                "WhatsApp Cloud Graph API configuration is missing",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+
+        try:
+            credential_reference = (
+                self.credential_reference_service.get_for_integration_account(
+                    account,
+                    _WHATSAPP_CLOUD_API_ACCESS_TOKEN_PURPOSE,
+                )
+            )
+        except IntegrationCredentialReferenceNotFoundError:
+            return DeliveryAdapterResult.failure(
+                "whatsapp_cloud_access_token_reference_missing",
+                "WhatsApp Cloud API access token reference is not configured",
+                OutboundDeliveryFailureClassification.AUTHENTICATION,
+            )
+
+        access_token = self.secret_resolver.resolve(
+            credential_reference.secret_reference
+        )
+        if not access_token:
+            return DeliveryAdapterResult.failure(
+                "whatsapp_cloud_access_token_unavailable",
+                "WhatsApp Cloud API access token is unavailable",
+                OutboundDeliveryFailureClassification.AUTHENTICATION,
+            )
+
+        request = build_text_send_request(
+            phone_number_id=account.external_account_id,
+            recipient=action.external_target_id,
+            text=action.content,
+            graph_api_base_url=self.graph_api_base_url,
+            graph_api_version=self.graph_api_version,
+        )
+
+        try:
+            response = self.transport.post(
+                request.url,
+                payload=request.body,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=self.timeout,
+            )
+        except httpx.HTTPError:
+            return DeliveryAdapterResult.failure(
+                "whatsapp_cloud_network_error",
+                "WhatsApp Cloud delivery failed",
+                OutboundDeliveryFailureClassification.TEMPORARY,
+            )
+
+        return normalize_whatsapp_cloud_response(response)
+
+
+def normalize_whatsapp_cloud_response(
+    response: WhatsAppCloudHttpResponse,
+) -> DeliveryAdapterResult:
+    """Map WhatsApp Cloud HTTP outcomes to provider-neutral delivery results."""
+    status_code = response.status_code
+
+    if 200 <= status_code < 300:
+        provider_delivery_id = None
+
+        if response.body is not None:
+            messages = response.body.get("messages")
+            if isinstance(messages, list) and messages:
+                first_message = messages[0]
+                if isinstance(first_message, dict):
+                    message_id = first_message.get("id")
+                    if isinstance(message_id, str) and message_id.strip():
+                        provider_delivery_id = message_id
+
+        return DeliveryAdapterResult.success(provider_delivery_id)
+
+    if status_code == 429:
+        return DeliveryAdapterResult.failure(
+            "whatsapp_cloud_rate_limited",
+            "WhatsApp Cloud delivery was rate limited",
+            OutboundDeliveryFailureClassification.RATE_LIMIT,
+        )
+
+    if status_code in {401, 403}:
+        return DeliveryAdapterResult.failure(
+            "whatsapp_cloud_authentication_failed",
+            "WhatsApp Cloud authentication was rejected",
+            OutboundDeliveryFailureClassification.AUTHENTICATION,
+        )
+
+    if 400 <= status_code < 500:
+        return DeliveryAdapterResult.failure(
+            "whatsapp_cloud_validation_failed",
+            "WhatsApp Cloud request was rejected",
+            OutboundDeliveryFailureClassification.VALIDATION,
+        )
+
+    if 500 <= status_code < 600:
+        return DeliveryAdapterResult.failure(
+            "whatsapp_cloud_server_error",
+            "WhatsApp Cloud service failed",
+            OutboundDeliveryFailureClassification.TEMPORARY,
+        )
+
+    return DeliveryAdapterResult.failure(
+        "whatsapp_cloud_response_unknown",
+        "WhatsApp Cloud delivery returned an unknown response",
+        OutboundDeliveryFailureClassification.UNKNOWN,
+    )
 class DeliveryAdapterRegistry:
     """Explicit mapping from a persisted provider name to an adapter."""
 
@@ -327,10 +560,18 @@ class NoopDeliveryAdapter:
 
 def default_delivery_adapter_registry(
     generic_webhook_adapter: DeliveryAdapter | None = None,
+    whatsapp_cloud_adapter: DeliveryAdapter | None = None,
 ) -> DeliveryAdapterRegistry:
-    """Return the intentionally minimal adapter set available in this task."""
-    adapters: dict[str, DeliveryAdapter] = {GENERIC_HMAC_PROVIDER: NoopDeliveryAdapter()}
+    """Return the configured provider delivery adapters."""
+    adapters: dict[str, DeliveryAdapter] = {
+        GENERIC_HMAC_PROVIDER: NoopDeliveryAdapter()
+    }
+
     if generic_webhook_adapter is not None:
         for provider in GENERIC_WEBHOOK_DELIVERY_PROVIDERS:
             adapters[provider] = generic_webhook_adapter
+
+    if whatsapp_cloud_adapter is not None:
+        adapters[WHATSAPP_CLOUD_PROVIDER] = whatsapp_cloud_adapter
+
     return DeliveryAdapterRegistry(adapters)
