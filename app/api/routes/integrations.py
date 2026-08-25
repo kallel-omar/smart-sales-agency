@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -9,8 +9,8 @@ from app.api.dependencies import (
     CurrentWorkspaceDep,
     IntegrationIngestRateLimitDep,
     IntegrationManagePermissionDep,
-    IntegrationReadPermissionDep,
     IntegrationReadinessReadPermissionDep,
+    IntegrationReadPermissionDep,
     OutboundActionOperatePermissionDep,
     OutboundDeliveryRateLimitDep,
     SessionDep,
@@ -21,39 +21,39 @@ from app.api.dependencies import (
 from app.models import (
     IntegrationAccount,
     IntegrationAccountAuditAction,
-    OutboundIntegrationAction,
-    OutboundIntegrationActionStatus,
-    OutboundActionPriority,
-    OutboundIntegrationAuditAction,
-    OutboundIntegrationDeliveryAttempt,
     OutboundActionAnnotation,
     OutboundActionLabel,
+    OutboundActionPriority,
+    OutboundIntegrationAction,
+    OutboundIntegrationActionStatus,
+    OutboundIntegrationAuditAction,
+    OutboundIntegrationDeliveryAttempt,
     utc_now,
 )
 from app.schemas import (
-    InboundIntegrationEvent,
-    InboundIntegrationDuplicateRead,
-    InboundIntegrationReplyRead,
     AIInvocationUsageRead,
     AIInvocationUsageSummaryRead,
-    IntegrationExecutionDeliveryAttemptRead,
-    IntegrationExecutionInboundReceiptRead,
-    IntegrationExecutionOutboundActionRead,
-    IntegrationExecutionTraceRead,
+    InboundIntegrationDuplicateRead,
+    InboundIntegrationEvent,
+    InboundIntegrationReplyRead,
     IntegrationAccountAuditEventRead,
     IntegrationAccountAuditRetentionCleanupRead,
     IntegrationAccountCredentialRead,
     IntegrationAccountHealthRead,
-    IntegrationRuntimeReadinessRead,
     IntegrationAccountProvision,
     IntegrationAccountRead,
     IntegrationAccountSecretReferenceUpdate,
     IntegrationCredentialReferenceRead,
     IntegrationCredentialReferenceUpsert,
+    IntegrationExecutionDeliveryAttemptRead,
+    IntegrationExecutionInboundReceiptRead,
+    IntegrationExecutionOutboundActionRead,
+    IntegrationExecutionTraceRead,
     IntegrationOperationalSummaryRead,
-    OutboundActionExpirationCleanupRead,
+    IntegrationRuntimeReadinessRead,
     OutboundActionAnnotationCreate,
     OutboundActionAnnotationRead,
+    OutboundActionExpirationCleanupRead,
     OutboundActionLabelCreate,
     OutboundActionLabelRead,
     OutboundActionOwnerReferenceUpdate,
@@ -63,6 +63,7 @@ from app.schemas import (
     OutboundActionTransitionExplanationRead,
     OutboundActionTransitionValidationRead,
     OutboundApprovalStatusRead,
+    OutboundDeliveryReadinessRead,
     OutboundIntegrationActionCreate,
     OutboundIntegrationActionDetailRead,
     OutboundIntegrationActionRead,
@@ -70,17 +71,16 @@ from app.schemas import (
     OutboundIntegrationAuditEventRead,
     OutboundIntegrationDeliveryAttemptRead,
     OutboundIntegrationDeliveryStatusRead,
-    OutboundDeliveryReadinessRead,
     ProviderDeliveryStatusEventCreate,
     ProviderDeliveryStatusEventIngestRead,
     ProviderDeliveryStatusEventRead,
     SalesReply,
 )
+from app.services.ai_invocation_usage import AIInvocationUsageService
 from app.services.inbound_integrations import (
     InboundIntegrationEventIdValidationError,
     InboundIntegrationService,
 )
-from app.services.ai_invocation_usage import AIInvocationUsageService
 from app.services.integration_account_audit import (
     DEFAULT_AUDIT_EVENT_LIMIT,
     MAX_AUDIT_EVENT_LIMIT,
@@ -90,33 +90,33 @@ from app.services.integration_account_audit import (
 )
 from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
+    IntegrationAccountProviderAuthModeError,
     IntegrationAccountService,
 )
 from app.services.integration_credential_references import (
     IntegrationCredentialPurposeValidationError,
     IntegrationCredentialReferenceService,
 )
-from app.services.secret_reference_policy import SecretReferenceValidationError
-from app.services.integration_health import IntegrationHealthService
-from app.services.integration_runtime_readiness import IntegrationRuntimeReadinessService
-from app.services.integration_operational_summary import IntegrationOperationalSummaryService
 from app.services.integration_execution_trace import (
     IntegrationExecutionTraceNotFoundError,
     IntegrationExecutionTraceService,
     IntegrationExecutionTraceView,
 )
-from app.services.outbound_action_audit import (
-    DEFAULT_OUTBOUND_AUDIT_EVENT_LIMIT,
-    MAX_OUTBOUND_AUDIT_EVENT_LIMIT,
-    OutboundAuditQueryValidationError,
-    OutboundIntegrationActionAuditService,
-)
+from app.services.integration_health import IntegrationHealthService
+from app.services.integration_operational_summary import IntegrationOperationalSummaryService
+from app.services.integration_runtime_readiness import IntegrationRuntimeReadinessService
 from app.services.outbound_action_annotations import OutboundActionAnnotationService
 from app.services.outbound_action_archiving import (
     OutboundActionArchivingService,
     OutboundIntegrationActionAlreadyArchivedError,
     OutboundIntegrationActionNotArchivableError,
     OutboundIntegrationActionNotArchivedError,
+)
+from app.services.outbound_action_audit import (
+    DEFAULT_OUTBOUND_AUDIT_EVENT_LIMIT,
+    MAX_OUTBOUND_AUDIT_EVENT_LIMIT,
+    OutboundAuditQueryValidationError,
+    OutboundIntegrationActionAuditService,
 )
 from app.services.outbound_action_labels import (
     MAX_OUTBOUND_ACTION_LABELS,
@@ -150,6 +150,10 @@ from app.services.outbound_action_timeline import (
 from app.services.outbound_action_transition_validation import (
     OutboundActionTransitionValidationService,
 )
+from app.services.outbound_approval_status import (
+    OutboundApprovalStatusNotFoundError,
+    OutboundApprovalStatusService,
+)
 from app.services.outbound_delivery import (
     DEFAULT_DELIVERY_ATTEMPT_LIMIT,
     MAX_DELIVERY_ATTEMPT_LIMIT,
@@ -157,42 +161,38 @@ from app.services.outbound_delivery import (
     OutboundIntegrationActionAlreadyProcessedError,
     OutboundIntegrationActionExpiredError,
     OutboundIntegrationActionNotCancellableError,
-    OutboundIntegrationActionNotReadyError,
     OutboundIntegrationActionNotFoundError,
+    OutboundIntegrationActionNotReadyError,
     OutboundIntegrationActionNotRetryableError,
     OutboundIntegrationActionRetryDeniedError,
     OutboundIntegrationDeliveryService,
-)
-from app.services.outbound_delivery_status import (
-    OutboundIntegrationDeliveryStatusService,
-    OutboundIntegrationDeliveryStatusView,
-)
-from app.services.outbound_provider_status_events import (
-    DEFAULT_PROVIDER_DELIVERY_STATUS_EVENT_LIMIT,
-    MAX_PROVIDER_DELIVERY_STATUS_EVENT_LIMIT,
-    ProviderDeliveryStatusEventActionNotFoundError,
-    ProviderDeliveryStatusEventValidationError,
-    OutboundProviderDeliveryStatusEventService,
-)
-from app.services.outbound_approval_status import (
-    OutboundApprovalStatusNotFoundError,
-    OutboundApprovalStatusService,
 )
 from app.services.outbound_delivery_approvals import (
     OutboundDeliveryApprovalRejectedError,
     OutboundDeliveryApprovalRequiredError,
 )
 from app.services.outbound_delivery_readiness import OutboundDeliveryReadinessService
+from app.services.outbound_delivery_status import (
+    OutboundIntegrationDeliveryStatusService,
+    OutboundIntegrationDeliveryStatusView,
+)
 from app.services.outbound_integrations import (
     InactiveIntegrationAccountError,
     OutboundIntegrationActionIdempotencyConflictError,
     OutboundIntegrationService,
 )
-from app.services.whatsapp_cloud import WhatsAppCloudOutboundPayloadSecretError
+from app.services.outbound_provider_status_events import (
+    DEFAULT_PROVIDER_DELIVERY_STATUS_EVENT_LIMIT,
+    MAX_PROVIDER_DELIVERY_STATUS_EVENT_LIMIT,
+    OutboundProviderDeliveryStatusEventService,
+    ProviderDeliveryStatusEventActionNotFoundError,
+    ProviderDeliveryStatusEventValidationError,
+)
 from app.services.outbound_retry_delay_policy import OutboundDeliveryRetryDelayPolicy
 from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 from app.services.repository import NotFoundError
 from app.services.secret_reference_policy import SecretReferenceValidationError
+from app.services.whatsapp_cloud import WhatsAppCloudOutboundPayloadSecretError
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -202,8 +202,8 @@ def _utc_timestamp(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 AuditLimit = Annotated[
     int,
@@ -523,11 +523,16 @@ def provision_integration_account(
             payload.provider,
             payload.external_account_id,
             payload.secret_reference,
+            payload.provider_auth_mode,
         )
-    except SecretReferenceValidationError as exc:
+    except (SecretReferenceValidationError, IntegrationAccountProviderAuthModeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Secret reference is not allowed",
+            detail=(
+                "Secret reference is not allowed"
+                if isinstance(exc, SecretReferenceValidationError)
+                else str(exc)
+            ),
         ) from exc
     return account_credential_read(account, credential)
 

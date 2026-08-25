@@ -70,13 +70,24 @@ invalidate the successful Messenger transport or end-to-end validation.
 | --- | --- | --- |
 | WhatsApp Cloud | Direct signed inbound → governed Sales WorkItems → native outbound delivery is covered end to end. | Real WhatsApp Sales E2E verified on 2026-08-24. |
 | Facebook Messenger | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end. | Real Facebook Messenger Sales E2E verified on 2026-08-24; identity/display-name enrichment is NOW hardening. |
-| Instagram Direct | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end with a fake HTTP transport. | Ready for real professional-account/app validation; no live Meta request has been made. |
+| Instagram Direct | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery supports both Facebook Login and native Instagram Login routing. | Task 290 verified real inbound and Sales routing; native Instagram Login outbound remains to be validated with the correctly permissioned app. |
 
-The first Instagram Sales MVP explicitly uses **Instagram API with Facebook
-Login** for professional accounts linked through Meta's Facebook Login model.
-The configured `graph.facebook.com` host and Page access-token direction are
-intentional for this mode. Supporting Instagram API with Instagram Login and
-`graph.instagram.com` is a NEXT capability, not part of this implementation.
+Task 290 validated a real Instagram professional-account inbound DM through the
+Meta webhook and existing HIRI Sales architecture. HIRI created the governed
+`SEND_MESSAGE` outbound action, but Meta rejected the Facebook Login Graph API
+request with OAuthException code 3 because the application lacked capability for
+that call. This established the need for native Instagram Login support without
+invalidating the verified inbound, routing, WorkItem, or governance path.
+
+Task 291 extends the same `instagram_dm` provider with two explicit connection
+modes. Existing and mode-omitting accounts use `facebook_login` with
+`graph.facebook.com`; controlled pilot accounts may explicitly use
+`instagram_login` with `graph.instagram.com`. The authentication mode is
+non-secret IntegrationAccount routing configuration. API tokens remain external
+secrets referenced through purpose `api_access_token`, and each account's
+`webhook_app_secret` must reference the secret for the application that actually
+signs its webhook. Customer-facing OAuth, token exchange/refresh, and writable
+secret-manager onboarding remain NEXT.
 
 Messenger and Instagram use the existing IntegrationAccount, credential-reference,
 Lead Capture, WorkItem, approval/tool-access, outbound-action, delivery-attempt, and

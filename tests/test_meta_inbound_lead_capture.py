@@ -120,19 +120,23 @@ def _account(
     *,
     provider: str,
     external_account_id: str,
+    provider_auth_mode: str | None = None,
     grant_tool_access: bool = True,
     autonomy_level: AIEmployeeAutonomyLevel = (
         AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION
     ),
 ) -> dict:
+    payload = {
+        "provider": provider,
+        "external_account_id": external_account_id,
+        "secret_reference": META_SECRET_REFERENCE,
+    }
+    if provider_auth_mode is not None:
+        payload["provider_auth_mode"] = provider_auth_mode
     response = client.post(
         "/api/integrations/accounts",
         headers={"X-Workspace-Slug": workspace_slug},
-        json={
-            "provider": provider,
-            "external_account_id": external_account_id,
-            "secret_reference": META_SECRET_REFERENCE,
-        },
+        json=payload,
     )
     assert response.status_code == 201
     account_data = response.json()
@@ -284,29 +288,67 @@ def _post(client, account: dict, payload: dict, *, valid: bool = True):
 
 
 @pytest.mark.parametrize(
-    ("provider", "account_id", "payload_factory", "channel"),
+    (
+        "provider",
+        "provider_auth_mode",
+        "account_id",
+        "payload_factory",
+        "channel",
+        "expected_host",
+        "workspace_key",
+    ),
     [
-        ("facebook_messenger", "page-1", _facebook_message, "facebook_messenger"),
-        ("instagram_dm", "ig-account-1", _instagram_message, "instagram_dm"),
+        (
+            "facebook_messenger",
+            None,
+            "page-1",
+            _facebook_message,
+            "facebook_messenger",
+            "graph.facebook.com",
+            "messenger",
+        ),
+        (
+            "instagram_dm",
+            None,
+            "ig-account-1",
+            _instagram_message,
+            "instagram_dm",
+            "graph.facebook.com",
+            "instagram-facebook-login",
+        ),
+        (
+            "instagram_dm",
+            "instagram_login",
+            "ig-native-account-1",
+            _instagram_message,
+            "instagram_dm",
+            "graph.instagram.com",
+            "instagram-login",
+        ),
     ],
 )
 def test_direct_message_captures_and_reuses_external_identity(
     client,
     monkeypatch,
     provider,
+    provider_auth_mode,
     account_id,
     payload_factory,
     channel,
+    expected_host,
+    workspace_key,
     fake_meta_graph_transport,
     caplog,
 ):
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
-    _workspace(client, f"{provider}-workspace")
+    workspace_slug = f"{workspace_key}-workspace"
+    _workspace(client, workspace_slug)
     account = _account(
         client,
-        f"{provider}-workspace",
+        workspace_slug,
         provider=provider,
         external_account_id=account_id,
+        provider_auth_mode=provider_auth_mode,
     )
 
     first = _post(client, account, payload_factory(account_id))
@@ -373,6 +415,7 @@ def test_direct_message_captures_and_reuses_external_identity(
         )
     assert len(fake_meta_graph_transport) == 2
     for call in fake_meta_graph_transport:
+        assert call["url"].startswith(f"https://{expected_host}/")
         assert call["url"].endswith(f"/{account_id}/messages")
         assert call["payload"]["recipient"]["id"] in {"fb-user-1", "ig-user-1"}
         assert call["payload"]["message"]["text"]
@@ -1031,6 +1074,7 @@ def test_direct_meta_approval_required_returns_approval_without_delivery(
         slug,
         provider="instagram_dm",
         external_account_id="approval-ig",
+        provider_auth_mode="instagram_login",
         autonomy_level=AIEmployeeAutonomyLevel.DRAFT_REQUIRES_APPROVAL,
     )
 
@@ -1058,15 +1102,16 @@ def test_direct_meta_tool_access_denial_creates_no_outbound_action(
     account = _account(
         client,
         slug,
-        provider="facebook_messenger",
-        external_account_id="denied-page",
+        provider="instagram_dm",
+        external_account_id="denied-ig",
+        provider_auth_mode="instagram_login",
         grant_tool_access=False,
     )
 
     response = _post(
         client,
         account,
-        _facebook_message("denied-page", event_id="denied-event"),
+        _instagram_message("denied-ig", event_id="denied-event"),
     )
 
     assert response.status_code == 200

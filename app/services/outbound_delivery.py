@@ -118,6 +118,7 @@ class OutboundIntegrationDeliveryService:
         meta_graph_adapter = MetaGraphDeliveryAdapter(
             IntegrationCredentialReferenceService(session),
             graph_api_base_url=settings.meta_graph_api_base_url,
+            instagram_graph_api_base_url=settings.instagram_graph_api_base_url,
             graph_api_version=settings.meta_graph_api_version,
             connect_timeout_seconds=settings.meta_graph_connect_timeout_seconds,
             read_timeout_seconds=settings.meta_graph_read_timeout_seconds,

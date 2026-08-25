@@ -68,11 +68,12 @@ class RecordingMetaTransport:
         return self.response
 
 
-def make_account(provider):
+def make_account(provider, *, provider_auth_mode=None):
     return IntegrationAccount(
         workspace_id=uuid4(),
         provider=provider,
         external_account_id=f"{provider}-account",
+        provider_auth_mode=provider_auth_mode,
         credential_hash="a" * 64,
     )
 
@@ -94,6 +95,7 @@ def make_adapter(*, response=None, credential_service=None, resolver=None):
     adapter = MetaGraphDeliveryAdapter(
         credential_service or FakeCredentialReferenceService(),
         graph_api_base_url="https://graph.facebook.com",
+        instagram_graph_api_base_url="https://graph.instagram.com",
         graph_api_version="v23.0",
         transport=transport,
         secret_resolver=resolver or FakeSecretResolver(),
@@ -102,14 +104,36 @@ def make_adapter(*, response=None, credential_service=None, resolver=None):
 
 
 @pytest.mark.parametrize(
-    ("provider", "expected_extra"),
+    ("provider", "provider_auth_mode", "expected_host", "expected_extra"),
     [
-        ("facebook_messenger", {"messaging_type": "RESPONSE"}),
-        ("instagram_dm", {}),
+        (
+            "facebook_messenger",
+            None,
+            "https://graph.facebook.com",
+            {"messaging_type": "RESPONSE"},
+        ),
+        ("instagram_dm", None, "https://graph.facebook.com", {}),
+        (
+            "instagram_dm",
+            "facebook_login",
+            "https://graph.facebook.com",
+            {},
+        ),
+        (
+            "instagram_dm",
+            "instagram_login",
+            "https://graph.instagram.com",
+            {},
+        ),
     ],
 )
-def test_meta_adapter_maps_direct_messages(provider, expected_extra):
-    account = make_account(provider)
+def test_meta_adapter_maps_direct_messages(
+    provider,
+    provider_auth_mode,
+    expected_host,
+    expected_extra,
+):
+    account = make_account(provider, provider_auth_mode=provider_auth_mode)
     action = make_action(account)
     adapter, transport = make_adapter()
 
@@ -118,7 +142,7 @@ def test_meta_adapter_maps_direct_messages(provider, expected_extra):
     assert result.delivered is True
     assert result.provider_delivery_id == "mid.meta-success"
     assert transport.calls[0]["url"] == (
-        f"https://graph.facebook.com/v23.0/{provider}-account/messages"
+        f"{expected_host}/v23.0/{provider}-account/messages"
     )
     assert transport.calls[0]["payload"] == {
         "recipient": {"id": "meta-user-1"},
@@ -132,14 +156,20 @@ def test_meta_adapter_maps_direct_messages(provider, expected_extra):
 
 
 @pytest.mark.parametrize(
-    ("provider", "channel"),
+    ("provider", "provider_auth_mode", "channel", "expected_host"),
     [
-        ("facebook_messenger", "facebook_comment"),
-        ("instagram_dm", "instagram_comment"),
+        ("facebook_messenger", None, "facebook_comment", "graph.facebook.com"),
+        ("instagram_dm", "facebook_login", "instagram_comment", "graph.facebook.com"),
+        ("instagram_dm", "instagram_login", "instagram_comment", "graph.instagram.com"),
     ],
 )
-def test_meta_adapter_maps_comment_private_reply_into_same_provider(provider, channel):
-    account = make_account(provider)
+def test_meta_adapter_maps_comment_private_reply_into_same_provider(
+    provider,
+    provider_auth_mode,
+    channel,
+    expected_host,
+):
+    account = make_account(provider, provider_auth_mode=provider_auth_mode)
     action = make_action(account, channel=channel, target="comment-123")
     adapter, transport = make_adapter(
         response=MetaGraphHttpResponse(
@@ -152,13 +182,29 @@ def test_meta_adapter_maps_comment_private_reply_into_same_provider(provider, ch
     result = adapter.deliver(action, account)
 
     assert result.provider_delivery_id == "private-reply-1"
-    assert transport.calls[0]["url"].endswith(
-        f"/v23.0/{provider}-account/messages"
+    assert transport.calls[0]["url"] == (
+        f"https://{expected_host}/v23.0/{provider}-account/messages"
     )
     assert transport.calls[0]["payload"] == {
         "recipient": {"comment_id": "comment-123"},
         "message": {"text": "Hello from HIRI"},
     }
+
+
+def test_meta_adapter_rejects_invalid_instagram_auth_mode_without_http_call():
+    account = make_account(
+        "instagram_dm",
+        provider_auth_mode="https://attacker.example",
+    )
+    action = make_action(account)
+    adapter, transport = make_adapter()
+
+    result = adapter.deliver(action, account)
+
+    assert result.delivered is False
+    assert result.failure_code == "meta_provider_auth_mode_invalid"
+    assert result.failure_classification == OutboundDeliveryFailureClassification.VALIDATION
+    assert transport.calls == []
 
 
 def test_meta_adapter_requires_access_token_reference_without_http_call():

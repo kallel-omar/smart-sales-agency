@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
@@ -16,7 +16,7 @@ from app.core.work_items import WorkItemStatus
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class LeadStatus(StrEnum):
@@ -469,6 +469,9 @@ class IntegrationAccount(SQLModel, table=True):
     workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
     provider: str = Field(max_length=100, index=True)
     external_account_id: str | None = Field(default=None, max_length=255)
+    # Non-secret provider routing configuration. For Instagram this distinguishes
+    # Facebook Login from native Instagram Login without creating another provider.
+    provider_auth_mode: str | None = Field(default=None, max_length=100)
     # A provider-neutral identifier resolved by the configured secret backend.
     # It is intentionally not the secret value itself.
     secret_reference: str | None = Field(default=None, max_length=255)

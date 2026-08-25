@@ -3,25 +3,27 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
+from alembic import command
 from app.config import Settings, get_settings
 from app.main import create_app
 from app.migration_state import (
     BASELINE_REVISION,
-    MigrationTopology,
     MigrationSchemaNotCurrentError,
     MigrationSchemaState,
+    MigrationTopology,
     application_head_revision,
     check_database_schema_state,
     compare_database_schema_to_metadata,
     ensure_database_schema_current,
-    main as migration_state_main,
     validate_migration_topology,
+)
+from app.migration_state import (
+    main as migration_state_main,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +42,8 @@ CUSTOMER_CONTACT_REVISION = "20260820_007"
 INBOUND_EXTERNAL_IDENTITY_REVISION = "20260820_008"
 INBOUND_COMMENT_TRIGGER_REVISION = "20260820_009"
 FOLLOW_UP_WORK_ITEM_REVISION = "20260820_010"
+INTEGRATION_CREDENTIAL_REFERENCE_REVISION = "20260820_011"
+INTEGRATION_PROVIDER_AUTH_MODE_REVISION = "20260825_012"
 
 
 @pytest.fixture
@@ -115,7 +119,8 @@ def test_migration_graph_is_single_linear_history_with_task297_baseline_root():
         INBOUND_EXTERNAL_IDENTITY_REVISION,
         INBOUND_COMMENT_TRIGGER_REVISION,
         FOLLOW_UP_WORK_ITEM_REVISION,
-        "20260820_011",
+        INTEGRATION_CREDENTIAL_REFERENCE_REVISION,
+        INTEGRATION_PROVIDER_AUTH_MODE_REVISION,
     )
 
 
@@ -189,9 +194,8 @@ def test_postgresql_schema_lifecycle_idempotence_and_startup_guard(
 
     monkeypatch.setattr("app.main.create_db_and_tables", fake_create_db_and_tables)
     uninitialized_app = create_app(_production_settings(postgres_schema_url))
-    with pytest.raises(MigrationSchemaNotCurrentError):
-        with TestClient(uninitialized_app):
-            pass
+    with pytest.raises(MigrationSchemaNotCurrentError), TestClient(uninitialized_app):
+        pass
     assert calls == {"create_all": 0}
 
     engine = create_engine(postgres_schema_url)

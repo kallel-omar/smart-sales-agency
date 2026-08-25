@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -623,6 +623,7 @@ class IntegrationAccountProvision(BaseModel):
 
     provider: str = Field(min_length=1, max_length=100)
     external_account_id: str | None = Field(default=None, max_length=255)
+    provider_auth_mode: str | None = Field(default=None, max_length=100)
     # Accepted only to link the account to a configured secret backend. It is
     # deliberately excluded from normal account responses.
     secret_reference: str = Field(min_length=1, max_length=255)
@@ -662,6 +663,7 @@ class IntegrationAccountRead(BaseModel):
     workspace_id: UUID
     provider: str
     external_account_id: str | None
+    provider_auth_mode: str | None
     active: bool
     created_at: datetime
     updated_at: datetime
@@ -714,7 +716,7 @@ class OutboundIntegrationActionCreate(BaseModel):
             return None
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("not_before must be timezone-aware UTC time")
-        return value.astimezone(timezone.utc)
+        return value.astimezone(UTC)
 
 
 class OutboundIntegrationActionRead(BaseModel):

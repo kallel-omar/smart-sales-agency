@@ -14,6 +14,8 @@ from app.integrations.providers import (
     GENERIC_HMAC_PROVIDER,
     GENERIC_WEBHOOK_DELIVERY_PROVIDERS,
     INSTAGRAM_DM_PROVIDER,
+    INSTAGRAM_FACEBOOK_LOGIN_AUTH_MODE,
+    INSTAGRAM_LOGIN_AUTH_MODE,
     META_MESSAGING_PROVIDERS,
     WHATSAPP_CLOUD_PROVIDER,
 )
@@ -555,7 +557,7 @@ class HttpxMetaGraphHttpTransport:
 
 
 class MetaGraphDeliveryAdapter:
-    """Native Meta messaging for the Facebook Login-based Sales MVP."""
+    """Native Messenger and dual-mode Instagram messaging delivery."""
 
     capabilities = DEFAULT_DELIVERY_ADAPTER_CAPABILITIES
 
@@ -564,6 +566,7 @@ class MetaGraphDeliveryAdapter:
         credential_reference_service: IntegrationCredentialReferenceService,
         *,
         graph_api_base_url: str,
+        instagram_graph_api_base_url: str = "https://graph.instagram.com",
         graph_api_version: str,
         connect_timeout_seconds: float = 5,
         read_timeout_seconds: float = 15,
@@ -572,6 +575,9 @@ class MetaGraphDeliveryAdapter:
     ) -> None:
         self.credential_reference_service = credential_reference_service
         self.graph_api_base_url = graph_api_base_url.strip().rstrip("/")
+        self.instagram_graph_api_base_url = (
+            instagram_graph_api_base_url.strip().rstrip("/")
+        )
         self.graph_api_version = graph_api_version.strip().lstrip("/")
         self.timeout = httpx.Timeout(
             connect=connect_timeout_seconds,
@@ -641,6 +647,16 @@ class MetaGraphDeliveryAdapter:
                 "Integration account is not a supported Meta messaging account",
                 OutboundDeliveryFailureClassification.VALIDATION,
             )
+        if (
+            account.provider == INSTAGRAM_DM_PROVIDER
+            and account.provider_auth_mode
+            not in {None, INSTAGRAM_FACEBOOK_LOGIN_AUTH_MODE, INSTAGRAM_LOGIN_AUTH_MODE}
+        ):
+            return DeliveryAdapterResult.failure(
+                "meta_provider_auth_mode_invalid",
+                "Instagram provider authentication mode is unsupported",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
         if not account.external_account_id or not account.external_account_id.strip():
             return DeliveryAdapterResult.failure(
                 "meta_account_id_missing",
@@ -659,7 +675,11 @@ class MetaGraphDeliveryAdapter:
                 "Meta message content is required",
                 OutboundDeliveryFailureClassification.VALIDATION,
             )
-        if not self.graph_api_base_url or not self.graph_api_version:
+        if (
+            not self.graph_api_base_url
+            or not self.instagram_graph_api_base_url
+            or not self.graph_api_version
+        ):
             return DeliveryAdapterResult.failure(
                 "meta_configuration_missing",
                 "Meta Graph API configuration is missing",
@@ -672,11 +692,12 @@ class MetaGraphDeliveryAdapter:
         action: OutboundIntegrationAction,
         account: IntegrationAccount,
     ) -> tuple[str, dict[str, Any]]:
+        graph_api_base_url = self._graph_api_base_url(account)
         channel = str(action.payload.get("channel") or account.provider)
         if channel in {"facebook_comment", "instagram_comment"}:
             return (
                 (
-                    f"{self.graph_api_base_url}/{self.graph_api_version}/"
+                    f"{graph_api_base_url}/{self.graph_api_version}/"
                     f"{account.external_account_id}/messages"
                 ),
                 {
@@ -694,11 +715,21 @@ class MetaGraphDeliveryAdapter:
             raise ValueError("Unsupported Meta messaging provider")
         return (
             (
-                f"{self.graph_api_base_url}/{self.graph_api_version}/"
+                f"{graph_api_base_url}/{self.graph_api_version}/"
                 f"{account.external_account_id}/messages"
             ),
             body,
         )
+
+    def _graph_api_base_url(self, account: IntegrationAccount) -> str:
+        if account.provider == FACEBOOK_MESSENGER_PROVIDER:
+            return self.graph_api_base_url
+        if (
+            account.provider == INSTAGRAM_DM_PROVIDER
+            and account.provider_auth_mode == INSTAGRAM_LOGIN_AUTH_MODE
+        ):
+            return self.instagram_graph_api_base_url
+        return self.graph_api_base_url
 
 
 def normalize_meta_graph_response(

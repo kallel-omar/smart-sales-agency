@@ -6,6 +6,11 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.integrations.providers import (
+    INSTAGRAM_DM_AUTH_MODES,
+    INSTAGRAM_DM_PROVIDER,
+    INSTAGRAM_FACEBOOK_LOGIN_AUTH_MODE,
+)
 from app.models import (
     IntegrationAccount,
     IntegrationAccountAuditAction,
@@ -18,6 +23,10 @@ from app.services.secret_reference_policy import IntegrationSecretReferencePolic
 
 class IntegrationAccountNotFoundError(LookupError):
     """Raised when an account is absent from the requesting workspace."""
+
+
+class IntegrationAccountProviderAuthModeError(ValueError):
+    """Raised when provider authentication routing is unsupported."""
 
 
 class IntegrationAccountService:
@@ -40,17 +49,24 @@ class IntegrationAccountService:
         provider: str,
         external_account_id: str | None,
         secret_reference: str,
+        provider_auth_mode: str | None = None,
     ) -> tuple[IntegrationAccount, str]:
         validated_secret_reference = self.secret_reference_policy.validate(
             secret_reference
         )
+        normalized_provider = provider.strip()
+        normalized_auth_mode = self._normalize_provider_auth_mode(
+            normalized_provider,
+            provider_auth_mode,
+        )
         credential = self._new_credential()
         account = IntegrationAccount(
             workspace_id=workspace.id,
-            provider=provider.strip(),
+            provider=normalized_provider,
             external_account_id=external_account_id.strip()
             if external_account_id is not None
             else None,
+            provider_auth_mode=normalized_auth_mode,
             secret_reference=validated_secret_reference,
             credential_hash=self._hash_credential(credential),
         )
@@ -59,6 +75,28 @@ class IntegrationAccountService:
         self.session.commit()
         self.session.refresh(account)
         return account, credential
+
+    @staticmethod
+    def _normalize_provider_auth_mode(
+        provider: str,
+        provider_auth_mode: str | None,
+    ) -> str | None:
+        if provider != INSTAGRAM_DM_PROVIDER:
+            if provider_auth_mode is not None:
+                raise IntegrationAccountProviderAuthModeError(
+                    "Provider authentication mode is only supported for instagram_dm"
+                )
+            return None
+
+        if provider_auth_mode is None:
+            return INSTAGRAM_FACEBOOK_LOGIN_AUTH_MODE
+
+        normalized = provider_auth_mode.strip().lower()
+        if normalized not in INSTAGRAM_DM_AUTH_MODES:
+            raise IntegrationAccountProviderAuthModeError(
+                "Unsupported instagram_dm provider authentication mode"
+            )
+        return normalized
 
     def list_for_workspace(self, workspace: Workspace) -> list[IntegrationAccount]:
         statement = (

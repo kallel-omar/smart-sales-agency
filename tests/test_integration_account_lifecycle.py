@@ -1,6 +1,8 @@
 from hashlib import sha256
 from uuid import UUID
 
+import pytest
+
 from app.db import get_session
 from app.main import app
 from app.models import IntegrationAccount
@@ -46,6 +48,26 @@ def provision_account(client, workspace_slug: str) -> dict:
     return response.json()
 
 
+def provision_instagram_account(
+    client,
+    workspace_slug: str,
+    *,
+    provider_auth_mode: str | None = None,
+):
+    payload = {
+        "provider": "instagram_dm",
+        "external_account_id": "instagram-professional-account-123",
+        "secret_reference": "INTEGRATION_SECRET_INSTAGRAM_TEST",
+    }
+    if provider_auth_mode is not None:
+        payload["provider_auth_mode"] = provider_auth_mode
+    return client.post(
+        "/api/integrations/accounts",
+        headers=workspace_headers(workspace_slug),
+        json=payload,
+    )
+
+
 def inbound_payload(lead_id: str) -> dict[str, str]:
     return {
         "lead_id": lead_id,
@@ -88,6 +110,64 @@ def test_provisioning_returns_raw_credential_once_and_persists_only_its_hash(cli
     assert "credential_hash" not in accounts.json()[0]
     assert "secret_reference" not in accounts.json()[0]
     assert "test-generic-hmac-secret" not in str(accounts.json()[0])
+
+
+def test_legacy_instagram_provisioning_defaults_to_facebook_login(client):
+    create_workspace(client, "instagram-default-mode")
+
+    response = provision_instagram_account(client, "instagram-default-mode")
+
+    assert response.status_code == 201
+    assert response.json()["provider_auth_mode"] == "facebook_login"
+    assert "secret_reference" not in response.json()
+    assert "INTEGRATION_SECRET_INSTAGRAM_TEST" not in str(response.json())
+
+
+@pytest.mark.parametrize("provider_auth_mode", ["facebook_login", "instagram_login"])
+def test_instagram_provisioning_accepts_supported_auth_modes(
+    client,
+    provider_auth_mode,
+):
+    slug = f"instagram-{provider_auth_mode.replace('_', '-')}"
+    create_workspace(client, slug)
+
+    response = provision_instagram_account(
+        client,
+        slug,
+        provider_auth_mode=provider_auth_mode,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["provider_auth_mode"] == provider_auth_mode
+
+
+def test_integration_account_provisioning_rejects_unsupported_auth_modes(client):
+    create_workspace(client, "instagram-invalid-mode")
+
+    instagram = provision_instagram_account(
+        client,
+        "instagram-invalid-mode",
+        provider_auth_mode="arbitrary_host_mode",
+    )
+    non_instagram = client.post(
+        "/api/integrations/accounts",
+        headers=workspace_headers("instagram-invalid-mode"),
+        json={
+            "provider": "facebook_messenger",
+            "external_account_id": "page-123",
+            "provider_auth_mode": "instagram_login",
+            "secret_reference": "INTEGRATION_SECRET_MESSENGER_TEST",
+        },
+    )
+
+    assert instagram.status_code == 422
+    assert instagram.json()["detail"] == (
+        "Unsupported instagram_dm provider authentication mode"
+    )
+    assert non_instagram.status_code == 422
+    assert non_instagram.json()["detail"] == (
+        "Provider authentication mode is only supported for instagram_dm"
+    )
 
 
 def test_accounts_are_listed_only_in_their_workspace_and_cross_workspace_mutation_is_denied(client):

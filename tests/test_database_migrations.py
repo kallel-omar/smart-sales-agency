@@ -1,5 +1,6 @@
 import importlib.util
 import os
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -148,6 +149,89 @@ def test_sqlite_migration_to_head_matches_application_metadata(tmp_path, monkeyp
         get_settings.cache_clear()
 
     assert set(SQLModel.metadata.tables) | {"alembic_version"} <= actual_tables
+
+
+def test_provider_auth_mode_migration_backfills_only_existing_instagram_accounts(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "task291-auth-mode.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+
+    try:
+        command.upgrade(_alembic_config(), "head")
+        command.downgrade(_alembic_config(), "20260820_011")
+        engine = create_engine(database_url)
+        workspace_id = uuid4()
+        instagram_account_id = uuid4()
+        messenger_account_id = uuid4()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO workspace "
+                        "(id, slug, name, active, ai_model_tier_downgrade_mappings, "
+                        "created_at, updated_at) "
+                        "VALUES (:id, :slug, :name, :active, :mappings, :created_at, :updated_at)"
+                    ),
+                    {
+                        "id": workspace_id.hex,
+                        "slug": "task291-migration",
+                        "name": "Task 291 Migration",
+                        "active": True,
+                        "mappings": "{}",
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                )
+                for account_id, provider, external_account_id, credential_hash in (
+                    (instagram_account_id, "instagram_dm", "ig-legacy", "a" * 64),
+                    (messenger_account_id, "facebook_messenger", "page-legacy", "b" * 64),
+                ):
+                    connection.execute(
+                        text(
+                            "INSERT INTO integrationaccount "
+                            "(id, workspace_id, provider, external_account_id, secret_reference, "
+                            "credential_hash, active, created_at, updated_at) "
+                            "VALUES (:id, :workspace_id, :provider, :external_account_id, NULL, "
+                            ":credential_hash, :active, :created_at, :updated_at)"
+                        ),
+                        {
+                            "id": account_id.hex,
+                            "workspace_id": workspace_id.hex,
+                            "provider": provider,
+                            "external_account_id": external_account_id,
+                            "credential_hash": credential_hash,
+                            "active": True,
+                            "created_at": now,
+                            "updated_at": now,
+                        },
+                    )
+        finally:
+            engine.dispose()
+
+        command.upgrade(_alembic_config(), "head")
+        engine = create_engine(database_url)
+        try:
+            with engine.connect() as connection:
+                rows = connection.execute(
+                    text(
+                        "SELECT provider, provider_auth_mode FROM integrationaccount "
+                        "ORDER BY provider"
+                    )
+                ).all()
+        finally:
+            engine.dispose()
+    finally:
+        get_settings.cache_clear()
+
+    assert rows == [
+        ("facebook_messenger", None),
+        ("instagram_dm", "facebook_login"),
+    ]
 
 
 def test_production_startup_does_not_run_create_all(monkeypatch):
