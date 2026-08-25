@@ -70,7 +70,7 @@ invalidate the successful Messenger transport or end-to-end validation.
 | --- | --- | --- |
 | WhatsApp Cloud | Direct signed inbound → governed Sales WorkItems → native outbound delivery is covered end to end. | Real WhatsApp Sales E2E verified on 2026-08-24. |
 | Facebook Messenger | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end. | Real Facebook Messenger Sales E2E verified on 2026-08-24; identity/display-name enrichment is NOW hardening. |
-| Instagram Direct | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery supports both Facebook Login and native Instagram Login routing. | Task 290 verified real inbound and Sales routing; native Instagram Login outbound remains to be validated with the correctly permissioned app. |
+| Instagram Direct | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery supports both Facebook Login and native Instagram Login routing. | Native Instagram Login real Sales E2E verified on 2026-08-25; Facebook Login inbound remains verified while outbound is externally blocked by Meta application/capability access in the current test environment. |
 
 Task 290 validated a real Instagram professional-account inbound DM through the
 Meta webhook and existing HIRI Sales architecture. HIRI created the governed
@@ -88,6 +88,65 @@ secrets referenced through purpose `api_access_token`, and each account's
 `webhook_app_secret` must reference the secret for the application that actually
 signs its webhook. Customer-facing OAuth, token exchange/refresh, and writable
 secret-manager onboarding remain NEXT.
+
+### Native Instagram Login real Sales E2E — VERIFIED / DONE
+
+On 2026-08-25, HIRI validated native Instagram Login end to end with a real
+Instagram Professional account. The verified IntegrationAccount uses provider
+`instagram_dm`, account-level `provider_auth_mode=instagram_login`, external
+account ID `17841439019937286`, and IntegrationAccount ID
+`f2ecd496-b901-4e80-9094-da480cf646dd`.
+
+The verified real flow was:
+
+`Instagram direct message → Meta native Instagram webhook → HIRI inbound endpoint
+→ workspace-scoped inbound receipt → Sales processing → Sales Conversation
+AIEmployee → send_message capability → controlled_automation tool access → native
+Instagram outbound delivery through graph.instagram.com → real Instagram reply
+received by the sender`.
+
+The following components were validated against real Meta infrastructure:
+
+- Instagram Professional account authorization and a native Instagram User access token
+- explicit `instagram_login` authentication mode and `graph.instagram.com` routing
+- native webhook callback verification and `messages` webhook subscription
+- signed inbound webhook processing and durable inbound receipt creation
+- Sales routing and Sales Conversation AIEmployee execution
+- `send_message` capability assignment
+- IntegrationAccount-specific tool-access governance with `controlled_automation` autonomy
+- credential references for `api_access_token`, `webhook_app_secret`, and `webhook_verify_token`
+- outbound Meta delivery and a real reply visible in Instagram
+
+Native Instagram Login real Sales E2E is therefore **VERIFIED / DONE**.
+
+The Facebook Login mode remains distinct: provider `instagram_dm` with
+`provider_auth_mode=facebook_login` continues to route through
+`graph.facebook.com`. Its inbound webhook flow was previously verified. Outbound
+sending remains externally blocked by Meta application/capability access in the
+current test environment; this is not a HIRI architectural failure. Native
+Instagram Login now provides the successfully verified Instagram-only path.
+
+Two **NOW — small hardening tasks** were exposed without invalidating the E2E
+result:
+
+1. Enrich Instagram sender/profile identity where Meta permits it and use a safe
+   fallback when no display name can be resolved, instead of greeting the sender
+   as “Unknown”.
+2. Ensure generated customer-facing approval/autonomy wording reflects the actual
+   execution state. An action executed under `controlled_automation` with
+   `requires_approval=False` must not claim that human approval occurs before send.
+
+The real validation used a temporary Cloudflare quick tunnel. Quick tunnels are
+development/testing infrastructure only and must not become a production
+dependency. No access tokens, app secrets, webhook verify tokens, credentials,
+passwords, or other secret values are recorded here.
+
+This validation confirms the existing architecture without a separate Instagram
+system: `Workspace → Sales Department → AIEmployee → Capability →
+IntegrationAccount → permission/tool access → WorkItem / execution → business
+result → audit`. Native Instagram Login remains the generic `instagram_dm`
+provider with account-level `provider_auth_mode`; no duplicate Sales, Lead,
+WorkItem, approval, or audit system was introduced.
 
 Messenger and Instagram use the existing IntegrationAccount, credential-reference,
 Lead Capture, WorkItem, approval/tool-access, outbound-action, delivery-attempt, and
@@ -250,26 +309,27 @@ Those areas must be treated as existing implementation to preserve and extend.
 
 The frontend redesign checkpoint is complete.
 
-Current work is real-provider validation and pilot readiness for direct WhatsApp,
-Facebook Messenger, and Instagram Direct Sales messaging.
+Real Sales transport is verified for direct WhatsApp, Facebook Messenger, and
+native Instagram Login. Current work is the small identity/copy hardening exposed
+by those validations plus production and pilot readiness. The Instagram Facebook
+Login outbound path remains subject to Meta application/capability access in the
+current test environment.
 
 ### Immediate priorities
 
-1. Configure a dedicated Meta test-business application, WhatsApp test number, and callback URL in a secure non-production environment.
-2. Run the signed webhook challenge and one real inbound text through the direct provider edge.
-3. Confirm the governed reply reaches the sender and Meta delivery/status identifiers reconcile with HIRI audit data.
-4. Exercise an approval-required reply and an operator-approved continuation with the pilot account.
-5. Validate production callback TLS, secret injection/rotation, observability, rate limits, and operational runbooks.
+1. Harden Messenger and Instagram sender/profile enrichment with safe display-name fallbacks.
+2. Align generated customer-facing approval/autonomy wording with actual execution state.
+3. Exercise an approval-required reply and an operator-approved continuation with the pilot account.
+4. Validate production callback TLS, secret injection/rotation, observability, rate limits, and operational runbooks.
+5. Reconcile Meta delivery/status identifiers with HIRI audit data across the verified channels.
 6. Use real pilot-business testing to determine the next genuine Sales MVP gaps.
 
-For Messenger, validate the Page access token, Page/app subscription permissions,
-webhook callback, sender recipient mapping, Graph API version, and delivery/status
-events with a Meta test user. For Instagram Direct, validate the supported
-professional-account linkage, required messaging permissions, webhook subscription,
-recipient mapping, Graph API version, and the platform's allowed messaging window
-with a Meta test user. Rich media, templates, reactions, read receipts, delivery
-status reconciliation, and provider-specific retry policy remain later work unless
-the pilot proves one is required for the first useful Sales flow.
+For the verified Meta channels, continue validating production permissions,
+recipient mapping, Graph API versions, allowed messaging windows, and
+delivery/status events as pilot configuration changes. Rich media, templates,
+reactions, read receipts, delivery status reconciliation, and provider-specific
+retry policy remain later work unless the pilot proves one is required for the
+first useful Sales flow.
 
 Redis, Celery, Temporal or another background runtime must not be introduced merely because they are available. Add worker infrastructure only when a demonstrated asynchronous or durable-execution requirement justifies it.
 
