@@ -234,6 +234,104 @@ def test_provider_auth_mode_migration_backfills_only_existing_instagram_accounts
     ]
 
 
+def test_tiktok_migration_enforces_only_one_active_owner_and_preserves_history(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "task293-tiktok.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+
+    try:
+        command.upgrade(_alembic_config(), "head")
+        engine = create_engine(database_url)
+        workspace_id = uuid4()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        try:
+            inspector = inspect(engine)
+            columns = {
+                column["name"]
+                for column in inspector.get_columns("integrationaccount")
+            }
+            indexes = {
+                index["name"]: index
+                for index in inspector.get_indexes("integrationaccount")
+            }
+            assert "comment_to_message_eligible" in columns
+            assert indexes["uq_active_tiktok_dm_external_account"]["unique"] == 1
+
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO workspace "
+                        "(id, slug, name, active, ai_model_tier_downgrade_mappings, "
+                        "created_at, updated_at) "
+                        "VALUES (:id, :slug, :name, :active, :mappings, "
+                        ":created_at, :updated_at)"
+                    ),
+                    {
+                        "id": workspace_id.hex,
+                        "slug": "task293-migration",
+                        "name": "Task 293 Migration",
+                        "active": True,
+                        "mappings": "{}",
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                )
+
+            def insert_account(provider, external_id, active, credential_hash):
+                with engine.begin() as connection:
+                    connection.execute(
+                        text(
+                            "INSERT INTO integrationaccount "
+                            "(id, workspace_id, provider, external_account_id, "
+                            "provider_auth_mode, comment_to_message_eligible, "
+                            "secret_reference, credential_hash, active, created_at, updated_at) "
+                            "VALUES (:id, :workspace_id, :provider, :external_account_id, "
+                            "NULL, :eligible, NULL, :credential_hash, :active, "
+                            ":created_at, :updated_at)"
+                        ),
+                        {
+                            "id": uuid4().hex,
+                            "workspace_id": workspace_id.hex,
+                            "provider": provider,
+                            "external_account_id": external_id,
+                            "eligible": False,
+                            "credential_hash": credential_hash,
+                            "active": active,
+                            "created_at": now,
+                            "updated_at": now,
+                        },
+                    )
+
+            insert_account("tiktok_dm", "shared-business", True, "a" * 64)
+            insert_account("tiktok_dm", "shared-business", False, "b" * 64)
+            insert_account("tiktok_dm", "shared-business", False, "c" * 64)
+            insert_account("facebook_messenger", "shared-business", True, "d" * 64)
+            with pytest.raises(IntegrityError):
+                insert_account("tiktok_dm", "shared-business", True, "e" * 64)
+
+            with engine.connect() as connection:
+                rows = connection.execute(
+                    text(
+                        "SELECT provider, active, comment_to_message_eligible "
+                        "FROM integrationaccount ORDER BY credential_hash"
+                    )
+                ).all()
+            assert rows == [
+                ("tiktok_dm", 1, 0),
+                ("tiktok_dm", 0, 0),
+                ("tiktok_dm", 0, 0),
+                ("facebook_messenger", 1, 0),
+            ]
+        finally:
+            engine.dispose()
+    finally:
+        get_settings.cache_clear()
+
+
 def test_production_startup_does_not_run_create_all(monkeypatch):
     calls = {"create_all": 0}
 

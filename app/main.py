@@ -13,6 +13,7 @@ from app.api.routes import (
     meta_router,
     operator_router,
     products_router,
+    tiktok_router,
     whatsapp_cloud_router,
     workflows_router,
     workspaces_router,
@@ -82,6 +83,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     app.include_router(comment_trigger_rules_router, prefix="/api")
     app.include_router(integrations_router, prefix="/api")
     app.include_router(whatsapp_cloud_router, prefix="/api")
+    app.include_router(tiktok_router, prefix="/api")
     app.include_router(approvals_router, prefix="/api")
     app.include_router(operator_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")

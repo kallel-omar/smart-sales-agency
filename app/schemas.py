@@ -173,6 +173,19 @@ class MetaCommentIntakeRead(BaseModel):
     outbound_action_id: UUID | None = None
 
 
+class TikTokCommentIntakeRead(MetaCommentIntakeRead):
+    """Safe TikTok Comment-to-Message intake result."""
+
+    channel: Literal["tiktok_comment"]
+
+
+class TikTokInboundIgnoredRead(BaseModel):
+    """Safe acknowledgement for a verified, non-actionable TikTok event."""
+
+    ignored: bool = True
+    event: str | None = None
+
+
 class InboundCommentTriggerRuleCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -654,6 +667,14 @@ class IntegrationAccountSecretReferenceUpdate(BaseModel):
     secret_reference: str = Field(min_length=1, max_length=255)
 
 
+class IntegrationAccountCommentToMessageEligibilityUpdate(BaseModel):
+    """Confirmed provider eligibility; false remains the safe default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    eligible: bool
+
+
 class IntegrationAccountRead(BaseModel):
     """Safe integration-account representation that never exposes credential hashes."""
 
@@ -664,6 +685,7 @@ class IntegrationAccountRead(BaseModel):
     provider: str
     external_account_id: str | None
     provider_auth_mode: str | None
+    comment_to_message_eligible: bool
     active: bool
     created_at: datetime
     updated_at: datetime

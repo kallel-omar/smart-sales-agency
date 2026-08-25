@@ -21,6 +21,7 @@ from app.services.delivery_adapters import (
     DeliveryAdapterResult,
     GenericWebhookDeliveryAdapter,
     MetaGraphDeliveryAdapter,
+    TikTokBusinessDeliveryAdapter,
     WhatsAppCloudDeliveryAdapter,
     default_delivery_adapter_registry,
 )
@@ -123,12 +124,20 @@ class OutboundIntegrationDeliveryService:
             connect_timeout_seconds=settings.meta_graph_connect_timeout_seconds,
             read_timeout_seconds=settings.meta_graph_read_timeout_seconds,
         )
+        tiktok_business_adapter = TikTokBusinessDeliveryAdapter(
+            IntegrationCredentialReferenceService(session),
+            api_base_url=settings.tiktok_business_api_base_url,
+            api_version=settings.tiktok_business_api_version,
+            connect_timeout_seconds=settings.tiktok_business_connect_timeout_seconds,
+            read_timeout_seconds=settings.tiktok_business_read_timeout_seconds,
+        )
         return cls(
             session,
             adapter_registry=default_delivery_adapter_registry(
                 webhook_adapter,
                 whatsapp_cloud_adapter,
                 meta_graph_adapter,
+                tiktok_business_adapter,
             ),
             retry_policy=retry_policy,
         )

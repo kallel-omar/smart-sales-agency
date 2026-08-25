@@ -7,6 +7,7 @@ from sqlmodel import Session
 from app.config import Settings
 from app.core.comment_triggers import CommentTriggerResult, InboundCommentChannel
 from app.core.lead_capture import LeadCaptureResult, LeadCaptureSignal
+from app.integrations.providers import TIKTOK_DM_PROVIDER
 from app.models import InboundCommentTriggerRule, IntegrationAccount, Workspace
 from app.services.comment_trigger_rules import CommentTriggerRuleService
 from app.services.inbound_integrations import (
@@ -16,12 +17,12 @@ from app.services.inbound_integrations import (
 from app.services.meta_inbound import (
     InboundExternalIdentityBindingError,
     InboundExternalIdentityService,
-    MetaInboundEvent,
 )
 from app.services.send_message_work_items import (
     SendMessageWorkItemResult,
     SendMessageWorkItemService,
 )
+from app.services.social_inbound import SocialInboundEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,10 +44,20 @@ class SocialCommentAutomationService:
         self,
         workspace: Workspace,
         account: IntegrationAccount,
-        event: MetaInboundEvent,
+        event: SocialInboundEvent,
         reservation: InboundEventReservation,
         inbound: InboundIntegrationService,
     ) -> SocialCommentAutomationResult:
+        if (
+            event.channel == InboundCommentChannel.TIKTOK_COMMENT
+            and (
+                account.provider != TIKTOK_DM_PROVIDER
+                or not account.comment_to_message_eligible
+            )
+        ):
+            return SocialCommentAutomationResult(
+                outcome=CommentTriggerResult.PROVIDER_INELIGIBLE
+            )
         match = CommentTriggerRuleService(self.session).match(
             workspace,
             account,

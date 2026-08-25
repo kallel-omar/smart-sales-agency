@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Annotated
@@ -27,6 +28,10 @@ from app.services.identity_memberships import (
     UserNotFoundError,
     WorkspaceMembershipNotFoundError,
 )
+from app.services.integration_accounts import (
+    IntegrationAccountRoutingError,
+    IntegrationAccountService,
+)
 from app.services.integration_credential_references import (
     IntegrationCredentialReferenceNotFoundError,
     IntegrationCredentialReferenceService,
@@ -41,6 +46,12 @@ from app.services.rate_limiting import (
     rate_limit_headers,
 )
 from app.services.secret_resolver import EnvironmentSecretResolver
+from app.services.tiktok_business import (
+    TikTokInboundNormalizationError,
+    TikTokInboundNormalizer,
+    TikTokWebhookVerificationError,
+    verify_tiktok_webhook_signature,
+)
 from app.services.webhook_authentication import (
     ProviderWebhookAuthenticationService,
     WebhookAuthenticationError,
@@ -96,6 +107,7 @@ IntegrationKeyHeader = Annotated[
 
 WebhookSignatureHeader = Annotated[str | None, Header(alias="X-Webhook-Signature")]
 MetaWebhookSignatureHeader = Annotated[str | None, Header(alias="X-Hub-Signature-256")]
+TikTokWebhookSignatureHeader = Annotated[str | None, Header(alias="TikTok-Signature")]
 WebhookTimestampHeader = Annotated[str | None, Header(alias="X-Webhook-Timestamp")]
 WebhookEventIdHeader = Annotated[str | None, Header(alias="X-Webhook-Event-Id")]
 
@@ -536,6 +548,60 @@ VerifiedWhatsAppCloudIntegrationContextDep = Annotated[
 ]
 
 
+async def get_verified_tiktok_integration_context(
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    signature: TikTokWebhookSignatureHeader = None,
+) -> IntegrationContext:
+    """Authenticate an app-level TikTok callback and resolve its active account."""
+    try:
+        raw_body = await request.body()
+        payload = json.loads(raw_body)
+        if not isinstance(payload, dict):
+            raise TikTokInboundNormalizationError("TikTok webhook payload is invalid")
+        normalizer = TikTokInboundNormalizer()
+        account = IntegrationAccountService(session).resolve_active_tiktok_account(
+            normalizer.routing_account_id(payload)
+        )
+        credential_reference = IntegrationCredentialReferenceService(
+            session
+        ).get_for_integration_account(account, "webhook_app_secret")
+        app_secret = EnvironmentSecretResolver().resolve(
+            credential_reference.secret_reference
+        )
+        verify_tiktok_webhook_signature(
+            payload=raw_body,
+            signature_header=signature,
+            app_secret=app_secret,
+            max_age_seconds=settings.webhook_max_age_seconds,
+        )
+        if not settings.tiktok_business_app_id or payload.get(
+            "client_key"
+        ) != settings.tiktok_business_app_id:
+            raise TikTokWebhookVerificationError("TikTok webhook verification failed")
+        workspace = resolve_integration_workspace_for_account(session, account)
+        return IntegrationContext(account=account, workspace=workspace)
+    except (
+        json.JSONDecodeError,
+        IntegrationAccountRoutingError,
+        InvalidIntegrationContextError,
+        IntegrationCredentialReferenceNotFoundError,
+        TikTokInboundNormalizationError,
+        TikTokWebhookVerificationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid webhook authentication",
+        ) from exc
+
+
+VerifiedTikTokIntegrationContextDep = Annotated[
+    IntegrationContext,
+    Depends(get_verified_tiktok_integration_context),
+]
+
+
 def get_rate_limit_service(
     request: Request,
     settings: SettingsDep,
@@ -629,6 +695,24 @@ def enforce_whatsapp_cloud_integration_ingest_rate_limit(
 WhatsAppCloudIntegrationIngestRateLimitDep = Annotated[
     None,
     Depends(enforce_whatsapp_cloud_integration_ingest_rate_limit),
+]
+
+
+def enforce_tiktok_integration_ingest_rate_limit(
+    integration_context: VerifiedTikTokIntegrationContextDep,
+    service: RateLimitServiceDep,
+    settings: SettingsDep,
+) -> None:
+    _enforce_rate_limit(
+        service,
+        _rate_limit_policy(settings, RateLimitPolicyId.INTEGRATION_INGEST),
+        _scope_key("integration_account", str(integration_context.account.id)),
+    )
+
+
+TikTokIntegrationIngestRateLimitDep = Annotated[
+    None,
+    Depends(enforce_tiktok_integration_ingest_rate_limit),
 ]
 
 

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import hmac
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +26,7 @@ from app.services.inbound_integrations import (
     InboundEventReservation,
     InboundIntegrationService,
 )
+from app.services.social_inbound import SocialInboundEvent
 
 
 class MetaInboundNormalizationError(ValueError):
@@ -67,19 +67,7 @@ class InboundExternalIdentityBindingError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True, slots=True)
-class MetaInboundEvent:
-    kind: Literal["direct_message", "comment"]
-    channel: str
-    provider_event_id: str
-    sender_external_id: str
-    recipient_account_id: str
-    content: str
-    display_name: str | None = None
-    timestamp: int | None = None
-    post_or_media_id: str | None = None
-    parent_comment_id: str | None = None
-    message_type: str | None = None
+MetaInboundEvent = SocialInboundEvent
 
 
 class MetaInboundNormalizer:
@@ -89,7 +77,7 @@ class MetaInboundNormalizer:
         *,
         provider: str,
         expected_account_id: str | None,
-    ) -> MetaInboundEvent:
+    ) -> SocialInboundEvent:
         expected_object = {
             FACEBOOK_MESSENGER_PROVIDER: "page",
             INSTAGRAM_DM_PROVIDER: "instagram",
@@ -113,7 +101,7 @@ class MetaInboundNormalizer:
 
     def _direct_message(
         self, provider: str, account_id: str, value: Any
-    ) -> MetaInboundEvent:
+    ) -> SocialInboundEvent:
         if not isinstance(value, dict):
             raise MetaInboundNormalizationError("Meta messaging event is invalid")
         sender = value.get("sender")
@@ -127,7 +115,7 @@ class MetaInboundNormalizer:
         if message.get("is_echo") is True:
             raise MetaInboundNormalizationError("Meta echo messages are not inbound")
         channel = provider
-        return MetaInboundEvent(
+        return SocialInboundEvent(
             kind="direct_message",
             channel=channel,
             provider_event_id=self._text(message.get("mid"), "Meta message id is missing"),
@@ -141,7 +129,7 @@ class MetaInboundNormalizer:
 
     def _comment(
         self, provider: str, account_id: str, change: Any, entry_time: Any
-    ) -> MetaInboundEvent:
+    ) -> SocialInboundEvent:
         if not isinstance(change, dict) or not isinstance(change.get("value"), dict):
             raise MetaInboundNormalizationError("Meta comment event is invalid")
         value = change["value"]
@@ -151,7 +139,7 @@ class MetaInboundNormalizer:
             author = value.get("from")
             if not isinstance(author, dict):
                 raise MetaInboundNormalizationError("Facebook comment author is missing")
-            return MetaInboundEvent(
+            return SocialInboundEvent(
                 kind="comment",
                 channel="facebook_comment",
                 provider_event_id=self._text(value.get("comment_id"), "Facebook comment id is missing"),
@@ -169,7 +157,7 @@ class MetaInboundNormalizer:
         if not isinstance(author, dict):
             raise MetaInboundNormalizationError("Instagram comment author is missing")
         media = value.get("media")
-        return MetaInboundEvent(
+        return SocialInboundEvent(
             kind="comment",
             channel="instagram_comment",
             provider_event_id=self._text(value.get("id"), "Instagram comment id is missing"),
@@ -233,7 +221,7 @@ class InboundExternalIdentityService:
         self,
         workspace: Workspace,
         account: IntegrationAccount,
-        event: MetaInboundEvent,
+        event: SocialInboundEvent,
     ) -> InboundExternalIdentity:
         self._validate_account(workspace, account)
         existing = self.get(
@@ -331,7 +319,7 @@ class InboundExternalIdentityService:
         self,
         workspace: Workspace,
         account: IntegrationAccount,
-        event: MetaInboundEvent,
+        event: SocialInboundEvent,
         integration_service: InboundIntegrationService,
         reservation: InboundEventReservation,
     ) -> tuple[InboundExternalIdentity, Lead | None]:

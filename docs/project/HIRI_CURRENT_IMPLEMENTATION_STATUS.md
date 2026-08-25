@@ -71,6 +71,24 @@ invalidate the successful Messenger transport or end-to-end validation.
 | WhatsApp Cloud | Direct signed inbound → governed Sales WorkItems → native outbound delivery is covered end to end. | Real WhatsApp Sales E2E verified on 2026-08-24. |
 | Facebook Messenger | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery is covered end to end. | Real Facebook Messenger Sales E2E verified on 2026-08-24; identity/display-name enrichment is NOW hardening. |
 | Instagram Direct | Direct signed inbound → governed Sales WorkItems → native Graph API outbound delivery supports both Facebook Login and native Instagram Login routing. | Native Instagram Login real Sales E2E verified on 2026-08-25; Facebook Login inbound remains verified while outbound is externally blocked by Meta application/capability access in the current test environment. |
+| TikTok Business Messaging | Mocked signed direct-DM inbound → governed Sales WorkItems → native outbound delivery, plus provider-gated Comment-to-Message Social Lead Capture, is implemented. | Real TikTok provider E2E remains blocked by onboarding and Business Messaging API access. |
+
+### Task 293 — TikTok Business Messaging foundation
+
+HIRI now includes a mocked-provider-tested `tiktok_dm` foundation for direct DM
+inbound/outbound Sales messaging and TikTok Comment-to-Message as an additional
+Social Lead Capture trigger. Both paths reuse the existing IntegrationAccount,
+Sales, AIEmployee, Capability, WorkItem, tool-access, approval, outbound-action,
+delivery-attempt, and audit architecture.
+
+Comment-to-Message eligibility is fail-closed and disabled until explicitly
+confirmed for the connected TikTok Business Account. Real TikTok provider E2E
+remains **BLOCKED** by external onboarding and API access. Automatic TikTok token
+refresh remains future credential-lifecycle work; current delivery safely exposes
+a reconnect-required failure state without persisting token values.
+
+Latest verified backend result: **895 passed, 6 skipped, 25 warnings**. This is an
+automated mocked-provider checkpoint and does not claim live TikTok validation.
 
 Task 290 validated a real Instagram professional-account inbound DM through the
 Meta webhook and existing HIRI Sales architecture. HIRI created the governed

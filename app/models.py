@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Column, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, Index, Numeric, String, Text, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 from app.core.ai_employees import AIEmployeeRoleKey
@@ -120,6 +120,7 @@ class IntegrationAccountAuditAction(StrEnum):
     DEACTIVATED = "deactivated"
     REACTIVATED = "reactivated"
     SECRET_REFERENCE_CHANGED = "secret_reference_changed"
+    COMMENT_TO_MESSAGE_ELIGIBILITY_CHANGED = "comment_to_message_eligibility_changed"
 
 
 class OutboundIntegrationActionType(StrEnum):
@@ -465,6 +466,22 @@ class WorkspaceMember(SQLModel, table=True):
 class IntegrationAccount(SQLModel, table=True):
     """A provider-neutral, workspace-owned inbound integration identity."""
 
+    __table_args__ = (
+        Index(
+            "uq_active_tiktok_dm_external_account",
+            "external_account_id",
+            unique=True,
+            postgresql_where=text(
+                "provider = 'tiktok_dm' AND external_account_id IS NOT NULL "
+                "AND active IS TRUE"
+            ),
+            sqlite_where=text(
+                "provider = 'tiktok_dm' AND external_account_id IS NOT NULL "
+                "AND active = 1"
+            ),
+        ),
+    )
+
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     workspace_id: UUID = Field(foreign_key="workspace.id", index=True)
     provider: str = Field(max_length=100, index=True)
@@ -472,6 +489,9 @@ class IntegrationAccount(SQLModel, table=True):
     # Non-secret provider routing configuration. For Instagram this distinguishes
     # Facebook Login from native Instagram Login without creating another provider.
     provider_auth_mode: str | None = Field(default=None, max_length=100)
+    # Safe provider state. TikTok Comment-to-Message stays disabled until an
+    # operator confirms that the connected Business Account is eligible.
+    comment_to_message_eligible: bool = Field(default=False, index=True)
     # A provider-neutral identifier resolved by the configured secret backend.
     # It is intentionally not the secret value itself.
     secret_reference: str | None = Field(default=None, max_length=255)

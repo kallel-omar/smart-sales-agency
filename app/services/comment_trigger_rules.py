@@ -13,6 +13,7 @@ from app.core.events import Department as DepartmentKind
 from app.integrations.providers import (
     FACEBOOK_MESSENGER_PROVIDER,
     INSTAGRAM_DM_PROVIDER,
+    TIKTOK_DM_PROVIDER,
 )
 from app.models import (
     AIEmployee,
@@ -48,6 +49,7 @@ class CommentTriggerRuleService:
     _PROVIDER_BY_CHANNEL: ClassVar[dict[InboundCommentChannel, str]] = {
         InboundCommentChannel.FACEBOOK_COMMENT: FACEBOOK_MESSENGER_PROVIDER,
         InboundCommentChannel.INSTAGRAM_COMMENT: INSTAGRAM_DM_PROVIDER,
+        InboundCommentChannel.TIKTOK_COMMENT: TIKTOK_DM_PROVIDER,
     }
 
     def __init__(self, session: Session) -> None:
@@ -67,6 +69,13 @@ class CommentTriggerRuleService:
         send_assignment_id: UUID,
     ) -> InboundCommentTriggerRule:
         canonical_channel = InboundCommentChannel(channel)
+        if (
+            canonical_channel == InboundCommentChannel.TIKTOK_COMMENT
+            and content_external_id is not None
+        ):
+            raise CommentTriggerRuleValidationError(
+                "TikTok Comment-to-Message rules must be account-wide"
+            )
         self._account(workspace, integration_account_id, canonical_channel)
         self._send_assignment(workspace, send_assignment_id)
         rule = InboundCommentTriggerRule(
@@ -134,6 +143,10 @@ class CommentTriggerRuleService:
         if values.get("clear_content_external_id"):
             rule.content_external_id = None
         elif "content_external_id" in values and values["content_external_id"] is not None:
+            if rule.channel == InboundCommentChannel.TIKTOK_COMMENT:
+                raise CommentTriggerRuleValidationError(
+                    "TikTok Comment-to-Message rules must be account-wide"
+                )
             rule.content_external_id = self._optional_text(values["content_external_id"], 255)
         rule.updated_at = utc_now()
         self.session.add(rule)

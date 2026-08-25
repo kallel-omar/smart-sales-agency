@@ -113,6 +113,12 @@ class Settings(BaseSettings):
     meta_graph_api_version: str = "v23.0"
     meta_graph_connect_timeout_seconds: float = Field(default=5, gt=0, le=60)
     meta_graph_read_timeout_seconds: float = Field(default=15, gt=0, le=120)
+    # TikTok API for Business uses one application-owned, allowlisted host.
+    tiktok_business_api_base_url: str = "https://business-api.tiktok.com/open_api"
+    tiktok_business_api_version: str = "v1.3"
+    tiktok_business_app_id: str = ""
+    tiktok_business_connect_timeout_seconds: float = Field(default=5, gt=0, le=60)
+    tiktok_business_read_timeout_seconds: float = Field(default=15, gt=0, le=120)
     integration_health_window_days: int = Field(default=30, ge=1, le=90)
 
     @field_validator("app_host")

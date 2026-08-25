@@ -38,6 +38,7 @@ from app.schemas import (
     InboundIntegrationReplyRead,
     IntegrationAccountAuditEventRead,
     IntegrationAccountAuditRetentionCleanupRead,
+    IntegrationAccountCommentToMessageEligibilityUpdate,
     IntegrationAccountCredentialRead,
     IntegrationAccountHealthRead,
     IntegrationAccountProvision,
@@ -90,7 +91,9 @@ from app.services.integration_account_audit import (
 )
 from app.services.integration_accounts import (
     IntegrationAccountNotFoundError,
+    IntegrationAccountOwnershipConflictError,
     IntegrationAccountProviderAuthModeError,
+    IntegrationAccountProviderValidationError,
     IntegrationAccountService,
 )
 from app.services.integration_credential_references import (
@@ -525,7 +528,13 @@ def provision_integration_account(
             payload.secret_reference,
             payload.provider_auth_mode,
         )
-    except (SecretReferenceValidationError, IntegrationAccountProviderAuthModeError) as exc:
+    except IntegrationAccountOwnershipConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except (
+        SecretReferenceValidationError,
+        IntegrationAccountProviderAuthModeError,
+        IntegrationAccountProviderValidationError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
@@ -790,6 +799,33 @@ def reactivate_integration_account(
         account = IntegrationAccountService(session).reactivate(workspace, account_id)
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except IntegrationAccountOwnershipConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return account_read(account)
+
+
+@router.put(
+    "/accounts/{account_id}/comment-to-message-eligibility",
+    response_model=IntegrationAccountRead,
+)
+def update_comment_to_message_eligibility(
+    account_id: UUID,
+    payload: IntegrationAccountCommentToMessageEligibilityUpdate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: IntegrationManagePermissionDep,
+) -> IntegrationAccountRead:
+    """Record operator-confirmed TikTok Comment-to-Message eligibility."""
+    try:
+        account = IntegrationAccountService(session).set_comment_to_message_eligibility(
+            workspace,
+            account_id,
+            eligible=payload.eligible,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except IntegrationAccountProviderValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return account_read(account)
 
 

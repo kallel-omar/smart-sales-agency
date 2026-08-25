@@ -17,6 +17,8 @@ from app.integrations.providers import (
     INSTAGRAM_FACEBOOK_LOGIN_AUTH_MODE,
     INSTAGRAM_LOGIN_AUTH_MODE,
     META_MESSAGING_PROVIDERS,
+    TIKTOK_COMMENT_CHANNEL,
+    TIKTOK_DM_PROVIDER,
     WHATSAPP_CLOUD_PROVIDER,
 )
 from app.models import (
@@ -776,6 +778,289 @@ def normalize_meta_graph_response(
     )
 
 
+_TIKTOK_BUSINESS_API_ACCESS_TOKEN_PURPOSE = "api_access_token"
+_TIKTOK_BUSINESS_API_BASE_URL = "https://business-api.tiktok.com/open_api"
+
+
+@dataclass(frozen=True)
+class TikTokBusinessHttpResponse:
+    status_code: int
+    headers: dict[str, str]
+    body: dict[str, Any] | None = None
+
+
+class TikTokBusinessHttpTransport(Protocol):
+    def post(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: httpx.Timeout,
+    ) -> TikTokBusinessHttpResponse: ...
+
+
+class HttpxTikTokBusinessHttpTransport:
+    """HTTP boundary for TikTok Business Messaging delivery."""
+
+    def post(
+        self,
+        url: str,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        timeout: httpx.Timeout,
+    ) -> TikTokBusinessHttpResponse:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(url, json=payload, headers=headers)
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        return TikTokBusinessHttpResponse(
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            body=body if isinstance(body, dict) else None,
+        )
+
+
+class TikTokBusinessDeliveryAdapter:
+    """Native text delivery for TikTok Business Messaging and Comment-to-Message."""
+
+    capabilities = DeliveryAdapterCapabilities(
+        supported_action_types=frozenset({OutboundIntegrationActionType.SEND_MESSAGE}),
+        max_content_length=6_000,
+    )
+
+    def __init__(
+        self,
+        credential_reference_service: IntegrationCredentialReferenceService,
+        *,
+        api_base_url: str,
+        api_version: str,
+        connect_timeout_seconds: float = 5,
+        read_timeout_seconds: float = 15,
+        transport: TikTokBusinessHttpTransport | None = None,
+        secret_resolver: SecretResolver | None = None,
+    ) -> None:
+        self.credential_reference_service = credential_reference_service
+        self.api_base_url = api_base_url.strip().rstrip("/")
+        self.api_version = api_version.strip().strip("/")
+        self.timeout = httpx.Timeout(
+            connect=connect_timeout_seconds,
+            read=read_timeout_seconds,
+            write=read_timeout_seconds,
+            pool=connect_timeout_seconds,
+        )
+        self.transport = transport or HttpxTikTokBusinessHttpTransport()
+        self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
+
+    def deliver(
+        self,
+        action: OutboundIntegrationAction,
+        account: IntegrationAccount,
+    ) -> DeliveryAdapterResult:
+        validation_failure = self._validate(action, account)
+        if validation_failure is not None:
+            return validation_failure
+        try:
+            reference = self.credential_reference_service.get_for_integration_account(
+                account,
+                _TIKTOK_BUSINESS_API_ACCESS_TOKEN_PURPOSE,
+            )
+        except IntegrationCredentialReferenceNotFoundError:
+            return DeliveryAdapterResult.failure(
+                "tiktok_access_token_reference_missing",
+                "TikTok API access token reference is not configured",
+                OutboundDeliveryFailureClassification.AUTHENTICATION,
+            )
+        access_token = self.secret_resolver.resolve(reference.secret_reference)
+        if not access_token:
+            return DeliveryAdapterResult.failure(
+                "provider_reconnect_required",
+                "Provider credentials require refresh or reconnect",
+                OutboundDeliveryFailureClassification.AUTHENTICATION,
+            )
+        try:
+            response = self.transport.post(
+                (
+                    f"{self.api_base_url}/{self.api_version}/"
+                    "business/message/send/"
+                ),
+                payload=self._request_body(action, account),
+                headers={
+                    "Access-Token": access_token,
+                    "Content-Type": "application/json",
+                },
+                timeout=self.timeout,
+            )
+        except httpx.HTTPError:
+            return DeliveryAdapterResult.failure(
+                "tiktok_network_error",
+                "TikTok message delivery failed",
+                OutboundDeliveryFailureClassification.TEMPORARY,
+            )
+        return normalize_tiktok_business_response(response)
+
+    def _validate(
+        self,
+        action: OutboundIntegrationAction,
+        account: IntegrationAccount,
+    ) -> DeliveryAdapterResult | None:
+        if account.provider != TIKTOK_DM_PROVIDER:
+            return DeliveryAdapterResult.failure(
+                "tiktok_provider_mismatch",
+                "Integration account is not a TikTok messaging account",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if not account.external_account_id or not account.external_account_id.strip():
+            return DeliveryAdapterResult.failure(
+                "tiktok_business_id_missing",
+                "TikTok Business Account identifier is not configured",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if not action.external_target_id or not action.external_target_id.strip():
+            return DeliveryAdapterResult.failure(
+                "tiktok_recipient_missing",
+                "TikTok message recipient is required",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if not action.content or not action.content.strip():
+            return DeliveryAdapterResult.failure(
+                "tiktok_content_missing",
+                "TikTok message content is required",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if (
+            self.api_base_url != _TIKTOK_BUSINESS_API_BASE_URL
+            or self.api_version != "v1.3"
+        ):
+            return DeliveryAdapterResult.failure(
+                "tiktok_configuration_invalid",
+                "TikTok Business API configuration is invalid",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
+        if (
+            action.payload.get("channel") == TIKTOK_COMMENT_CHANNEL
+            and not account.comment_to_message_eligible
+        ):
+            return DeliveryAdapterResult.failure(
+                "provider_capability_unavailable",
+                "TikTok Comment-to-Message eligibility is not confirmed",
+                OutboundDeliveryFailureClassification.PERMANENT,
+            )
+        return None
+
+    @staticmethod
+    def _request_body(
+        action: OutboundIntegrationAction,
+        account: IntegrationAccount,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "business_id": account.external_account_id,
+            "message_type": "TEXT",
+            "text": {"body": action.content},
+        }
+        if action.payload.get("channel") == TIKTOK_COMMENT_CHANNEL:
+            body["direct_reply"] = {
+                "reply_type": "COMMENT_REPLY",
+                "comment_reply": {"comment_id": action.external_target_id},
+            }
+        else:
+            body["recipient_type"] = "CONVERSATION"
+            body["recipient"] = action.external_target_id
+        return body
+
+
+def normalize_tiktok_business_response(
+    response: TikTokBusinessHttpResponse,
+) -> DeliveryAdapterResult:
+    if response.status_code == 401:
+        return _tiktok_reconnect_required()
+    if response.status_code == 403:
+        return DeliveryAdapterResult.failure(
+            "provider_permission_denied",
+            "Provider denied permission for message delivery",
+            OutboundDeliveryFailureClassification.PERMANENT,
+        )
+    if response.status_code == 429:
+        return DeliveryAdapterResult.failure(
+            "tiktok_rate_limited",
+            "TikTok rate limited message delivery",
+            OutboundDeliveryFailureClassification.RATE_LIMIT,
+        )
+    if 500 <= response.status_code < 600:
+        return DeliveryAdapterResult.failure(
+            "tiktok_server_error",
+            "TikTok message delivery is temporarily unavailable",
+            OutboundDeliveryFailureClassification.TEMPORARY,
+        )
+    body = response.body or {}
+    code = body.get("code")
+    if 200 <= response.status_code < 300 and code == 0:
+        data = body.get("data")
+        message = data.get("message") if isinstance(data, dict) else None
+        message_id = message.get("message_id") if isinstance(message, dict) else None
+        if isinstance(message_id, str) and message_id.strip():
+            return DeliveryAdapterResult.success(message_id.strip())
+        return DeliveryAdapterResult.failure(
+            "tiktok_delivery_id_missing",
+            "TikTok delivery response did not include a message identifier",
+            OutboundDeliveryFailureClassification.UNKNOWN,
+        )
+    if code == 40105:
+        return _tiktok_reconnect_required()
+    if code == 40001:
+        return DeliveryAdapterResult.failure(
+            "provider_permission_denied",
+            "Provider denied permission for message delivery",
+            OutboundDeliveryFailureClassification.PERMANENT,
+        )
+    if code == 40100:
+        return DeliveryAdapterResult.failure(
+            "tiktok_rate_limited",
+            "TikTok rate limited message delivery",
+            OutboundDeliveryFailureClassification.RATE_LIMIT,
+        )
+    if code == 40002:
+        return DeliveryAdapterResult.failure(
+            "tiktok_validation_failed",
+            "TikTok rejected the message request",
+            OutboundDeliveryFailureClassification.VALIDATION,
+        )
+    if code in {40007, 40064}:
+        return DeliveryAdapterResult.failure(
+            "tiktok_message_restricted",
+            "TikTok messaging rules rejected the request",
+            OutboundDeliveryFailureClassification.PERMANENT,
+        )
+    if code == 51065:
+        return DeliveryAdapterResult.failure(
+            "tiktok_server_error",
+            "TikTok message delivery is temporarily unavailable",
+            OutboundDeliveryFailureClassification.TEMPORARY,
+        )
+    if 400 <= response.status_code < 500:
+        return DeliveryAdapterResult.failure(
+            "tiktok_request_rejected",
+            "TikTok rejected the message request",
+            OutboundDeliveryFailureClassification.VALIDATION,
+        )
+    return DeliveryAdapterResult.failure(
+        "tiktok_response_unknown",
+        "TikTok message delivery returned an unknown response",
+        OutboundDeliveryFailureClassification.UNKNOWN,
+    )
+
+
+def _tiktok_reconnect_required() -> DeliveryAdapterResult:
+    return DeliveryAdapterResult.failure(
+        "provider_reconnect_required",
+        "Provider credentials require refresh or reconnect",
+        OutboundDeliveryFailureClassification.AUTHENTICATION,
+    )
+
+
 class DeliveryAdapterRegistry:
     """Explicit mapping from a persisted provider name to an adapter."""
 
@@ -837,6 +1122,7 @@ def default_delivery_adapter_registry(
     generic_webhook_adapter: DeliveryAdapter | None = None,
     whatsapp_cloud_adapter: DeliveryAdapter | None = None,
     meta_graph_adapter: DeliveryAdapter | None = None,
+    tiktok_business_adapter: DeliveryAdapter | None = None,
 ) -> DeliveryAdapterRegistry:
     """Return the configured provider delivery adapters."""
     adapters: dict[str, DeliveryAdapter] = {
@@ -853,5 +1139,8 @@ def default_delivery_adapter_registry(
     if meta_graph_adapter is not None:
         for provider in META_MESSAGING_PROVIDERS:
             adapters[provider] = meta_graph_adapter
+
+    if tiktok_business_adapter is not None:
+        adapters[TIKTOK_DM_PROVIDER] = tiktok_business_adapter
 
     return DeliveryAdapterRegistry(adapters)
