@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlmodel import Session, select
 
 from app.core.work_items import (
-    WorkItemInvalidStateTransitionError,
     WorkItemStateTransitionGuard,
     WorkItemStatus,
 )
@@ -38,6 +37,18 @@ class WorkItemDepartmentWorkspaceMismatchError(PermissionError):
 
 class WorkItemCapabilityScopeError(PermissionError):
     """Raised when a required Capability is outside the WorkItem scope."""
+
+
+class WorkItemParentNotFoundError(LookupError):
+    """Raised when a requested parent WorkItem does not exist."""
+
+
+class WorkItemParentWorkspaceMismatchError(PermissionError):
+    """Raised when a requested parent WorkItem belongs to another workspace."""
+
+
+class WorkItemCorrelationConflictError(ValueError):
+    """Raised when a child requests a correlation outside its parent trace."""
 
 
 class WorkItemAssignmentRequiredError(ValueError):
@@ -113,6 +124,7 @@ class WorkItemService:
         expires_at: datetime | None = None,
         source_follow_up_task_id: UUID | None = None,
         parent_work_item_id: UUID | None = None,
+        correlation_id: UUID | None = None,
     ) -> WorkItem:
         self._require_workspace(workspace)
         stored_department = self._require_department_in_workspace(workspace, department)
@@ -121,13 +133,19 @@ class WorkItemService:
             stored_department,
             capability,
         )
+        parent = self._require_parent_in_workspace(
+            workspace,
+            parent_work_item_id,
+        )
+        resolved_correlation_id = self._resolve_correlation_id(
+            parent,
+            correlation_id,
+        )
         return self.repository.add(
             WorkItem(
                 workspace_id=workspace.id,
                 department_id=stored_department.id,
-                capability_id=(
-                    stored_capability.id if stored_capability is not None else None
-                ),
+                capability_id=(stored_capability.id if stored_capability is not None else None),
                 status=WorkItemStatus.CREATED,
                 work_type=self._bounded_text(work_type, "WorkItem type", 100),
                 title=self._bounded_text(title, "WorkItem title", 200),
@@ -135,6 +153,7 @@ class WorkItemService:
                 expires_at=expires_at,
                 source_follow_up_task_id=source_follow_up_task_id,
                 parent_work_item_id=parent_work_item_id,
+                correlation_id=resolved_correlation_id,
             )
         )
 
@@ -311,17 +330,13 @@ class WorkItemService:
         work_item: WorkItem,
     ) -> None:
         if work_item.assignment_id is None:
-            raise WorkItemAssignmentRequiredError(
-                "WorkItem assignment is required for this status"
-            )
+            raise WorkItemAssignmentRequiredError("WorkItem assignment is required for this status")
         assignment = self.session.get(
             AIEmployeeCapabilityAssignment,
             work_item.assignment_id,
         )
         if assignment is None:
-            raise WorkItemAssignmentRequiredError(
-                "WorkItem assignment is required for this status"
-            )
+            raise WorkItemAssignmentRequiredError("WorkItem assignment is required for this status")
         stored_assignment, employee, capability = self._validate_assignment_for_work_item(
             workspace,
             work_item,
@@ -384,14 +399,40 @@ class WorkItemService:
             raise WorkItemCapabilityScopeError(
                 "Capability does not belong to this workspace and Department"
             )
-        if (
-            stored.workspace_id != workspace.id
-            or stored.department_id != department.id
-        ):
+        if stored.workspace_id != workspace.id or stored.department_id != department.id:
             raise WorkItemCapabilityScopeError(
                 "Capability does not belong to this workspace and Department"
             )
         return stored
+
+    def _require_parent_in_workspace(
+        self,
+        workspace: Workspace,
+        parent_work_item_id: UUID | None,
+    ) -> WorkItem | None:
+        if parent_work_item_id is None:
+            return None
+        parent = self.session.get(WorkItem, parent_work_item_id)
+        if parent is None:
+            raise WorkItemParentNotFoundError("Parent WorkItem not found")
+        if parent.workspace_id != workspace.id:
+            raise WorkItemParentWorkspaceMismatchError(
+                "Parent WorkItem does not belong to this workspace"
+            )
+        return parent
+
+    @staticmethod
+    def _resolve_correlation_id(
+        parent: WorkItem | None,
+        correlation_id: UUID | None,
+    ) -> UUID:
+        if parent is None:
+            return correlation_id or uuid4()
+        if correlation_id is not None and correlation_id != parent.correlation_id:
+            raise WorkItemCorrelationConflictError(
+                "Child WorkItem correlation does not match its parent"
+            )
+        return parent.correlation_id
 
     @staticmethod
     def _bounded_text(value: str, label: str, max_length: int) -> str:

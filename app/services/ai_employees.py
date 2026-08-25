@@ -6,11 +6,10 @@ from sqlmodel import Session, select
 
 from app.core.ai_employees import (
     AI_EMPLOYEE_ROLE_DEFAULT_NAMES,
-    AIEmployeeRoleKey,
     SALES_AI_EMPLOYEE_ROLE_KEYS,
     SUPPORTED_AI_EMPLOYEE_ROLE_KEYS,
+    AIEmployeeRoleKey,
 )
-from app.core.events import Department as DepartmentKind
 from app.models import AIEmployee, Department, Workspace
 from app.services.departments import DepartmentNotFoundError
 from app.services.workspaces import WorkspaceNotFoundError
@@ -123,14 +122,13 @@ class AIEmployeeService:
         workspace: Workspace,
         department: Department,
     ) -> list[AIEmployee]:
-        self._require_workspace(workspace)
-        self._require_department_in_workspace(workspace, department)
-        if department.kind != DepartmentKind.SALES:
-            raise UnsupportedAIEmployeeRoleError("Sales AIEmployees require a Sales department")
-        return [
-            self.ensure_for_department(workspace, department, role_key)
-            for role_key in SALES_AI_EMPLOYEE_ROLE_KEYS
-        ]
+        from app.services.sales_workforce import SalesWorkforceProvisioningService
+
+        result = SalesWorkforceProvisioningService(self.session).ensure_default_workforce(
+            workspace,
+            department,
+        )
+        return [result.employees[role_key] for role_key in SALES_AI_EMPLOYEE_ROLE_KEYS]
 
     def get_for_workspace(
         self,

@@ -301,7 +301,7 @@ async def test_follow_up_exception_fails_work_item_and_preserves_task(
 @pytest.mark.parametrize(
     ("autonomy", "outcome", "send_status", "approvals", "actions", "task_status"),
     [
-        (None, CommentTriggerResult.TOOL_ACCESS_DENIED, "failed", 0, 0, "pending"),
+        (None, CommentTriggerResult.TOOL_ACCESS_DENIED, "created", 0, 0, "pending"),
         (
             AIEmployeeAutonomyLevel.SUGGEST,
             CommentTriggerResult.SUGGESTED,
@@ -364,10 +364,15 @@ async def test_send_path_reuses_governance_and_outbound(
     approval_rows = session.exec(select(ApprovalRequest)).all()
     action_rows = session.exec(select(OutboundIntegrationAction)).all()
     session.refresh(state.task)
-    assert completed.result["send_outcome"] == outcome.value
     assert len(send_items) == 1
-    assert send_items[0].assignment_id == state.send_assignment.id
     assert send_items[0].status == send_status
+    if autonomy is None:
+        assert "send_outcome" not in completed.result
+        assert completed.result["reason"] == "send_message_assignment_unavailable"
+        assert send_items[0].assignment_id is None
+    else:
+        assert completed.result["send_outcome"] == outcome.value
+        assert send_items[0].assignment_id == state.send_assignment.id
     assert len(approval_rows) == approvals
     assert len(action_rows) == actions
     assert state.task.status == task_status
@@ -399,19 +404,24 @@ async def test_missing_send_assignment_creates_one_unresolved_child(session: Ses
 
 
 @pytest.mark.asyncio
-async def test_cross_workspace_integration_account_fails_without_delivery(session: Session):
+async def test_cross_workspace_integration_account_is_unroutable_without_delivery(
+    session: Session,
+):
     state = _foundation(session, "follow-up-wrong-account")
     other = _foundation(session, "follow-up-account-owner")
     wrong_account = _account(session, other)
     work_item, _ = _materialize(session, state)
     _configure_send(session, work_item, wrong_account)
 
-    with pytest.raises(PermissionError, match="does not belong"):
-        await SalesWorkItemExecutionService(session, _settings()).execute(
-            state.workspace, work_item.id
-        )
+    completed = await SalesWorkItemExecutionService(session, _settings()).execute(
+        state.workspace, work_item.id
+    )
 
     assert session.exec(select(OutboundIntegrationAction)).all() == []
+    child = session.exec(select(WorkItem).where(WorkItem.parent_work_item_id == work_item.id)).one()
+    assert child.status == WorkItemStatus.CREATED
+    assert child.assignment_id is None
+    assert completed.result["reason"] == "send_message_assignment_unavailable"
     session.refresh(state.task)
     assert state.task.status == "pending"
 

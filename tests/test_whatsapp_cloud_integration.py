@@ -1,4 +1,3 @@
-
 import hmac
 import json
 from hashlib import sha256
@@ -150,9 +149,7 @@ def _provision_account(
     provider: str = "whatsapp_cloud",
     phone_number_id: str = PHONE_NUMBER_ID,
     grant_tool_access: bool = True,
-    autonomy_level: AIEmployeeAutonomyLevel = (
-        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION
-    ),
+    autonomy_level: AIEmployeeAutonomyLevel = (AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION),
 ) -> dict:
     response = client.post(
         "/api/integrations/accounts",
@@ -218,10 +215,9 @@ def _signed_request(signed_webhook_request, account: dict, payload: dict):
         event_id=payload["provider_event_id"],
     )
 
+
 def _raw_fixture(name: str) -> dict:
-    return json.loads(
-        (FIXTURE_DIR / name).read_text(encoding="utf-8")
-    )
+    return json.loads((FIXTURE_DIR / name).read_text(encoding="utf-8"))
 
 
 def _configure_credential_reference(
@@ -232,10 +228,7 @@ def _configure_credential_reference(
     secret_reference: str,
 ) -> None:
     response = client.put(
-        (
-            f"/api/integrations/accounts/{account['id']}"
-            f"/credential-references/{purpose}"
-        ),
+        (f"/api/integrations/accounts/{account['id']}/credential-references/{purpose}"),
         headers=_workspace_headers(slug),
         json={"secret_reference": secret_reference},
     )
@@ -252,11 +245,14 @@ def _signed_meta_request(
         separators=(",", ":"),
     ).encode()
 
-    signature = "sha256=" + hmac.new(
-        secret.encode(),
-        body,
-        sha256,
-    ).hexdigest()
+    signature = (
+        "sha256="
+        + hmac.new(
+            secret.encode(),
+            body,
+            sha256,
+        ).hexdigest()
+    )
 
     return (
         {
@@ -1006,9 +1002,9 @@ def test_direct_whatsapp_raw_e2e_uses_native_delivery_without_secret_leakage(
     app_secret = "direct-wa-e2e-app-secret-value"
     access_token = "direct-wa-e2e-access-token-value"
     provider_delivery_id = "wamid.direct-wa-e2e-delivery"
-    direct_event_id = _raw_fixture("valid_text.json")["entry"][0]["changes"][0][
-        "value"
-    ]["messages"][0]["id"]
+    direct_event_id = _raw_fixture("valid_text.json")["entry"][0]["changes"][0]["value"][
+        "messages"
+    ][0]["id"]
     transport_calls: list[dict] = []
 
     _create_workspace(client, workspace_slug)
@@ -1075,9 +1071,7 @@ def test_direct_whatsapp_raw_e2e_uses_native_delivery_without_secret_leakage(
 
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
-        workspace = session.exec(
-            select(Workspace).where(Workspace.slug == workspace_slug)
-        ).one()
+        workspace = session.exec(select(Workspace).where(Workspace.slug == workspace_slug)).one()
         isolated_workspace = session.exec(
             select(Workspace).where(Workspace.slug == isolated_slug)
         ).one()
@@ -1115,15 +1109,13 @@ def test_direct_whatsapp_raw_e2e_uses_native_delivery_without_secret_leakage(
         attempt = session.exec(
             select(OutboundIntegrationDeliveryAttempt).where(
                 OutboundIntegrationDeliveryAttempt.workspace_id == workspace.id,
-                OutboundIntegrationDeliveryAttempt.outbound_integration_action_id
-                == action.id,
+                OutboundIntegrationDeliveryAttempt.outbound_integration_action_id == action.id,
             )
         ).one()
         audits = session.exec(
             select(OutboundIntegrationAuditEvent).where(
                 OutboundIntegrationAuditEvent.workspace_id == workspace.id,
-                OutboundIntegrationAuditEvent.outbound_integration_action_id
-                == action.id,
+                OutboundIntegrationAuditEvent.outbound_integration_action_id == action.id,
             )
         ).all()
         work_items = session.exec(
@@ -1143,18 +1135,24 @@ def test_direct_whatsapp_raw_e2e_uses_native_delivery_without_secret_leakage(
             "sales_reply_message",
         }
         assert len(audits) == 3
-        assert session.exec(
-            select(InboundIntegrationEventReceipt).where(
-                InboundIntegrationEventReceipt.workspace_id == isolated_workspace.id,
-                InboundIntegrationEventReceipt.external_event_id == direct_event_id,
-            )
-        ).all() == []
-        assert session.exec(
-            select(InboundExternalIdentity).where(
-                InboundExternalIdentity.workspace_id == isolated_workspace.id,
-                InboundExternalIdentity.external_subject_id == CUSTOMER_EXTERNAL_ID,
-            )
-        ).all() == []
+        assert (
+            session.exec(
+                select(InboundIntegrationEventReceipt).where(
+                    InboundIntegrationEventReceipt.workspace_id == isolated_workspace.id,
+                    InboundIntegrationEventReceipt.external_event_id == direct_event_id,
+                )
+            ).all()
+            == []
+        )
+        assert (
+            session.exec(
+                select(InboundExternalIdentity).where(
+                    InboundExternalIdentity.workspace_id == isolated_workspace.id,
+                    InboundExternalIdentity.external_subject_id == CUSTOMER_EXTERNAL_ID,
+                )
+            ).all()
+            == []
+        )
 
         def column_state(model) -> dict:
             return {
@@ -1189,8 +1187,7 @@ def test_direct_whatsapp_raw_e2e_uses_native_delivery_without_secret_leakage(
     assert isolated_read.status_code == 404
 
     externally_visible = (
-        f"{first.text}\n{duplicate.text}\n{action_read.text}\n"
-        f"{isolated_read.text}\n{caplog.text}"
+        f"{first.text}\n{duplicate.text}\n{action_read.text}\n{isolated_read.text}\n{caplog.text}"
     )
     for secret_value in (app_secret, access_token):
         assert secret_value not in persisted_state
@@ -1239,15 +1236,13 @@ def test_direct_whatsapp_propagates_required_approval_without_delivery(
         assert approval is not None
         assert approval.status == ApprovalStatus.PENDING
         approval_work_item = session.get(WorkItem, approval.work_item_id)
-        workspace_id = session.exec(
-            select(Workspace.id).where(Workspace.slug == slug)
-        ).one()
+        workspace_id = session.exec(select(Workspace.id).where(Workspace.slug == slug)).one()
         assert approval_work_item is not None
         assert approval_work_item.workspace_id == workspace_id
         assert session.exec(select(OutboundIntegrationAction)).all() == []
 
 
-def test_direct_whatsapp_enforces_missing_tool_access_without_delivery(
+def test_direct_whatsapp_missing_tool_access_is_unroutable_without_delivery(
     client,
     monkeypatch,
 ):
@@ -1277,13 +1272,16 @@ def test_direct_whatsapp_enforces_missing_tool_access_without_delivery(
         content=body,
     )
 
-    assert response.status_code == 200
-    assert response.json()["approval_id"] is None
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "No eligible send_message AIEmployee assignment is configured"
+    )
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         denied_send = session.exec(
             select(WorkItem).where(WorkItem.work_type == "sales_reply_message")
         ).one()
-        assert denied_send.status == "failed"
-        assert denied_send.error_code == "tool_access_denied"
+        assert denied_send.status == "created"
+        assert denied_send.assignment_id is None
+        assert denied_send.error_code is None
         assert session.exec(select(OutboundIntegrationAction)).all() == []

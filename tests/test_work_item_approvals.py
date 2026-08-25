@@ -3,13 +3,22 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
+from app.config import Settings
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import BusinessEvent
 from app.core.work_items import WorkItemInvalidStateTransitionError, WorkItemStatus
-from app.models import ApprovalRequest, ApprovalStatus, Lead, Workspace, WorkspaceMemberRole
+from app.models import (
+    ApprovalRequest,
+    ApprovalStatus,
+    IntegrationAccount,
+    Lead,
+    OutboundIntegrationAction,
+    Workspace,
+    WorkspaceMemberRole,
+)
 from app.schemas import ApprovalRead
 from app.services.ai_employee_capability_assignments import (
     AIEmployeeCapabilityAssignmentService,
@@ -17,10 +26,12 @@ from app.services.ai_employee_capability_assignments import (
 from app.services.ai_employees import AIEmployeeService
 from app.services.approval_decisions import (
     ApprovalDecisionActor,
+    ApprovalDecisionNotFoundError,
     ApprovalDecisionService,
 )
 from app.services.capabilities import CapabilityService
 from app.services.departments import DepartmentService
+from app.services.send_message_work_items import SendMessageWorkItemService
 from app.services.work_item_approvals import (
     WORK_ITEM_APPROVAL_REQUESTED_EVENT,
     WORK_ITEM_APPROVAL_RESUME_BLOCKED_EVENT,
@@ -146,9 +157,7 @@ def test_valid_work_item_approval_request_links_approval_and_emits_event(
     assert result.approval.work_item_id == work_item.id
     assert result.approval.status == ApprovalStatus.PENDING
     assert ApprovalRead.model_validate(result.approval).work_item_id == work_item.id
-    assert [event.event_type for event in events] == [
-        WORK_ITEM_APPROVAL_REQUESTED_EVENT
-    ]
+    assert [event.event_type for event in events] == [WORK_ITEM_APPROVAL_REQUESTED_EVENT]
     assert events[0].workspace_id == workspace.id
     assert events[0].correlation_id == result.work_item.correlation_id
 
@@ -215,14 +224,75 @@ def test_rejected_approval_cannot_resume_work_item(session: Session) -> None:
     requested = service.request_approval(workspace, work_item.id)
     rejected = _reject(session, workspace, requested.approval)
 
-    with pytest.raises(WorkItemApprovalNotPermittedError, match="does not permit"):
+    with pytest.raises(WorkItemApprovalInvalidStateError, match="must require approval"):
         service.resume_after_approval(workspace, work_item.id, rejected.id)
 
     assert rejected.status == ApprovalStatus.REJECTED
-    assert WorkItemService(session).get_work_item(workspace, work_item.id).status == (
+    terminal = WorkItemService(session).get_work_item(workspace, work_item.id)
+    assert terminal.status == WorkItemStatus.CANCELLED
+    assert terminal.result == {
+        "outcome": "approval_rejected",
+        "approval_id": str(rejected.id),
+    }
+    assert rejected.decided_by_user_id is not None
+    assert events[-1].event_type == WORK_ITEM_APPROVAL_REQUESTED_EVENT
+
+
+def test_rejected_send_work_item_cannot_execute_an_outbound_action(
+    session: Session,
+) -> None:
+    workspace = _workspace(session, "work-item-approval-no-send")
+    work_item = _running_work_item(session, workspace)
+    requested = WorkItemApprovalService(session).request_approval(
+        workspace,
+        work_item.id,
+    )
+    rejected = _reject(session, workspace, requested.approval)
+    account = IntegrationAccount(
+        workspace_id=workspace.id,
+        provider="facebook_messenger",
+        external_account_id="approval-rejection-page",
+        credential_hash=uuid4().hex,
+    )
+    session.add(account)
+    session.commit()
+    session.refresh(account)
+
+    with pytest.raises(ValueError, match="must require approval"):
+        SendMessageWorkItemService(
+            session,
+            Settings(environment="test", database_url="sqlite://", llm_mode="demo"),
+        ).execute_work_item(
+            workspace,
+            work_item.id,
+            account,
+            approval_id=rejected.id,
+        )
+
+    assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+def test_cross_workspace_approval_rejection_is_impossible(session: Session) -> None:
+    workspace_a = _workspace(session, "work-item-decision-scope-a")
+    workspace_b = _workspace(session, "work-item-decision-scope-b")
+    work_item = _running_work_item(session, workspace_a)
+    requested = WorkItemApprovalService(session).request_approval(
+        workspace_a,
+        work_item.id,
+    )
+
+    with pytest.raises(ApprovalDecisionNotFoundError, match="not found"):
+        ApprovalDecisionService(session).reject(
+            workspace=workspace_b,
+            approval_id=requested.approval.id,
+            reviewer_note="cross-workspace rejection",
+            actor=_actor(workspace_b),
+        )
+
+    assert requested.approval.status == ApprovalStatus.PENDING
+    assert WorkItemService(session).get_work_item(workspace_a, work_item.id).status == (
         WorkItemStatus.APPROVAL_REQUIRED
     )
-    assert events[-1].event_type == WORK_ITEM_APPROVAL_RESUME_BLOCKED_EVENT
 
 
 def test_pending_approval_cannot_resume_work_item(session: Session) -> None:

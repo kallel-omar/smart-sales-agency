@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlmodel import Session, select
 
+from app.core.capabilities import BusinessCapabilityKey
 from app.core.department_supervisors import (
     DepartmentSupervisorRoutingContext,
     DepartmentSupervisorRoutingDecision,
@@ -14,8 +17,11 @@ from app.departments.sales.supervisor.department_supervisor import (
 from app.models import (
     AIEmployee,
     AIEmployeeCapabilityAssignment,
+    AIEmployeeCapabilityToolAccess,
     Capability,
     Department,
+    IntegrationAccount,
+    OutboundIntegrationActionType,
     WorkItem,
 )
 
@@ -60,32 +66,41 @@ class SalesWorkItemDepartmentSupervisor:
                 DepartmentSupervisorRoutingReason.MISSING_CAPABILITY,
             )
 
-        assignment = self.session.exec(
-            select(AIEmployeeCapabilityAssignment)
-            .join(
-                AIEmployee,
-                AIEmployeeCapabilityAssignment.ai_employee_id == AIEmployee.id,
-            )
-            .join(
-                Capability,
-                AIEmployeeCapabilityAssignment.capability_id == Capability.id,
-            )
-            .where(
-                AIEmployeeCapabilityAssignment.workspace_id == context.workspace_id,
-                AIEmployeeCapabilityAssignment.capability_id == context.capability_id,
-                AIEmployee.workspace_id == context.workspace_id,
-                AIEmployee.department_id == context.department_id,
-                AIEmployee.active.is_(True),
-                Capability.workspace_id == context.workspace_id,
-                Capability.department_id == context.department_id,
-                Capability.id == context.capability_id,
-                Capability.active.is_(True),
-            )
-            .order_by(
-                AIEmployeeCapabilityAssignment.created_at.asc(),
-                AIEmployeeCapabilityAssignment.id.asc(),
-            )
-        ).first()
+        candidates = list(
+            self.session.exec(
+                select(AIEmployeeCapabilityAssignment)
+                .join(
+                    AIEmployee,
+                    AIEmployeeCapabilityAssignment.ai_employee_id == AIEmployee.id,
+                )
+                .join(
+                    Capability,
+                    AIEmployeeCapabilityAssignment.capability_id == Capability.id,
+                )
+                .where(
+                    AIEmployeeCapabilityAssignment.workspace_id == context.workspace_id,
+                    AIEmployeeCapabilityAssignment.capability_id == context.capability_id,
+                    AIEmployee.workspace_id == context.workspace_id,
+                    AIEmployee.department_id == context.department_id,
+                    AIEmployee.active.is_(True),
+                    Capability.workspace_id == context.workspace_id,
+                    Capability.department_id == context.department_id,
+                    Capability.id == context.capability_id,
+                    Capability.active.is_(True),
+                )
+                .order_by(
+                    AIEmployeeCapabilityAssignment.created_at.asc(),
+                    AIEmployeeCapabilityAssignment.id.asc(),
+                )
+            ).all()
+        )
+        capability = self.session.get(Capability, context.capability_id)
+        assignment = self._eligible_assignment(
+            context,
+            work_item,
+            capability,
+            candidates,
+        )
         if assignment is None:
             return self._unroutable(
                 context,
@@ -99,6 +114,49 @@ class SalesWorkItemDepartmentSupervisor:
             assignment_id=assignment.id,
             ai_employee_id=assignment.ai_employee_id,
             routable=True,
+        )
+
+    def _eligible_assignment(
+        self,
+        context: DepartmentSupervisorRoutingContext,
+        work_item: WorkItem,
+        capability: Capability | None,
+        candidates: list[AIEmployeeCapabilityAssignment],
+    ) -> AIEmployeeCapabilityAssignment | None:
+        if not candidates or capability is None:
+            return None
+        if capability.key != BusinessCapabilityKey.SEND_MESSAGE:
+            return candidates[0]
+
+        account_value = work_item.input.get("integration_account_id")
+        if account_value is None:
+            # Preserve generic routing when no concrete external tool target is
+            # yet known. Execution remains the authorization boundary.
+            return candidates[0]
+        try:
+            account_id = UUID(str(account_value))
+        except (TypeError, ValueError, AttributeError):
+            return None
+        account = self.session.get(IntegrationAccount, account_id)
+        if account is None or account.workspace_id != context.workspace_id or not account.active:
+            return None
+
+        candidate_ids = {candidate.id for candidate in candidates}
+        eligible_ids = set(
+            self.session.exec(
+                select(AIEmployeeCapabilityToolAccess.assignment_id).where(
+                    AIEmployeeCapabilityToolAccess.workspace_id == context.workspace_id,
+                    AIEmployeeCapabilityToolAccess.assignment_id.in_(candidate_ids),
+                    AIEmployeeCapabilityToolAccess.integration_account_id == account.id,
+                    AIEmployeeCapabilityToolAccess.action_type
+                    == OutboundIntegrationActionType.SEND_MESSAGE,
+                    AIEmployeeCapabilityToolAccess.active.is_(True),
+                )
+            ).all()
+        )
+        return next(
+            (candidate for candidate in candidates if candidate.id in eligible_ids),
+            None,
         )
 
     @staticmethod

@@ -64,7 +64,6 @@ from app.services.follow_up_work_items import FollowUpWorkItemMaterializationSer
 from app.services.llm import LLMCompletion, OpenAICompatibleLLM
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
 from app.services.send_message_work_items import SendMessageWorkItemService
-from app.services.work_item_approvals import WorkItemApprovalNotPermittedError
 from app.services.work_items import WorkItemNotFoundError
 
 WHATSAPP_ENDPOINT = "/api/integrations/inbound-events/whatsapp-cloud"
@@ -701,7 +700,7 @@ def test_sales_mvp_real_boundaries_end_to_end(
         workspace_a = session.get(Workspace, workspace_a_id)
         account = session.get(IntegrationAccount, meta_account_id)
         assert workspace_a and account
-        with pytest.raises(WorkItemApprovalNotPermittedError):
+        with pytest.raises(ValueError, match="must require approval"):
             SendMessageWorkItemService(session, settings).execute_work_item(
                 workspace_a,
                 second_send_id,
@@ -709,7 +708,11 @@ def test_sales_mvp_real_boundaries_end_to_end(
                 approval_id=second_approval.id,
             )
         rejected_item = session.get(WorkItem, second_send_id)
-        assert rejected_item and rejected_item.status == WorkItemStatus.APPROVAL_REQUIRED
+        assert rejected_item and rejected_item.status == WorkItemStatus.CANCELLED
+        assert rejected_item.result == {
+            "outcome": "approval_rejected",
+            "approval_id": str(second_approval.id),
+        }
         actions = session.exec(select(OutboundIntegrationAction)).all()
         assert len(actions) == 3
         assert all(action.status == OutboundIntegrationActionStatus.DELIVERED for action in actions)
@@ -781,7 +784,8 @@ def test_sales_mvp_real_boundaries_end_to_end(
     assert analytics_a["sales"]["leads_created"] == 2
     assert analytics_a["workitems"]["created"] == 9
     assert analytics_a["workitems"]["completed"] == 5
-    assert analytics_a["workitems"]["current"]["approval_required"] == 1
+    assert analytics_a["workitems"]["current"]["approval_required"] == 0
+    assert analytics_a["workitems"]["current"]["cancelled"] == 1
     assert analytics_a["approvals"]["requests_created"] == 2
     assert analytics_a["approvals"]["approved"] == 1
     assert analytics_a["approvals"]["rejected"] == 1

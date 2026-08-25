@@ -1,12 +1,13 @@
 """Workspace-scoped human approval decisions with durable actor attribution."""
 
 from dataclasses import dataclass
-from datetime import timezone
+from datetime import UTC
 from uuid import UUID
 
 from sqlmodel import Session, select
 
 from app.channels.console import ConsoleChannel
+from app.core.work_items import WorkItemStatus
 from app.models import (
     ApprovalRequest,
     ApprovalStatus,
@@ -19,6 +20,7 @@ from app.models import (
     utc_now,
 )
 from app.services.outbound_delivery_approvals import OutboundDeliveryApprovalService
+from app.services.work_items import WorkItemService
 
 
 class ApprovalDecisionNotFoundError(LookupError):
@@ -105,12 +107,31 @@ class ApprovalDecisionService:
         actor: ApprovalDecisionActor,
     ) -> ApprovalRequest:
         approval = self._pending_scoped_approval(workspace, approval_id, actor)
+        work_item = self._rejected_work_item(workspace, approval)
         self._record_decision(
             approval,
             status=ApprovalStatus.REJECTED,
             reviewer_note=reviewer_note,
             actor=actor,
         )
+        if work_item is not None:
+            work_item.result = {
+                "outcome": "approval_rejected",
+                "approval_id": str(approval.id),
+            }
+            self.session.add(approval)
+            self.session.add(work_item)
+            try:
+                WorkItemService(self.session).transition_work_item(
+                    workspace,
+                    work_item.id,
+                    WorkItemStatus.CANCELLED,
+                )
+            except Exception:
+                self.session.rollback()
+                raise
+            self.session.refresh(approval)
+            return approval
         return self._commit_and_refresh(approval)
 
     def get_scoped_approval(
@@ -164,6 +185,22 @@ class ApprovalDecisionService:
             raise ApprovalDecisionConflictError("Approval request is already decided")
         return approval
 
+    def _rejected_work_item(
+        self,
+        workspace: Workspace,
+        approval: ApprovalRequest,
+    ) -> WorkItem | None:
+        if approval.work_item_id is None:
+            return None
+        work_item = self.session.get(WorkItem, approval.work_item_id)
+        if work_item is None or work_item.workspace_id != workspace.id:
+            raise ApprovalDecisionNotFoundError("Approval request not found")
+        if WorkItemStatus(work_item.status) != WorkItemStatus.APPROVAL_REQUIRED:
+            # Preserve legacy approvals that carry a WorkItem reference without
+            # participating in the WorkItem approval-required lifecycle.
+            return None
+        return work_item
+
     @staticmethod
     def _record_decision(
         approval: ApprovalRequest,
@@ -174,7 +211,7 @@ class ApprovalDecisionService:
     ) -> None:
         approval.status = status
         approval.reviewer_note = reviewer_note
-        approval.decided_at = utc_now().astimezone(timezone.utc)
+        approval.decided_at = utc_now().astimezone(UTC)
         approval.decided_by_user_id = actor.user_id
         approval.decided_by_membership_id = actor.membership_id
         approval.decided_by_role = actor.role

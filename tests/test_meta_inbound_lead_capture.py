@@ -81,9 +81,7 @@ def fake_meta_graph_transport(monkeypatch):
 
 
 def _workspace(client, slug: str) -> None:
-    response = client.post(
-        "/api/workspaces", json={"slug": slug, "name": slug.replace("-", " ")}
-    )
+    response = client.post("/api/workspaces", json={"slug": slug, "name": slug.replace("-", " ")})
     assert response.status_code == 201
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
@@ -122,9 +120,7 @@ def _account(
     external_account_id: str,
     provider_auth_mode: str | None = None,
     grant_tool_access: bool = True,
-    autonomy_level: AIEmployeeAutonomyLevel = (
-        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION
-    ),
+    autonomy_level: AIEmployeeAutonomyLevel = (AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION),
 ) -> dict:
     payload = {
         "provider": provider,
@@ -142,10 +138,7 @@ def _account(
     account_data = response.json()
     for purpose in ("webhook_app_secret", "api_access_token"):
         configured = client.put(
-            (
-                f"/api/integrations/accounts/{account_data['id']}"
-                f"/credential-references/{purpose}"
-            ),
+            (f"/api/integrations/accounts/{account_data['id']}/credential-references/{purpose}"),
             headers={"X-Workspace-Slug": workspace_slug},
             json={"secret_reference": META_SECRET_REFERENCE},
         )
@@ -405,10 +398,7 @@ def test_direct_message_captures_and_reuses_external_identity(
                 "actions": [column_state(action) for action in actions],
                 "attempts": [column_state(attempt) for attempt in attempts],
                 "audits": [column_state(audit) for audit in audits],
-                "work_items": [
-                    column_state(item)
-                    for item in session.exec(select(WorkItem)).all()
-                ],
+                "work_items": [column_state(item) for item in session.exec(select(WorkItem)).all()],
             },
             default=str,
             sort_keys=True,
@@ -470,9 +460,7 @@ def test_duplicate_direct_event_is_suppressed(
     assert len(fake_meta_graph_transport) == 1
 
 
-def test_external_identity_is_scoped_by_workspace_and_integration_account(
-    client, monkeypatch
-):
+def test_external_identity_is_scoped_by_workspace_and_integration_account(client, monkeypatch):
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
     for slug in ("meta-scope-a", "meta-scope-b"):
         _workspace(client, slug)
@@ -512,16 +500,17 @@ def test_external_identity_is_scoped_by_workspace_and_integration_account(
         assert len({identity.integration_account_id for identity in identities}) == 3
         assert len({identity.workspace_id for identity in identities}) == 2
         assert all(action.status == OutboundIntegrationActionStatus.DELIVERED for action in actions)
-        workspace_a = session.exec(
-            select(Workspace).where(Workspace.slug == "meta-scope-a")
-        ).one()
+        workspace_a = session.exec(select(Workspace).where(Workspace.slug == "meta-scope-a")).one()
         first_action_id = next(
             action.id for action in actions if action.workspace_id == workspace_a.id
         )
-    assert client.get(
-        f"/api/integrations/outbound-actions/{first_action_id}",
-        headers={"X-Workspace-Slug": "meta-scope-b"},
-    ).status_code == 404
+    assert (
+        client.get(
+            f"/api/integrations/outbound-actions/{first_action_id}",
+            headers={"X-Workspace-Slug": "meta-scope-b"},
+        ).status_code
+        == 404
+    )
 
 
 def test_account_reference_mismatch_is_rejected_before_capture(client, monkeypatch):
@@ -564,9 +553,7 @@ def test_invalid_meta_signature_does_not_provision_or_capture(client, monkeypatc
         account_id = account.id
     account_read = {"id": str(account_id), "inbound_credential": credential}
 
-    response = _post(
-        client, account_read, _facebook_message("legacy-page"), valid=False
-    )
+    response = _post(client, account_read, _facebook_message("legacy-page"), valid=False)
 
     assert response.status_code == 401
     with next(session_dependency()) as session:
@@ -626,9 +613,7 @@ def test_comments_are_normalized_and_deduplicated_without_business_capture(
         assert session.exec(select(OutboundIntegrationAction)).all() == []
 
 
-def test_capture_failure_releases_meta_receipt_for_successful_retry(
-    client, monkeypatch
-):
+def test_capture_failure_releases_meta_receipt_for_successful_retry(client, monkeypatch):
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
     _workspace(client, "meta-retry")
     account = _account(
@@ -680,9 +665,7 @@ def test_capture_failure_releases_meta_receipt_for_successful_retry(
         assert identity.contact_id == anchored_contact_id
 
 
-def test_identity_anchor_exists_before_capture_and_explicit_contact_is_used(
-    client, monkeypatch
-):
+def test_identity_anchor_exists_before_capture_and_explicit_contact_is_used(client, monkeypatch):
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
     _workspace(client, "meta-identity-first")
     account = _account(
@@ -724,9 +707,7 @@ def test_identity_anchor_exists_before_capture_and_explicit_contact_is_used(
         assert str(identity.lead_id) == response.json()["lead_id"]
 
 
-def test_external_identity_anchor_supports_sender_without_display_name(
-    client, monkeypatch
-):
+def test_external_identity_anchor_supports_sender_without_display_name(client, monkeypatch):
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
     _workspace(client, "meta-no-display-name")
     account = _account(
@@ -749,9 +730,7 @@ def test_external_identity_anchor_supports_sender_without_display_name(
         assert identity.contact_id == contact.id
 
 
-def test_post_capture_binding_failure_keeps_receipt_and_repairs_on_later_event(
-    client, monkeypatch
-):
+def test_post_capture_binding_failure_keeps_receipt_and_repairs_on_later_event(client, monkeypatch):
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
     _workspace(client, "meta-binding-recovery")
     account = _account(
@@ -760,9 +739,7 @@ def test_post_capture_binding_failure_keeps_receipt_and_repairs_on_later_event(
         provider="facebook_messenger",
         external_account_id="page-binding-recovery",
     )
-    first_payload = _facebook_message(
-        "page-binding-recovery", event_id="m_binding_failure"
-    )
+    first_payload = _facebook_message("page-binding-recovery", event_id="m_binding_failure")
     original_bind = InboundExternalIdentityService.bind_lead
 
     def fail_binding(self, workspace, integration_account, identity, lead_id):
@@ -788,9 +765,7 @@ def test_post_capture_binding_failure_keeps_receipt_and_repairs_on_later_event(
     later = _post(
         client,
         account,
-        _facebook_message(
-            "page-binding-recovery", event_id="m_binding_recovery_later"
-        ),
+        _facebook_message("page-binding-recovery", event_id="m_binding_recovery_later"),
     )
 
     assert later.status_code == 200
@@ -804,9 +779,7 @@ def test_post_capture_binding_failure_keeps_receipt_and_repairs_on_later_event(
         assert len(session.exec(select(WorkItem)).all()) == 6
 
 
-def test_identity_with_multiple_workspace_leads_fails_without_guessing(
-    client, monkeypatch
-):
+def test_identity_with_multiple_workspace_leads_fails_without_guessing(client, monkeypatch):
     monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
     _workspace(client, "meta-ambiguous-recovery")
     account = _account(
@@ -949,9 +922,7 @@ def test_external_identity_unique_scope_is_enforced(client, monkeypatch):
         assert len(session.exec(select(InboundExternalIdentity)).all()) == 1
 
 
-def test_meta_webhook_verification_uses_account_credential_reference(
-    client, monkeypatch
-):
+def test_meta_webhook_verification_uses_account_credential_reference(client, monkeypatch):
     slug = "meta-webhook-verify"
     verify_reference = "INTEGRATION_SECRET_META_VERIFY_TOKEN"
     verify_token = "synthetic-meta-verify-token"
@@ -965,10 +936,7 @@ def test_meta_webhook_verification_uses_account_credential_reference(
         external_account_id="verify-page",
     )
     configured = client.put(
-        (
-            f"/api/integrations/accounts/{account['id']}"
-            "/credential-references/webhook_verify_token"
-        ),
+        (f"/api/integrations/accounts/{account['id']}/credential-references/webhook_verify_token"),
         headers={"X-Workspace-Slug": slug},
         json={"secret_reference": verify_reference},
     )
@@ -1010,10 +978,7 @@ def test_direct_meta_invalid_credential_reference_fails_signature_authentication
         external_account_id="invalid-secret-ig",
     )
     configured = client.put(
-        (
-            f"/api/integrations/accounts/{account['id']}"
-            "/credential-references/webhook_app_secret"
-        ),
+        (f"/api/integrations/accounts/{account['id']}/credential-references/webhook_app_secret"),
         headers={"X-Workspace-Slug": slug},
         json={"secret_reference": "INTEGRATION_SECRET_META_NOT_CONFIGURED"},
     )
@@ -1041,8 +1006,7 @@ def test_direct_meta_missing_access_token_fails_delivery_without_http(
     with next(app.dependency_overrides[get_session]()) as session:
         reference = session.exec(
             select(IntegrationCredentialReference).where(
-                IntegrationCredentialReference.integration_account_id
-                == UUID(account["id"]),
+                IntegrationCredentialReference.integration_account_id == UUID(account["id"]),
                 IntegrationCredentialReference.purpose == "api_access_token",
             )
         ).one()
@@ -1093,7 +1057,7 @@ def test_direct_meta_approval_required_returns_approval_without_delivery(
         assert session.exec(select(OutboundIntegrationAction)).all() == []
 
 
-def test_direct_meta_tool_access_denial_creates_no_outbound_action(
+def test_direct_meta_missing_tool_access_is_unroutable_without_outbound_action(
     client, monkeypatch, fake_meta_graph_transport
 ):
     slug = "meta-direct-tool-denied"
@@ -1114,13 +1078,16 @@ def test_direct_meta_tool_access_denial_creates_no_outbound_action(
         _instagram_message("denied-ig", event_id="denied-event"),
     )
 
-    assert response.status_code == 200
-    assert response.json()["approval_id"] is None
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "No eligible send_message AIEmployee assignment is configured"
+    )
     assert fake_meta_graph_transport == []
     with next(app.dependency_overrides[get_session]()) as session:
         send_item = session.exec(
             select(WorkItem).where(WorkItem.work_type == "sales_reply_message")
         ).one()
-        assert send_item.status == "failed"
-        assert send_item.error_code == "tool_access_denied"
+        assert send_item.status == "created"
+        assert send_item.assignment_id is None
+        assert send_item.error_code is None
         assert session.exec(select(OutboundIntegrationAction)).all() == []

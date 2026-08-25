@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.pool import StaticPool
@@ -23,8 +24,11 @@ from app.services.capabilities import CapabilityService
 from app.services.departments import DepartmentService
 from app.services.work_items import (
     WorkItemAssignmentRequiredError,
+    WorkItemCorrelationConflictError,
     WorkItemDepartmentWorkspaceMismatchError,
     WorkItemNotFoundError,
+    WorkItemParentNotFoundError,
+    WorkItemParentWorkspaceMismatchError,
     WorkItemService,
 )
 
@@ -146,6 +150,100 @@ def test_department_workspace_mismatch_is_rejected(session: Session) -> None:
             title="Wrong department",
             input={},
         )
+
+
+def test_parent_work_item_must_exist(session: Session) -> None:
+    workspace = _workspace(session, "work-item-parent-missing")
+    department = _sales_department(session, workspace)
+
+    with pytest.raises(WorkItemParentNotFoundError, match="Parent WorkItem not found"):
+        WorkItemService(session).create_work_item(
+            workspace,
+            department,
+            work_type="child",
+            title="Missing parent",
+            input={},
+            parent_work_item_id=uuid4(),
+        )
+
+
+def test_parent_work_item_must_share_workspace(session: Session) -> None:
+    workspace_a = _workspace(session, "work-item-parent-scope-a")
+    workspace_b = _workspace(session, "work-item-parent-scope-b")
+    department_a = _sales_department(session, workspace_a)
+    department_b = _sales_department(session, workspace_b)
+    parent = _work_item(session, workspace_a, department_a)
+
+    with pytest.raises(
+        WorkItemParentWorkspaceMismatchError,
+        match="does not belong to this workspace",
+    ):
+        WorkItemService(session).create_work_item(
+            workspace_b,
+            department_b,
+            work_type="child",
+            title="Cross-workspace child",
+            input={},
+            parent_work_item_id=parent.id,
+        )
+
+
+def test_child_inherits_parent_correlation_across_departments(session: Session) -> None:
+    workspace = _workspace(session, "work-item-parent-correlation")
+    sales = _sales_department(session, workspace)
+    business = _business_department(session, workspace)
+    parent = _work_item(session, workspace, sales)
+
+    child = WorkItemService(session).create_work_item(
+        workspace,
+        business,
+        work_type="cross_department_child",
+        title="Cross-department child",
+        input={},
+        parent_work_item_id=parent.id,
+    )
+
+    assert child.parent_work_item_id == parent.id
+    assert child.department_id == business.id
+    assert child.correlation_id == parent.correlation_id
+
+
+def test_child_rejects_conflicting_explicit_correlation(session: Session) -> None:
+    workspace = _workspace(session, "work-item-parent-conflict")
+    department = _sales_department(session, workspace)
+    parent = _work_item(session, workspace, department)
+
+    with pytest.raises(
+        WorkItemCorrelationConflictError,
+        match="does not match its parent",
+    ):
+        WorkItemService(session).create_work_item(
+            workspace,
+            department,
+            work_type="child",
+            title="Conflicting child",
+            input={},
+            parent_work_item_id=parent.id,
+            correlation_id=uuid4(),
+        )
+
+
+def test_child_accepts_matching_explicit_correlation(session: Session) -> None:
+    workspace = _workspace(session, "work-item-parent-match")
+    department = _sales_department(session, workspace)
+    parent = _work_item(session, workspace, department)
+
+    child = WorkItemService(session).create_work_item(
+        workspace,
+        department,
+        work_type="child",
+        title="Matching child",
+        input={},
+        parent_work_item_id=parent.id,
+        correlation_id=parent.correlation_id,
+    )
+
+    assert child.correlation_id == parent.correlation_id
 
 
 def test_valid_assignment_transitions_created_to_assigned_and_syncs_fields(

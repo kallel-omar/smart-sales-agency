@@ -1,6 +1,7 @@
 import inspect
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.pool import StaticPool
@@ -8,6 +9,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import app.core.department_supervisors as supervisor_contract
 from app.core.ai_employees import AIEmployeeRoleKey
+from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.department_supervisors import (
     DepartmentSupervisorNotRegisteredError,
@@ -21,10 +23,17 @@ from app.departments.sales.supervisor import SalesEvent
 from app.departments.sales.supervisor.work_item_adapter import (
     SalesWorkItemDepartmentSupervisor,
 )
-from app.models import AIEmployeeCapabilityAssignment, Department, Workspace
+from app.models import (
+    AIEmployeeCapabilityAssignment,
+    Department,
+    IntegrationAccount,
+    OutboundIntegrationActionType,
+    Workspace,
+)
 from app.services.ai_employee_capability_assignments import (
     AIEmployeeCapabilityAssignmentService,
 )
+from app.services.ai_employee_tool_access import AIEmployeeCapabilityToolAccessService
 from app.services.ai_employees import AIEmployeeService
 from app.services.capabilities import CapabilityService
 from app.services.department_supervisors import (
@@ -112,15 +121,29 @@ def _work_item(
     workspace: Workspace,
     department: Department,
     capability=None,
+    input_data: dict | None = None,
 ):
     return WorkItemService(session).create_work_item(
         workspace,
         department,
         work_type="send_sales_message",
         title="Send sales message",
-        input={"lead_id": "lead-1"},
+        input=input_data or {"lead_id": "lead-1"},
         capability=capability,
     )
+
+
+def _account(session: Session, workspace: Workspace) -> IntegrationAccount:
+    account = IntegrationAccount(
+        workspace_id=workspace.id,
+        provider="facebook_messenger",
+        external_account_id=f"page-{uuid4().hex}",
+        credential_hash=uuid4().hex,
+    )
+    session.add(account)
+    session.commit()
+    session.refresh(account)
+    return account
 
 
 def test_sales_supervisor_resolves_through_generic_registry(session: Session) -> None:
@@ -360,6 +383,121 @@ def test_multiple_eligible_assignments_use_stable_creation_order(session: Sessio
     assert first.id != second.id
     assert first_decision.assignment_id == expected_id
     assert second_decision.assignment_id == expected_id
+
+
+def test_send_message_routing_selects_assignment_with_required_tool_access(
+    session: Session,
+) -> None:
+    workspace = _workspace(session, "supervisor-tool-aware")
+    department = _department(session, workspace)
+    capability = _capability(session, workspace, department)
+    _, without_access = _assignment(
+        session,
+        workspace,
+        department,
+        capability,
+        name="Older Agent Without Access",
+    )
+    employee, with_access = _assignment(
+        session,
+        workspace,
+        department,
+        capability,
+        name="Agent With Access",
+    )
+    account = _account(session, workspace)
+    AIEmployeeCapabilityToolAccessService(session).grant(
+        workspace,
+        with_access,
+        account,
+        OutboundIntegrationActionType.SEND_MESSAGE,
+        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+    )
+    work_item = _work_item(
+        session,
+        workspace,
+        department,
+        capability,
+        input_data={"integration_account_id": str(account.id)},
+    )
+
+    decision = DepartmentSupervisorRoutingService(session).route_and_assign(
+        workspace,
+        work_item.id,
+    )
+
+    assert decision.assignment_id == with_access.id
+    assert decision.assignment_id != without_access.id
+    assert decision.ai_employee_id == employee.id
+    assert WorkItemService(session).get_work_item(workspace, work_item.id).assignment_id == (
+        with_access.id
+    )
+
+
+def test_send_message_routing_is_unroutable_without_required_tool_access(
+    session: Session,
+) -> None:
+    workspace = _workspace(session, "supervisor-tool-denied")
+    department = _department(session, workspace)
+    capability = _capability(session, workspace, department)
+    _assignment(
+        session,
+        workspace,
+        department,
+        capability,
+        name="Agent Without Access",
+    )
+    account = _account(session, workspace)
+    work_item = _work_item(
+        session,
+        workspace,
+        department,
+        capability,
+        input_data={"integration_account_id": str(account.id)},
+    )
+
+    decision = DepartmentSupervisorRoutingService(session).route_and_assign(
+        workspace,
+        work_item.id,
+    )
+
+    assert decision.routable is False
+    assert decision.reason == DepartmentSupervisorRoutingReason.NO_ELIGIBLE_ASSIGNMENT
+    assert WorkItemService(session).get_work_item(workspace, work_item.id).status == (
+        WorkItemStatus.CREATED
+    )
+
+
+def test_send_message_routing_rejects_cross_workspace_tool_target(
+    session: Session,
+) -> None:
+    workspace_a = _workspace(session, "supervisor-tool-scope-a")
+    workspace_b = _workspace(session, "supervisor-tool-scope-b")
+    department_a = _department(session, workspace_a)
+    capability_a = _capability(session, workspace_a, department_a)
+    _assignment(
+        session,
+        workspace_a,
+        department_a,
+        capability_a,
+        name="Workspace A Agent",
+    )
+    account_b = _account(session, workspace_b)
+    work_item = _work_item(
+        session,
+        workspace_a,
+        department_a,
+        capability_a,
+        input_data={"integration_account_id": str(account_b.id)},
+    )
+
+    decision = DepartmentSupervisorRoutingService(session).route_work_item(
+        workspace_a,
+        work_item.id,
+    )
+
+    assert decision.routable is False
+    assert decision.reason == DepartmentSupervisorRoutingReason.NO_ELIGIBLE_ASSIGNMENT
 
 
 def test_missing_capability_is_not_guessed(session: Session) -> None:

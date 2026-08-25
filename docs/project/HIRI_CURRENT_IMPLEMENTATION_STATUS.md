@@ -90,6 +90,27 @@ a reconnect-required failure state without persisting token values.
 Latest verified backend result: **895 passed, 6 skipped, 25 warnings**. This is an
 automated mocked-provider checkpoint and does not claim live TikTok validation.
 
+### Task 294A — Sales workforce foundation hardening
+
+HIRI's canonical default Sales workforce now converges idempotently to four
+specialist roles with six capability assignments:
+
+- `lead_research`: `capture_lead`, `research_company`
+- `qualification`: `qualify_lead`
+- `sales_conversation`: `answer_customer`, `send_message`
+- `follow_up`: `follow_up_lead`
+
+Default provisioning reuses clearly recognized canonical employees and does not
+repurpose custom same-role employees. WorkItem parent references are validated
+within the workspace, child WorkItems inherit the parent correlation, and known
+`send_message` targets are routed only to assignments with matching tool access.
+Rejecting an approval linked to an `approval_required` WorkItem now leaves that
+WorkItem in the terminal `cancelled` state without sending an external action.
+
+Latest verified backend result: **911 passed, 6 skipped, 25 warnings**.
+Capture → research → qualification coordination is not complete and remains
+Task 294B.
+
 Task 290 validated a real Instagram professional-account inbound DM through the
 Meta webhook and existing HIRI Sales architecture. HIRI created the governed
 `SEND_MESSAGE` outbound action, but Meta rejected the Facebook Login Graph API
