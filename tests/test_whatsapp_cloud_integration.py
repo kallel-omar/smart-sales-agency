@@ -304,10 +304,9 @@ def test_whatsapp_cloud_text_event_uses_machine_auth_and_creates_one_turn(
         assert lead and lead.contact_id is not None
         contact = session.get(Contact, lead.contact_id)
         assert contact and contact.phone == CUSTOMER_EXTERNAL_ID
-        assert len(capture_items) == 2
-        assert capture_items[-1].input["message"] == "What is the monthly price?"
-        assert capture_items[-1].input["external_reference"] == EVENT_ID
-        assert capture_items[-1].input["metadata"] == {"timestamp": 1_720_000_000}
+        assert len(capture_items) == 1
+        assert capture_items[0].status == "completed"
+        assert capture_items[0].result["lead_id"] == lead_id
 
 
 def test_duplicate_whatsapp_event_reuses_task251_receipt_without_second_turn(
@@ -338,7 +337,7 @@ def test_duplicate_whatsapp_event_reuses_task251_receipt_without_second_turn(
         assert len(session.exec(select(Lead)).all()) == 1
         assert (
             len(session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all())
-            == 2
+            == 1
         )
 
 

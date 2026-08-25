@@ -108,8 +108,25 @@ Rejecting an approval linked to an `approval_required` WorkItem now leaves that
 WorkItem in the terminal `cancelled` state without sending an external action.
 
 Latest verified backend result: **911 passed, 6 skipped, 25 warnings**.
-Capture → research → qualification coordination is not complete and remains
-Task 294B.
+
+### Task 294B — Persisted Sales acquisition coordination
+
+The Sales acquisition chain `capture_lead → research_company → qualify_lead`
+now uses persisted WorkItems as its authoritative business execution path. Lead
+Research owns capture and research, while Qualification owns qualification. The
+three stages preserve one correlation trace and explicit parent-child lineage.
+
+The result coordinator is deterministic and non-LLM: it creates only the next
+required WorkItem from a completed structured result. The legacy workflow API
+remains compatible, but no longer performs a second in-memory research or
+qualification execution. Qualification completion is terminal for acquisition
+and does not automatically initiate outreach or block the independent live
+conversation path.
+
+Simultaneous first-time acquisition-root creation remains **NEXT** concurrency
+hardening; normal retries reuse the persisted root and downstream children.
+
+Latest verified backend result: **917 passed, 6 skipped, 25 warnings**.
 
 Task 290 validated a real Instagram professional-account inbound DM through the
 Meta webhook and existing HIRI Sales architecture. HIRI created the governed

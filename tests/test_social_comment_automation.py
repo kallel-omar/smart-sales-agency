@@ -384,7 +384,7 @@ def test_wrong_account_grant_is_denied_and_duplicate_comment_is_suppressed(clien
     assert first.json()["trigger_result"] == "tool_access_denied"
     assert duplicate.json()["duplicate"] is True
     with next(session_dependency()) as session:
-        assert len(session.exec(select(WorkItem)).all()) == 2
+        assert len(session.exec(select(WorkItem)).all()) == 3
         assert session.exec(select(OutboundIntegrationAction)).all() == []
 
 

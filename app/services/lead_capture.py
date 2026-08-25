@@ -6,13 +6,23 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
 from app.core.lead_capture import LeadCaptureResult, LeadCaptureSignal
+from app.core.work_items import WorkItemStatus
+from app.departments.sales.services.acquisition_coordination import (
+    SalesWorkItemResultCoordinator,
+)
+from app.departments.sales.services.work_item_execution import (
+    SalesWorkItemExecutionService,
+)
 from app.models import Capability, Contact, Customer, Department, Lead, Workspace
 from app.services.capabilities import CapabilityService
 from app.services.customer_contacts import CustomerContactService, LeadNotFoundError
+from app.services.department_supervisors import DepartmentSupervisorRoutingService
 from app.services.departments import DepartmentNotFoundError, DepartmentService
+from app.services.sales_workforce import SalesWorkforceProvisioningService
 from app.services.work_items import WorkItemService
 from app.services.workspaces import WorkspaceNotFoundError
 
@@ -52,18 +62,57 @@ class LeadCaptureService:
         self._required_text(signal.source, "Lead source")
         metadata = self._safe_metadata(signal.metadata)
         department, capability = self._capture_configuration(workspace)
+        SalesWorkforceProvisioningService(self.session).ensure_default_role(
+            workspace,
+            department,
+            AIEmployeeRoleKey.LEAD_RESEARCH,
+        )
         customer, customer_created = self._resolve_customer(workspace, signal)
         contact, contact_created = self._resolve_contact(workspace, signal, customer)
         self._require_customer_contact_consistency(customer, contact)
         lead, lead_created = self._resolve_lead(workspace, signal, contact)
-        work_item = self.work_items.create_work_item(
-            workspace,
-            department,
-            work_type="lead_capture",
-            title="Capture lead",
-            capability=capability,
-            input=self._work_item_input(signal, customer, contact, lead, metadata),
-        )
+        coordinator = SalesWorkItemResultCoordinator(self.session)
+        work_item = coordinator.find_capture_root(workspace, department, lead.id)
+        if work_item is None:
+            work_item = self.work_items.create_work_item(
+                workspace,
+                department,
+                work_type="lead_capture",
+                title="Capture lead",
+                capability=capability,
+                input=self._work_item_input(
+                    signal,
+                    customer,
+                    contact,
+                    lead,
+                    metadata,
+                    customer_created=customer_created,
+                    contact_created=contact_created,
+                    lead_created=lead_created,
+                ),
+            )
+        status = WorkItemStatus(work_item.status)
+        if status == WorkItemStatus.CREATED:
+            decision = DepartmentSupervisorRoutingService(
+                self.session
+            ).route_and_assign(workspace, work_item.id)
+            work_item = self.work_items.get_work_item(workspace, work_item.id)
+            if not decision.routable:
+                raise LeadCaptureConfigurationError(
+                    "No eligible capture_lead AIEmployee assignment is configured"
+                )
+            status = WorkItemStatus(work_item.status)
+        if status == WorkItemStatus.ASSIGNED:
+            work_item = SalesWorkItemExecutionService(
+                self.session,
+                None,
+            ).execute_capture(workspace, work_item.id)
+            status = WorkItemStatus(work_item.status)
+        if status != WorkItemStatus.COMPLETED:
+            raise LeadCaptureConfigurationError(
+                f"Lead capture WorkItem stopped at {status.value}"
+            )
+        coordinator.process_completed(workspace, work_item.id)
         return LeadCaptureResult(
             customer_id=customer.id if customer else None,
             contact_id=contact.id,
@@ -217,11 +266,18 @@ class LeadCaptureService:
         contact: Contact,
         lead: Lead,
         metadata: dict[str, Any] | None,
+        *,
+        customer_created: bool,
+        contact_created: bool,
+        lead_created: bool,
     ) -> dict[str, Any]:
         input_data: dict[str, Any] = {
             "lead_id": str(lead.id),
             "contact_id": str(contact.id),
             "source": LeadCaptureService._required_text(signal.source, "Lead source"),
+            "customer_created": customer_created,
+            "contact_created": contact_created,
+            "lead_created": lead_created,
         }
         if customer:
             input_data["customer_id"] = str(customer.id)

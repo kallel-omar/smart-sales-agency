@@ -78,7 +78,9 @@ def _lead(session: Session, workspace: Workspace, name: str = "Legacy") -> Lead:
     return lead
 
 
-def test_capture_creates_linked_identity_and_unassigned_work_item(session: Session) -> None:
+def test_capture_creates_linked_identity_and_completed_attributed_work_item(
+    session: Session,
+) -> None:
     workspace = _workspace(session, "capture-basic")
     result = LeadCaptureService(session).capture(
         workspace.id,
@@ -103,18 +105,36 @@ def test_capture_creates_linked_identity_and_unassigned_work_item(session: Sessi
     assert result.contact_created and result.lead_created
     assert contact and contact.email == "ada@example.test"
     assert lead and lead.contact_id == contact.id and lead.email == "Ada@Example.Test"
-    assert work_item and work_item.status == WorkItemStatus.CREATED
+    assert work_item and work_item.status == WorkItemStatus.COMPLETED
     assert work_item.department_id == sales.id
     assert capability and work_item.capability_id == capability.id
-    assert work_item.ai_employee_id is None and work_item.assignment_id is None
+    assert work_item.ai_employee_id is not None and work_item.assignment_id is not None
     assert work_item.input == {
         "lead_id": str(lead.id),
         "contact_id": str(contact.id),
         "source": "api",
+        "customer_created": False,
+        "contact_created": True,
+        "lead_created": True,
         "message": "Hello",
         "external_reference": "ref-1",
         "metadata": {"campaign": "x"},
     }
+    assert work_item.result == {
+        "lead_id": str(lead.id),
+        "contact_id": str(contact.id),
+        "source": "api",
+        "customer_created": False,
+        "contact_created": True,
+        "lead_created": True,
+        "source_metadata": {"campaign": "x"},
+    }
+    research = session.exec(
+        select(WorkItem).where(WorkItem.parent_work_item_id == work_item.id)
+    ).one()
+    assert research.status == WorkItemStatus.CREATED
+    assert research.work_type == BusinessCapabilityKey.RESEARCH_COMPANY
+    assert research.correlation_id == work_item.correlation_id
     assert session.exec(select(AIInvocationUsage)).all() == []
 
 

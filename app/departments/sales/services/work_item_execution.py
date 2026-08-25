@@ -25,10 +25,13 @@ from app.models import (
     AIEmployee,
     AIEmployeeCapabilityAssignment,
     Capability,
+    Contact,
+    Customer,
     Department,
     FollowUpTask,
     IntegrationAccount,
     Lead,
+    LeadResearch,
     WorkItem,
     Workspace,
 )
@@ -47,7 +50,8 @@ M09_SALES_EXECUTION_CAPABILITIES = frozenset(
     }
 )
 SALES_EXECUTION_CAPABILITIES = M09_SALES_EXECUTION_CAPABILITIES | {
-    BusinessCapabilityKey.FOLLOW_UP_LEAD
+    BusinessCapabilityKey.CAPTURE_LEAD,
+    BusinessCapabilityKey.FOLLOW_UP_LEAD,
 }
 
 
@@ -93,7 +97,7 @@ class SalesWorkItemExecutionService:
     def __init__(
         self,
         session: Session,
-        settings: Settings,
+        settings: Settings | None,
         *,
         ai_invocation_gateway: AIInvocationGateway | None = None,
     ) -> None:
@@ -135,8 +139,47 @@ class SalesWorkItemExecutionService:
             result=result,
         )
 
+    def execute_capture(
+        self,
+        workspace: Workspace,
+        work_item_id: UUID,
+    ) -> WorkItem:
+        """Execute deterministic capture from synchronous channel boundaries."""
+
+        target = self._execution_target(workspace, work_item_id)
+        if target.capability_key != BusinessCapabilityKey.CAPTURE_LEAD:
+            raise SalesWorkItemUnsupportedCapabilityError(
+                "Synchronous capture execution requires capture_lead"
+            )
+        self._validate_input(workspace, target.work_item, target.capability_key)
+        self.work_items.transition_work_item(
+            workspace,
+            work_item_id,
+            WorkItemStatus.RUNNING,
+        )
+        try:
+            result = self._json_safe_result(
+                self._capture_result(workspace, target.work_item)
+            )
+        except Exception as exc:
+            self.work_items.transition_work_item(
+                workspace,
+                work_item_id,
+                WorkItemStatus.FAILED,
+                error_code="sales_work_item_execution_failed",
+                error_message=self._bounded_error_message(exc),
+            )
+            raise
+        return self.work_items.transition_work_item(
+            workspace,
+            work_item_id,
+            WorkItemStatus.COMPLETED,
+            result=result,
+        )
+
     def _executors(self) -> dict[BusinessCapabilityKey, SalesExecutor]:
         return {
+            BusinessCapabilityKey.CAPTURE_LEAD: self._execute_capture,
             BusinessCapabilityKey.RESEARCH_COMPANY: self._execute_research,
             BusinessCapabilityKey.QUALIFY_LEAD: self._execute_qualification,
             BusinessCapabilityKey.ANSWER_CUSTOMER: self._execute_conversation,
@@ -232,7 +275,9 @@ class SalesWorkItemExecutionService:
         self._lead(workspace, work_item)
         if capability_key == BusinessCapabilityKey.QUALIFY_LEAD:
             research = work_item.input.get("research")
-            if not isinstance(research, dict):
+            if work_item.input.get("lead_research_id") is None and not isinstance(
+                research, dict
+            ):
                 raise SalesWorkItemInputError("Qualification WorkItem input requires research")
         if capability_key == BusinessCapabilityKey.ANSWER_CUSTOMER:
             self._required_text(work_item, "channel", max_length=50)
@@ -246,6 +291,51 @@ class SalesWorkItemExecutionService:
                 or work_item.source_follow_up_task_id != task.id
             ):
                 raise SalesWorkItemInputError("Follow-up WorkItem does not match its FollowUpTask")
+
+    async def _execute_capture(
+        self,
+        workspace: Workspace,
+        work_item: WorkItem,
+    ) -> dict[str, Any]:
+        return self._capture_result(workspace, work_item)
+
+    def _capture_result(
+        self,
+        workspace: Workspace,
+        work_item: WorkItem,
+    ) -> dict[str, Any]:
+        lead = self._lead(workspace, work_item)
+        result: dict[str, Any] = {
+            "lead_id": str(lead.id),
+            "source": self._required_text(work_item, "source", max_length=100),
+            "customer_created": bool(work_item.input.get("customer_created", False)),
+            "contact_created": bool(work_item.input.get("contact_created", False)),
+            "lead_created": bool(work_item.input.get("lead_created", False)),
+        }
+        contact_value = work_item.input.get("contact_id")
+        if contact_value is not None:
+            contact_id = self._uuid_value(contact_value, "contact_id")
+            contact = self.session.get(Contact, contact_id)
+            if contact is None or contact.workspace_id != workspace.id:
+                raise SalesWorkItemExecutionScopeError(
+                    "Capture WorkItem Contact does not belong to this workspace"
+                )
+            if lead.contact_id is not None and lead.contact_id != contact.id:
+                raise SalesWorkItemInputError("Capture WorkItem Contact does not match its Lead")
+            result["contact_id"] = str(contact.id)
+        customer_value = work_item.input.get("customer_id")
+        if customer_value is not None:
+            customer_id = self._uuid_value(customer_value, "customer_id")
+            customer = self.session.get(Customer, customer_id)
+            if customer is None or customer.workspace_id != workspace.id:
+                raise SalesWorkItemExecutionScopeError(
+                    "Capture WorkItem Customer does not belong to this workspace"
+                )
+            result["customer_id"] = str(customer.id)
+        metadata = work_item.input.get("metadata")
+        if isinstance(metadata, dict):
+            result["source_metadata"] = dict(metadata)
+        return result
 
     async def _execute_research(
         self,
@@ -261,7 +351,7 @@ class SalesWorkItemExecutionService:
         work_item: WorkItem,
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
-        research = dict(work_item.input["research"])
+        research = self._qualification_research(workspace, lead, work_item)
         result = await QualificationAgent(self._agent_context(workspace, work_item)).run(
             lead,
             research,
@@ -270,6 +360,29 @@ class SalesWorkItemExecutionService:
             "score": result.score,
             "qualified": result.qualified,
             "reasons": list(result.reasons),
+            "outcome": "qualified" if result.qualified else "unqualified",
+        }
+
+    def _qualification_research(
+        self,
+        workspace: Workspace,
+        lead: Lead,
+        work_item: WorkItem,
+    ) -> dict[str, Any]:
+        research_id_value = work_item.input.get("lead_research_id")
+        if research_id_value is None:
+            return dict(work_item.input["research"])
+        research_id = self._uuid_value(research_id_value, "lead_research_id")
+        research = self.session.get(LeadResearch, research_id)
+        if research is None or research.lead_id != lead.id or lead.tenant_id != workspace.slug:
+            raise SalesWorkItemExecutionScopeError(
+                "Qualification research does not belong to this workspace Lead"
+            )
+        return {
+            "summary": research.summary,
+            "pain_points": list(research.pain_points),
+            "opportunities": list(research.opportunities),
+            "evidence": list(research.evidence),
         }
 
     async def _execute_conversation(
@@ -455,6 +568,10 @@ class SalesWorkItemExecutionService:
         workspace: Workspace,
         work_item: WorkItem,
     ) -> AgentContext:
+        if self.settings is None:
+            raise SalesWorkItemExecutionStateError(
+                "Sales AI execution requires runtime settings"
+            )
         return AgentContext(
             settings=self.settings,
             repository=self.repository,

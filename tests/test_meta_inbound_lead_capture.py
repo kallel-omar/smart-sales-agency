@@ -365,7 +365,8 @@ def test_direct_message_captures_and_reuses_external_identity(
         assert len(identities) == len(contacts) == len(leads) == 1
         assert identities[0].channel == channel
         assert str(identities[0].lead_id) == first.json()["lead_id"]
-        assert len(capture_items) == 2
+        assert len(capture_items) == 1
+        assert capture_items[0].status == "completed"
         assert len(messages) == 4
         assert capture_items[0].input["metadata"] == {
             "account_id": account_id,
@@ -455,7 +456,7 @@ def test_duplicate_direct_event_is_suppressed(
     with next(session_dependency()) as session:
         assert len(session.exec(select(Lead)).all()) == 1
         assert len(session.exec(select(Contact)).all()) == 1
-        assert len(session.exec(select(WorkItem)).all()) == 3
+        assert len(session.exec(select(WorkItem)).all()) == 4
         assert len(session.exec(select(ConversationMessage)).all()) == 2
     assert len(fake_meta_graph_transport) == 1
 
@@ -658,7 +659,7 @@ def test_capture_failure_releases_meta_receipt_for_successful_retry(client, monk
         assert len(session.exec(select(InboundIntegrationEventReceipt)).all()) == 1
         assert len(session.exec(select(InboundExternalIdentity)).all()) == 1
         assert len(session.exec(select(Lead)).all()) == 1
-        assert len(session.exec(select(WorkItem)).all()) == 3
+        assert len(session.exec(select(WorkItem)).all()) == 4
         assert len(session.exec(select(ConversationMessage)).all()) == 2
         identity = session.exec(select(InboundExternalIdentity)).one()
         assert identity.id == anchored_identity_id
@@ -759,7 +760,7 @@ def test_post_capture_binding_failure_keeps_receipt_and_repairs_on_later_event(c
         anchored_contact_id = identity.contact_id
         assert len(session.exec(select(InboundIntegrationEventReceipt)).all()) == 1
         assert len(session.exec(select(Lead)).all()) == 1
-        assert len(session.exec(select(WorkItem)).all()) == 3
+        assert len(session.exec(select(WorkItem)).all()) == 4
 
     monkeypatch.setattr(InboundExternalIdentityService, "bind_lead", original_bind)
     later = _post(
@@ -829,7 +830,7 @@ def test_identity_with_multiple_workspace_leads_fails_without_guessing(client, m
     assert ambiguous.json()["detail"] == "External identity has multiple linked Leads"
     with next(session_dependency()) as session:
         assert len(session.exec(select(Lead)).all()) == 2
-        assert len(session.exec(select(WorkItem)).all()) == 3
+        assert len(session.exec(select(WorkItem)).all()) == 4
         assert len(session.exec(select(InboundIntegrationEventReceipt)).all()) == 1
 
 
@@ -885,7 +886,7 @@ def test_lead_recovery_ignores_leads_from_another_workspace(client, monkeypatch)
         assert local_lead is not None
         assert local_lead.tenant_id == local_workspace.slug
         assert len(session.exec(select(Contact)).all()) == 1
-        assert len(session.exec(select(WorkItem)).all()) == 3
+        assert len(session.exec(select(WorkItem)).all()) == 4
 
 
 def test_external_identity_unique_scope_is_enforced(client, monkeypatch):

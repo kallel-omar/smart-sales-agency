@@ -2,10 +2,10 @@ from urllib.parse import urlparse
 
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.prompt_composition import (
-    PromptComposition,
-    PromptCompositionInput,
     SALES_DEPARTMENT_POLICY,
     SALES_PLATFORM_POLICY,
+    PromptComposition,
+    PromptCompositionInput,
     SalesPromptComposer,
     UntrustedPromptContext,
     WorkspaceSalesInstructions,
@@ -141,6 +141,8 @@ class LeadResearchAgent:
         )
 
         return {
+            "lead_id": str(lead.id),
+            "lead_research_id": str(research.id),
             "summary": research.summary,
             "pain_points": research.pain_points,
             "opportunities": research.opportunities,

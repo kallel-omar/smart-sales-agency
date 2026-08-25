@@ -69,50 +69,81 @@ class SalesWorkforceProvisioningService:
                 "Default Sales workforce requires a Sales department"
             )
 
-        capabilities = {
-            capability.key: capability
-            for capability in self.capabilities.ensure_sales_capabilities(
-                workspace,
-                department,
-            )
-        }
-        available = self.employees.list_for_department(workspace, department)
+        capabilities: dict[BusinessCapabilityKey, Capability] = {}
         selected: dict[AIEmployeeRoleKey, AIEmployee] = {}
         assignments: dict[
             tuple[AIEmployeeRoleKey, BusinessCapabilityKey],
             AIEmployeeCapabilityAssignment,
         ] = {}
 
-        for role, capability_keys in CANONICAL_SALES_WORKFORCE_CONTRACT.items():
-            employee = self._select_or_create_employee(
+        for role in CANONICAL_SALES_WORKFORCE_CONTRACT:
+            employee, role_capabilities, role_assignments = self.ensure_default_role(
                 workspace,
                 department,
                 role,
-                available,
             )
             selected[role] = employee
-            if employee not in available:
-                available.append(employee)
-            for capability_key in capability_keys:
-                capability = capabilities[capability_key]
-                assignment = self.assignments.repository.get(
-                    workspace,
-                    employee,
-                    capability,
-                )
-                if assignment is None:
-                    assignment = self.assignments.assign(
-                        workspace,
-                        employee,
-                        capability,
-                    )
-                assignments[(role, capability_key)] = assignment
+            capabilities.update(role_capabilities)
+            assignments.update(
+                {
+                    (role, capability_key): assignment
+                    for capability_key, assignment in role_assignments.items()
+                }
+            )
 
         return SalesWorkforceProvisioningResult(
             employees=selected,
             capabilities=capabilities,
             assignments=assignments,
         )
+
+    def ensure_default_role(
+        self,
+        workspace: Workspace,
+        department: Department,
+        role: AIEmployeeRoleKey,
+    ) -> tuple[
+        AIEmployee,
+        dict[BusinessCapabilityKey, Capability],
+        dict[BusinessCapabilityKey, AIEmployeeCapabilityAssignment],
+    ]:
+        if department.kind != DepartmentKind.SALES:
+            raise UnsupportedAIEmployeeRoleError(
+                "Default Sales workforce requires a Sales department"
+            )
+        capability_keys = CANONICAL_SALES_WORKFORCE_CONTRACT[role]
+        capabilities = {
+            key: self.capabilities.ensure_for_department(
+                workspace,
+                department,
+                key,
+            )
+            for key in capability_keys
+        }
+        employee = self._select_or_create_employee(
+            workspace,
+            department,
+            role,
+            self.employees.list_for_department(workspace, department),
+        )
+        assignments: dict[
+            BusinessCapabilityKey,
+            AIEmployeeCapabilityAssignment,
+        ] = {}
+        for key, capability in capabilities.items():
+            assignment = self.assignments.repository.get(
+                workspace,
+                employee,
+                capability,
+            )
+            if assignment is None:
+                assignment = self.assignments.assign(
+                    workspace,
+                    employee,
+                    capability,
+                )
+            assignments[key] = assignment
+        return employee, capabilities, assignments
 
     def _select_or_create_employee(
         self,

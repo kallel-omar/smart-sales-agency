@@ -186,6 +186,8 @@ async def test_research_work_item_executes_existing_agent_and_completes(
     assert completed.started_at is not None
     assert completed.completed_at is not None
     assert completed.result == {
+        "lead_id": str(lead.id),
+        "lead_research_id": str(research.id),
         "summary": research.summary,
         "pain_points": research.pain_points,
         "opportunities": research.opportunities,
@@ -213,6 +215,7 @@ async def test_qualification_work_item_executes_existing_agent_and_completes(
     assert completed.result == {
         "score": 85,
         "qualified": True,
+        "outcome": "qualified",
         "reasons": [
             "A direct contact channel is available",
             "A company website is available",

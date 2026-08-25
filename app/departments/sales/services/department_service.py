@@ -7,6 +7,9 @@ from app.core.event_types import EventType
 from app.core.events import BusinessEvent
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.handoff_policy import SalesHandoffSignals
+from app.departments.sales.services.acquisition_coordination import (
+    SalesAcquisitionWorkItemService,
+)
 from app.departments.sales.services.conversation_turn_service import (
     SalesConversationTurnInput,
     SalesConversationTurnService,
@@ -15,7 +18,6 @@ from app.departments.sales.supervisor import (
     SalesDepartmentSupervisor,
     SalesEvent,
 )
-from app.departments.sales.workflows import NewLeadWorkflow
 from app.models import Lead, SalesHandoffReasonCode, SalesStage
 
 
@@ -55,9 +57,15 @@ class SalesDepartmentService:
                 f"Unexpected Sales route for new lead: {route}"
             )
 
-        workflow = NewLeadWorkflow(self.context)
-
-        return await workflow.run(lead_id)
+        if self.context.workspace is None:
+            raise RuntimeError(
+                "A server-resolved workspace is required for Sales acquisition"
+            )
+        return await SalesAcquisitionWorkItemService(
+            self.context.repository.session,
+            self.context.settings,
+            ai_invocation_gateway=self.context.ai_invocation_gateway,
+        ).run(self.context.workspace, lead_id)
 
     async def draft_sales_reply(
         self,

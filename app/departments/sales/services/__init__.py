@@ -1,3 +1,10 @@
+from app.departments.sales.services.acquisition_coordination import (
+    SalesAcquisitionCoordinationError,
+    SalesAcquisitionResultError,
+    SalesAcquisitionRoutingError,
+    SalesAcquisitionWorkItemService,
+    SalesWorkItemResultCoordinator,
+)
 from app.departments.sales.services.conversation_turn_service import (
     SalesConversationTurnInput,
     SalesConversationTurnResult,
@@ -39,6 +46,10 @@ __all__ = [
     "DirectConversationTurnIdempotencyValidationError",
     "DirectSalesConversationTurnOutcome",
     "DirectSalesConversationTurnService",
+    "SalesAcquisitionCoordinationError",
+    "SalesAcquisitionResultError",
+    "SalesAcquisitionRoutingError",
+    "SalesAcquisitionWorkItemService",
     "SalesConversationHandoffService",
     "SalesConversationTurnInput",
     "SalesConversationTurnResult",
@@ -54,6 +65,7 @@ __all__ = [
     "SalesWorkItemExecutionService",
     "SalesWorkItemExecutionStateError",
     "SalesWorkItemInputError",
+    "SalesWorkItemResultCoordinator",
     "SalesWorkItemResultError",
     "SalesWorkItemUnsupportedCapabilityError",
 ]

@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlmodel import select
 
+from app.core.capabilities import BusinessCapabilityKey
 from app.db import get_session
 from app.main import app
 from app.models import (
@@ -76,8 +77,9 @@ def test_authenticated_api_lead_creation_uses_generic_capture_boundary(client) -
             select(WorkItem).where(WorkItem.work_type == "lead_capture")
         ).one()
         assert work_item.workspace_id == workspace_id
-        assert work_item.status == "created"
-        assert work_item.ai_employee_id is None
+        assert work_item.status == "completed"
+        assert work_item.assignment_id is not None
+        assert work_item.ai_employee_id is not None
         assert work_item.input["lead_id"] == data["id"]
 
 
@@ -117,5 +119,7 @@ def test_legacy_workspace_api_capture_idempotently_ensures_foundation(client) ->
             select(Capability).where(Capability.workspace_id == workspace.id)
         ).all()
         assert len(departments) == 1
-        assert len(capabilities) == 1
-        assert capabilities[0].key == "capture_lead"
+        assert {capability.key for capability in capabilities} == {
+            BusinessCapabilityKey.CAPTURE_LEAD,
+            BusinessCapabilityKey.RESEARCH_COMPANY,
+        }

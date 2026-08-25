@@ -139,10 +139,13 @@ async def test_sales_department_service_persists_outbound_when_approval_disabled
 async def test_sales_department_service_runs_new_lead_workflow(
     monkeypatch,
 ) -> None:
+    workspace = Mock()
+    repository = Mock()
     context = AgentContext(
         settings=Mock(),
-        repository=Mock(),
+        repository=repository,
         llm=Mock(),
+        workspace=workspace,
     )
 
     expected_result = {
@@ -150,14 +153,14 @@ async def test_sales_department_service_runs_new_lead_workflow(
         "qualified": True,
     }
 
-    workflow_run = AsyncMock(
+    acquisition_run = AsyncMock(
         return_value=expected_result
     )
 
     monkeypatch.setattr(
         "app.departments.sales.services.department_service."
-        "NewLeadWorkflow.run",
-        workflow_run,
+        "SalesAcquisitionWorkItemService.run",
+        acquisition_run,
     )
 
     service = SalesDepartmentService(context)
@@ -170,8 +173,9 @@ async def test_sales_department_service_runs_new_lead_workflow(
 
     assert result == expected_result
 
-    workflow_run.assert_awaited_once_with(
-        lead_id
+    acquisition_run.assert_awaited_once_with(
+        workspace,
+        lead_id,
     )
 
 

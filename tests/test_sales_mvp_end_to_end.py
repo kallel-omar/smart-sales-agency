@@ -782,8 +782,8 @@ def test_sales_mvp_real_boundaries_end_to_end(
     analytics_a = analytics_a_response.json()
     analytics_b = analytics_b_response.json()
     assert analytics_a["sales"]["leads_created"] == 2
-    assert analytics_a["workitems"]["created"] == 9
-    assert analytics_a["workitems"]["completed"] == 5
+    assert analytics_a["workitems"]["created"] == 10
+    assert analytics_a["workitems"]["completed"] == 7
     assert analytics_a["workitems"]["current"]["approval_required"] == 0
     assert analytics_a["workitems"]["current"]["cancelled"] == 1
     assert analytics_a["approvals"]["requests_created"] == 2
