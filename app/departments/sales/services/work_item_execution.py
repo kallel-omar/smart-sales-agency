@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.config import Settings
+from app.core.agent_skill_execution import AgentSkillExecutionContext
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
 from app.core.work_items import WorkItemStatus
@@ -17,10 +18,16 @@ from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.follow_up import FollowUpAgent
 from app.departments.sales.agents.lead_researcher import LeadResearchAgent
 from app.departments.sales.agents.qualifier import QualificationAgent
+from app.departments.sales.pricing_explanation import (
+    PRICING_EXPLANATION_KEY,
+    PRICING_EXPLANATION_VERSION,
+    is_pricing_explanation_turn,
+)
 from app.departments.sales.services.conversation_turn_service import (
     SalesConversationTurnInput,
     SalesConversationTurnService,
 )
+from app.departments.sales.skills import sales_agent_skill_registry
 from app.models import (
     AIEmployee,
     AIEmployeeCapabilityAssignment,
@@ -35,6 +42,7 @@ from app.models import (
     WorkItem,
     Workspace,
 )
+from app.services.agent_skill_execution import AgentSkillExecutionContextResolver
 from app.services.ai_execution_attribution import AIExecutionAttributionService
 from app.services.ai_invocation_gateway import AIInvocationGateway
 from app.services.department_supervisors import DepartmentSupervisorRoutingService
@@ -116,13 +124,22 @@ class SalesWorkItemExecutionService:
         target = self._execution_target(workspace, work_item_id)
         executor = self._executors()[target.capability_key]
         self._validate_input(workspace, target.work_item, target.capability_key)
+        skill_context = self._agent_skill_context(workspace, target)
         self.work_items.transition_work_item(
             workspace,
             work_item_id,
             WorkItemStatus.RUNNING,
         )
         try:
-            result = self._json_safe_result(await executor(workspace, target.work_item))
+            if skill_context is not None:
+                raw_result = await self._execute_conversation(
+                    workspace,
+                    target.work_item,
+                    agent_skill_execution_context=skill_context,
+                )
+            else:
+                raw_result = await executor(workspace, target.work_item)
+            result = self._json_safe_result(raw_result)
         except Exception as exc:
             self.work_items.transition_work_item(
                 workspace,
@@ -389,6 +406,8 @@ class SalesWorkItemExecutionService:
         self,
         workspace: Workspace,
         work_item: WorkItem,
+        *,
+        agent_skill_execution_context: AgentSkillExecutionContext | None = None,
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
         result = await SalesConversationTurnService(
@@ -400,6 +419,7 @@ class SalesWorkItemExecutionService:
                 workspace,
                 work_item,
             ),
+            agent_skill_execution_context=agent_skill_execution_context,
         ).process(
             SalesConversationTurnInput(
                 lead_id=lead.id,
@@ -411,7 +431,7 @@ class SalesWorkItemExecutionService:
                 ),
             )
         )
-        return {
+        response: dict[str, Any] = {
             "lead_id": str(result.lead_id),
             "detected_stage": result.detected_stage.value,
             "draft_reply": result.draft_reply,
@@ -422,6 +442,38 @@ class SalesWorkItemExecutionService:
             ),
             "ai_invoked": result.ai_invoked,
         }
+        if result.agent_skill is not None:
+            response["agent_skill"] = {
+                "key": result.agent_skill.key,
+                "version": result.agent_skill.version,
+                "outcome": result.agent_skill.outcome,
+                "validation_outcome": result.agent_skill.validation_outcome,
+            }
+        return response
+
+    def _agent_skill_context(
+        self,
+        workspace: Workspace,
+        target: _ExecutionTarget,
+    ) -> AgentSkillExecutionContext | None:
+        if target.capability_key is not BusinessCapabilityKey.ANSWER_CUSTOMER:
+            return None
+        customer_message = self._required_text(
+            target.work_item,
+            "customer_message",
+            max_length=10_000,
+        )
+        if not is_pricing_explanation_turn(customer_message):
+            return None
+        return AgentSkillExecutionContextResolver(
+            self.session,
+            sales_agent_skill_registry(),
+        ).resolve(
+            workspace,
+            target.work_item.id,
+            skill_key=PRICING_EXPLANATION_KEY,
+            skill_version=PRICING_EXPLANATION_VERSION,
+        )
 
     async def _execute_follow_up(
         self,

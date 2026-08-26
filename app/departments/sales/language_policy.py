@@ -22,12 +22,15 @@ _TUNISIAN_ARABIC_MARKERS = (
     "توا",
     "باهي",
     "يعطيك الصحة",
+    "سوم",
+    "مانجمش",
+    "يلزم",
 )
 _TUNISIAN_ARABIZI_MARKER = re.compile(
     r"(?i)\b(?:"
     r"9adeh|9addeh|9adech|kadeh|"
     r"nheb|n7eb|"
-    r"barsha|fama|"
+    r"barsha|fama|soum|"
     r"chneya|chnowa|chno|"
     r"kifeh|m3a|3andi|3lech|a5er|bech|tawa|"
     r"ma3andich|behi|yaatik|ynajem|ykhdem"

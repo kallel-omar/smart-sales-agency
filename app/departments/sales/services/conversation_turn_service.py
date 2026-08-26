@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.config import Settings
+from app.core.agent_skill_execution import AgentSkillExecutionContext
 from app.core.ai_execution_attribution import AIExecutionAttribution
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.sales_agent import SalesConversationAgent
 from app.departments.sales.handoff_policy import (
+    SalesCommercialEscalationType,
     SalesHandoffDecision,
     SalesHandoffPolicy,
     SalesHandoffSignals,
@@ -17,6 +19,7 @@ from app.departments.sales.handoff_policy import (
     merge_sales_handoff_signals,
     render_sales_handoff_reply,
 )
+from app.departments.sales.pricing_explanation import PricingExplanationExecutionResult
 from app.departments.sales.services.stage_transition_service import (
     SalesStageTransitionService,
 )
@@ -55,6 +58,17 @@ class SalesConversationTurnResult:
     handoff_required: bool = False
     handoff_reason_code: SalesHandoffReasonCode | None = None
     ai_invoked: bool = False
+    agent_skill: SalesAgentSkillTurnAttribution | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SalesAgentSkillTurnAttribution:
+    """Safe WorkItem-result metadata for one governed AgentSkill execution."""
+
+    key: str
+    version: str
+    outcome: str
+    validation_outcome: str
 
 
 class SalesConversationTurnService:
@@ -72,6 +86,7 @@ class SalesConversationTurnService:
         workspace: Workspace,
         ai_invocation_gateway: AIInvocationGateway | None = None,
         ai_execution_attribution: AIExecutionAttribution | None = None,
+        agent_skill_execution_context: AgentSkillExecutionContext | None = None,
     ) -> None:
         self.repository = repository
         self.settings = settings
@@ -81,6 +96,7 @@ class SalesConversationTurnService:
             settings,
         )
         self.ai_execution_attribution = ai_execution_attribution
+        self.agent_skill_execution_context = agent_skill_execution_context
 
     async def process(
         self,
@@ -117,6 +133,35 @@ class SalesConversationTurnService:
             stage = agent.detect_stage(source.customer_message)
             reply = render_sales_handoff_reply(handoff)
             ai_invoked = False
+            agent_skill = None
+        elif self.agent_skill_execution_context is not None:
+            stage, skill_result = await agent.execute_pricing_explanation(
+                lead,
+                source.customer_message,
+                self.agent_skill_execution_context,
+                conversation_history=history,
+                current_stage=canonical_stage,
+            )
+            reply = skill_result.response_text
+            ai_invoked = skill_result.ai_invoked
+            agent_skill = SalesAgentSkillTurnAttribution(
+                key=self.agent_skill_execution_context.skill_key,
+                version=self.agent_skill_execution_context.skill_version,
+                outcome=skill_result.outcome.value,
+                validation_outcome=skill_result.validation_outcome.value,
+            )
+            skill_handoff = self._pricing_handoff_decision(skill_result)
+            if skill_handoff.human_attention_required:
+                assert (
+                    skill_handoff.reason_code is not None and skill_handoff.explanation is not None
+                )
+                self.repository.ensure_sales_handoff(
+                    workspace=self.workspace,
+                    lead=lead,
+                    reason_code=skill_handoff.reason_code,
+                    explanation=skill_handoff.explanation,
+                )
+                handoff = skill_handoff
         else:
             stage, reply = await agent.draft_reply(
                 lead,
@@ -125,6 +170,7 @@ class SalesConversationTurnService:
                 current_stage=canonical_stage,
             )
             ai_invoked = self.settings.llm_mode != "demo"
+            agent_skill = None
 
         # The turn service is the only owner of reply-message persistence.
         # Existing approval behavior deliberately remains unchanged.
@@ -169,6 +215,7 @@ class SalesConversationTurnService:
             handoff_required=handoff.human_attention_required,
             handoff_reason_code=handoff.reason_code,
             ai_invoked=ai_invoked,
+            agent_skill=agent_skill,
         )
 
     def _agent_context(self) -> AgentContext:
@@ -180,6 +227,24 @@ class SalesConversationTurnService:
             ai_invocation_gateway=self.ai_invocation_gateway,
             ai_execution_attribution=self.ai_execution_attribution,
         )
+
+    @staticmethod
+    def _pricing_handoff_decision(
+        result: PricingExplanationExecutionResult,
+    ) -> SalesHandoffDecision:
+        if result.escalation_kind == "unsupported_discount":
+            signals = SalesHandoffSignals(
+                commercial_escalation=SalesCommercialEscalationType.UNSUPPORTED_DISCOUNT
+            )
+        elif result.escalation_kind == "custom_pricing":
+            signals = SalesHandoffSignals(
+                commercial_escalation=SalesCommercialEscalationType.CUSTOM_PRICING
+            )
+        elif result.escalation_kind is not None:
+            signals = SalesHandoffSignals(authoritative_information_unavailable=True)
+        else:
+            signals = SalesHandoffSignals()
+        return SalesHandoffPolicy().decide(signals)
 
     def _handoff_decision(
         self,

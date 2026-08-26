@@ -1,10 +1,30 @@
 ﻿import re
 
+from app.core.agent_skill_execution import AgentSkillExecutionContext
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.language_policy import (
     render_sales_communication_instruction,
     select_sales_communication_style,
     select_sales_tone,
+)
+from app.departments.sales.pricing_explanation import (
+    PRICING_EXPLANATION_INSTRUCTIONS,
+    PRICING_EXPLANATION_KEY,
+    PRICING_EXPLANATION_VERSION,
+    PricingConversationMessage,
+    PricingExplanationContractError,
+    PricingExplanationExecutionResult,
+    PricingExplanationInput,
+    PricingExplanationOutput,
+    PricingExplanationOutputValidator,
+    PricingExplanationValidationError,
+    PricingValidationOutcome,
+    analyze_pricing_evidence,
+    canonical_product_facts,
+    commercial_exception_kind,
+    preserve_code_switching,
+    pricing_explanation_components,
+    safe_pricing_result,
 )
 from app.departments.sales.prompt_composition import (
     SALES_COMMERCIAL_GROUNDING_POLICY,
@@ -22,8 +42,10 @@ from app.departments.sales.prompt_composition import (
     SalesLanguageToneInstruction,
     SalesProductContext,
     SalesPromptComposer,
+    SalesSkillInstruction,
     WorkspaceSalesInstructions,
 )
+from app.departments.sales.skills import sales_agent_skill_registry
 from app.models import ConversationMessage, Lead, Product, SalesStage
 from app.services.ai_invocation_gateway import AIInvocationGatewayRequest
 from app.services.ai_model_routing import AIModelRoutingTask
@@ -104,6 +126,7 @@ class SalesConversationAgent:
         stage: SalesStage,
         products: list[Product],
         conversation_history: list[ConversationMessage] | None = None,
+        skill_instruction: SalesSkillInstruction | None = None,
     ) -> PromptComposition:
         """Build transient Sales context while keeping customer text untrusted."""
 
@@ -150,6 +173,7 @@ class SalesConversationAgent:
                         tone=tone,
                     )
                 ),
+                skill_instruction=skill_instruction,
                 workspace_instructions=workspace_instructions,
                 business_context=SalesBusinessContext(
                     company_name=self.context.workspace.name if self.context.workspace else None,
@@ -250,3 +274,176 @@ class SalesConversationAgent:
             reply = invocation.content
 
         return stage, reply
+
+    async def execute_pricing_explanation(
+        self,
+        lead: Lead,
+        inbound: str,
+        skill_context: AgentSkillExecutionContext,
+        *,
+        conversation_history: list[ConversationMessage] | None = None,
+        current_stage: SalesStage | None = None,
+    ) -> tuple[SalesStage, PricingExplanationExecutionResult]:
+        """Execute the one authorized pricing Skill through the existing gateway."""
+
+        if self.context.workspace is None:
+            raise RuntimeError("A server-resolved workspace is required for AgentSkill execution")
+        if (
+            skill_context.workspace_id != self.context.workspace.id
+            or skill_context.skill_key != PRICING_EXPLANATION_KEY
+            or skill_context.skill_version != PRICING_EXPLANATION_VERSION
+            or skill_context.effective_tool_ceiling
+        ):
+            raise PermissionError("Pricing AgentSkill execution context is not authorized")
+        definition = sales_agent_skill_registry().resolve(
+            PRICING_EXPLANATION_KEY,
+            PRICING_EXPLANATION_VERSION,
+        )
+        if (
+            skill_context.input_contract != definition.input_contract
+            or skill_context.output_contract != definition.output_contract
+            or skill_context.validator != definition.validator
+            or skill_context.instruction_component != definition.instruction_component
+            or skill_context.attribution_identifier != definition.attribution_identifier
+        ):
+            raise PermissionError("Pricing AgentSkill definition does not match its context")
+        components = pricing_explanation_components(definition)
+        if components.input_contract is not PricingExplanationInput:
+            raise RuntimeError("Pricing AgentSkill input contract is not registered")
+        if components.output_contract is not PricingExplanationOutput:
+            raise RuntimeError("Pricing AgentSkill output contract is not registered")
+        if not isinstance(components.validator, PricingExplanationOutputValidator):
+            raise TypeError("Pricing AgentSkill validator is not registered")
+
+        stage = self.detect_stage(inbound)
+        canonical_stage = current_stage or stage
+        history = (
+            conversation_history
+            if conversation_history is not None
+            else self.context.repository.conversation_history(lead.id)
+        )
+        products = self.context.repository.list_products(lead.tenant_id)
+        source = self._pricing_input(
+            inbound=inbound,
+            stage=canonical_stage,
+            products=products,
+            history=history,
+        )
+        deterministic_reasons = {
+            "ambiguous_product",
+            "multiple_named_products",
+            "conflicting_pricing",
+            "currency_unavailable",
+            "product_fact_unavailable",
+        }
+        if (
+            commercial_exception_kind(inbound) is not None
+            or source.evidence_reason in deterministic_reasons
+            or self.context.settings.llm_mode == "demo"
+        ):
+            return stage, safe_pricing_result(source)
+
+        code_switching_instruction = (
+            " Preserve the customer's natural French/Tunisian code-switching where practical."
+            if source.preserve_code_switching
+            else ""
+        )
+        rendered_prompt = self._compose_prompt(
+            lead=lead,
+            inbound=inbound,
+            stage=canonical_stage,
+            products=products,
+            conversation_history=history,
+            skill_instruction=SalesSkillInstruction(
+                identifier=skill_context.instruction_component,
+                content=PRICING_EXPLANATION_INSTRUCTIONS + code_switching_instruction,
+            ),
+        ).render()
+        if self.context.ai_invocation_gateway is None:
+            raise RuntimeError("No AI invocation gateway is configured for pricing AgentSkill")
+        invocation = await self.context.ai_invocation_gateway.invoke(
+            AIInvocationGatewayRequest(
+                workspace=self.context.workspace,
+                task=AIModelRoutingTask.CONTEXTUAL_CUSTOMER_RESPONSE,
+                task_identifier=skill_context.attribution_identifier,
+                agent_identifier="sales_conversation",
+                system_prompt=rendered_prompt.system_prompt,
+                user_prompt=rendered_prompt.user_prompt,
+                conversation_id=lead.id,
+                sales_stage=canonical_stage,
+                attribution=skill_context.ai_execution_attribution,
+            )
+        )
+        if invocation.content is None:
+            raise RuntimeError("Pricing AgentSkill requires an LLM completion")
+        try:
+            output = PricingExplanationOutput.from_json(invocation.content)
+            components.validator.validate(output, source)
+        except (PricingExplanationContractError, PricingExplanationValidationError) as exc:
+            fallback = safe_pricing_result(
+                source,
+                reason="generated_output_rejected",
+                validation_rejected=True,
+            )
+            return stage, PricingExplanationExecutionResult(
+                response_text=fallback.response_text,
+                outcome=fallback.outcome,
+                validation_outcome=fallback.validation_outcome,
+                validation_reason=type(exc).__name__,
+                ai_invoked=True,
+                escalation_kind=fallback.escalation_kind,
+            )
+        return stage, PricingExplanationExecutionResult(
+            response_text=output.response_text,
+            outcome=output.outcome,
+            validation_outcome=PricingValidationOutcome.ACCEPTED,
+            validation_reason="grounded_output_accepted",
+            ai_invoked=True,
+            escalation_kind=(
+                "authoritative_information_unavailable"
+                if output.outcome.value in {"escalation_required", "insufficient_verified_pricing"}
+                else None
+            ),
+        )
+
+    def _pricing_input(
+        self,
+        *,
+        inbound: str,
+        stage: SalesStage,
+        products: list[Product],
+        history: list[ConversationMessage],
+    ) -> PricingExplanationInput:
+        assert self.context.workspace is not None
+        workspace = self.context.workspace
+        style = select_sales_communication_style(
+            customer_message=inbound,
+            workspace_preferred_language=workspace.sales_preferred_language,
+            workspace_preferred_script=workspace.sales_preferred_script,
+            prior_customer_messages=self._prior_customer_messages(history),
+        )
+        product_facts = canonical_product_facts(products)
+        selected, classification, reason = analyze_pricing_evidence(
+            inbound,
+            product_facts,
+        )
+        return PricingExplanationInput(
+            workspace_id=workspace.id,
+            customer_message=inbound,
+            conversation_context=tuple(
+                PricingConversationMessage(
+                    direction=message.direction,
+                    content=message.content,
+                )
+                for message in history
+            ),
+            sales_stage=stage,
+            products=product_facts,
+            selected_products=selected,
+            evidence_classification=classification,
+            evidence_reason=reason,
+            language=style.language,
+            script=style.script,
+            preserve_code_switching=preserve_code_switching(inbound),
+            workspace_instructions=workspace.sales_instructions,
+        )

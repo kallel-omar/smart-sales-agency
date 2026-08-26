@@ -39,6 +39,7 @@ from app.models import (
     OutboundIntegrationActionType,
     OutboundIntegrationAuditAction,
     OutboundIntegrationAuditEvent,
+    Product,
     WorkItem,
     Workspace,
     utc_now,
@@ -127,8 +128,28 @@ def _install_external_boundaries(monkeypatch, settings: Settings):
     async def complete_with_metadata(self, system_prompt, user_prompt):
         del self
         llm_calls.append((system_prompt, user_prompt))
+        if "Pricing explanation skill v1" in system_prompt:
+            content = json.dumps(
+                {
+                    "response_text": (
+                        "The monthly plan is 49.00 monthly, and I can help you get started."
+                    ),
+                    "outcome": "answered",
+                    "pricing_references": [
+                        {
+                            "product_name": "monthly plan",
+                            "price": "49.00",
+                            "billing_period": "monthly",
+                        }
+                    ],
+                    "escalation_reason": None,
+                    "language": "english",
+                }
+            )
+        else:
+            content = "The monthly plan is 49 USD, and I can help you get started."
         return LLMCompletion(
-            content="The monthly plan is 49 USD, and I can help you get started.",
+            content=content,
             input_tokens=12,
             output_tokens=8,
             total_tokens=20,
@@ -349,6 +370,17 @@ def test_sales_mvp_real_boundaries_end_to_end(
     llm_calls, adapter = _install_external_boundaries(monkeypatch, settings)
     workspace_a_id = _create_workspace(client, "m17-sales-a")
     workspace_b_id = _create_workspace(client, "m17-sales-b")
+    with next(app.dependency_overrides[get_session]()) as session:
+        session.add(
+            Product(
+                tenant_id="m17-sales-a",
+                name="monthly plan",
+                description="HIRI Sales monthly plan",
+                price=49.0,
+                metadata_json={"billing": "monthly"},
+            )
+        )
+        session.commit()
     workforce = _provision_sales_workforce(workspace_a_id)
     whatsapp_account_id, whatsapp_credential = _create_account(
         client,
@@ -451,6 +483,12 @@ def test_sales_mvp_real_boundaries_end_to_end(
         )
         assert answer.started_at and answer.completed_at and answer.result
         assert answer.result["ai_invoked"] is True
+        assert answer.result["agent_skill"] == {
+            "key": "pricing_explanation",
+            "version": "v1",
+            "outcome": "answered",
+            "validation_outcome": "accepted",
+        }
         assert reply.status == WorkItemStatus.COMPLETED
         assert reply.parent_work_item_id == answer.id
         assert reply.assignment_id == workforce.send_assignment_id
@@ -465,6 +503,7 @@ def test_sales_mvp_real_boundaries_end_to_end(
             usage.capability_id == workforce.capability_ids[BusinessCapabilityKey.ANSWER_CUSTOMER]
         )
         assert usage.work_item_id == answer.id
+        assert usage.task_identifier == "sales.pricing_explanation.v1"
         assert (usage.input_tokens, usage.output_tokens, usage.total_tokens) == (12, 8, 20)
         assert usage.estimated_cost == Decimal("0.00005600")
 
