@@ -3,7 +3,7 @@
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, TypeAlias
 from uuid import UUID
 
 from sqlmodel import Session, select
@@ -57,15 +57,28 @@ class ChannelConnectionValidatorNotFoundError(LookupError):
     """Raised when no approved validator exists for an integration provider."""
 
 
+ChannelConnectionValidatorKey: TypeAlias = str | tuple[str, str]
+
+
 class ChannelConnectionValidatorRegistry:
     """Explicit allowlist of provider connection validators."""
 
-    def __init__(self, validators: Mapping[str, ChannelConnectionValidator]) -> None:
+    def __init__(
+        self,
+        validators: Mapping[ChannelConnectionValidatorKey, ChannelConnectionValidator],
+    ) -> None:
         self.validators = dict(validators)
 
-    def get(self, provider: str) -> ChannelConnectionValidator:
+    def get(
+        self,
+        provider: str,
+        auth_mode: str | None = None,
+    ) -> ChannelConnectionValidator:
+        key: ChannelConnectionValidatorKey = (
+            (provider, auth_mode) if auth_mode is not None else provider
+        )
         try:
-            return self.validators[provider]
+            return self.validators[key]
         except KeyError as exc:
             raise ChannelConnectionValidatorNotFoundError(
                 "Connection validation is not supported for this provider"

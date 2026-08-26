@@ -873,7 +873,8 @@ def validate_integration_account_connection(
     try:
         account = account_service.get_for_workspace(workspace, account_id)
         validator = default_channel_connection_validator_registry(session, settings).get(
-            account.provider
+            account.provider,
+            account.provider_auth_mode,
         )
         outcome = ChannelConnectionService(session).validate_with_result(
             workspace,
