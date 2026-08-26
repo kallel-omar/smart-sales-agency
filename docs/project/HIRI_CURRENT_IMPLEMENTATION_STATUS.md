@@ -152,6 +152,30 @@ connection remain incomplete.
 
 Latest verified backend result: **930 passed, 7 skipped, 39 warnings**.
 
+### Task 295C — Provider connection validators — COMPLETE for current MVP scope
+
+The operator-assisted channel connection foundation and current MVP validators
+are complete at these checkpoints:
+
+- Task 295B — Channel Connection Lifecycle Foundation: `007c6ac feat: add channel connection lifecycle foundation`
+- Task 295C1 — WhatsApp Cloud validator: `dfe256b feat: validate whatsapp channel connections`
+- Task 295C2 — Instagram Native Login validator: `682ca46 feat: validate native instagram channel connections`
+- Task 295C3 — Facebook Messenger validator: `fca76c6 feat: validate messenger channel connections`
+
+The validated MVP provider scope is WhatsApp Cloud, Instagram Native Login, and
+Facebook Messenger. Validation is backend/operator-assisted, does not activate a
+channel automatically, and does not grant AIEmployee tool access automatically.
+OAuth and self-service onboarding are not implemented. TikTok live validation
+is not implemented, and no claim is made that TikTok is live. An Instagram
+Facebook Login validator is outside the current MVP validator scope.
+
+Provider-side webhook/subscription readiness is verified only where official
+read-only provider contracts and HIRI's current persisted context allow it.
+Some subscription, application-review, and permission state remains not
+independently verifiable. HIRI therefore does not claim that all provider
+onboarding is self-service. Validator expansion beyond these three providers is
+**PARKED / NEXT**, not NOW.
+
 Task 290 validated a real Instagram professional-account inbound DM through the
 Meta webhook and existing HIRI Sales architecture. HIRI created the governed
 `SEND_MESSAGE` outbound action, but Meta rejected the Facebook Login Graph API
@@ -389,11 +413,15 @@ Those areas must be treated as existing implementation to preserve and extend.
 
 The frontend redesign checkpoint is complete.
 
-Real Sales transport is verified for direct WhatsApp, Facebook Messenger, and
-native Instagram Login. Current work is the small identity/copy hardening exposed
-by those validations plus production and pilot readiness. The Instagram Facebook
-Login outbound path remains subject to Meta application/capability access in the
-current test environment.
+Task 295C is complete for the current MVP provider-validator scope. The next
+major development phase is **Task 296 — Sales AI Expertise / Skills**. Task 296A
+is an architecture and implementation audit before any Task 296 implementation;
+implementation details are not yet defined.
+
+Provider-validator expansion beyond WhatsApp Cloud, Instagram Native Login, and
+Facebook Messenger remains **PARKED / NEXT**. Existing production and pilot
+readiness limitations continue to apply, including Meta permission and
+application-capability constraints where relevant.
 
 ### Immediate priorities
 
