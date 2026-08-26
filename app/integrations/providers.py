@@ -40,6 +40,7 @@ class IntegrationProviderRequirements:
     allowed_credential_purposes: frozenset[str]
     external_identity_required: bool
     native_delivery_adapter: bool
+    validation_credential_purposes: frozenset[str] = frozenset()
 
 
 _META_CREDENTIAL_PURPOSES = frozenset(
@@ -89,6 +90,7 @@ _PROVIDER_REQUIREMENTS = {
         allowed_credential_purposes=_META_CREDENTIAL_PURPOSES,
         external_identity_required=True,
         native_delivery_adapter=True,
+        validation_credential_purposes=frozenset({API_ACCESS_TOKEN_PURPOSE}),
     ),
     (FACEBOOK_MESSENGER_PROVIDER, None): IntegrationProviderRequirements(
         provider=FACEBOOK_MESSENGER_PROVIDER,

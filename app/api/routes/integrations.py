@@ -34,6 +34,7 @@ from app.models import (
 from app.schemas import (
     AIInvocationUsageRead,
     AIInvocationUsageSummaryRead,
+    ChannelConnectionValidationRead,
     InboundIntegrationDuplicateRead,
     InboundIntegrationEvent,
     InboundIntegrationReplyRead,
@@ -82,6 +83,7 @@ from app.services.ai_invocation_usage import AIInvocationUsageService
 from app.services.channel_connections import (
     ChannelConnectionLifecycleError,
     ChannelConnectionService,
+    ChannelConnectionValidatorNotFoundError,
 )
 from app.services.inbound_integrations import (
     InboundIntegrationEventIdValidationError,
@@ -202,6 +204,9 @@ from app.services.outbound_retry_policy import OutboundDeliveryRetryPolicy
 from app.services.repository import NotFoundError
 from app.services.secret_reference_policy import SecretReferenceValidationError
 from app.services.whatsapp_cloud import WhatsAppCloudOutboundPayloadSecretError
+from app.services.whatsapp_connection_validator import (
+    default_channel_connection_validator_registry,
+)
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -848,6 +853,53 @@ def disconnect_integration_account(
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
     return account_read(account)
+
+
+@router.post(
+    "/accounts/{account_id}/validate-connection",
+    response_model=ChannelConnectionValidationRead,
+)
+def validate_integration_account_connection(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
+    _: IntegrationManagePermissionDep,
+    settings: SettingsDep,
+) -> ChannelConnectionValidationRead:
+    """Run one approved read-only provider validation for a scoped account."""
+
+    account_service = IntegrationAccountService(session)
+    try:
+        account = account_service.get_for_workspace(workspace, account_id)
+        validator = default_channel_connection_validator_registry(session, settings).get(
+            account.provider
+        )
+        outcome = ChannelConnectionService(session).validate_with_result(
+            workspace,
+            account.id,
+            validator,
+            actor_user_id=context.principal.user_id,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
+    except ChannelConnectionValidatorNotFoundError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ChannelConnectionLifecycleError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    result = outcome.result
+    return ChannelConnectionValidationRead(
+        account=account_read(outcome.account),
+        succeeded=result.succeeded,
+        reason_code=result.reason_code,
+        temporary_failure=result.temporary_failure,
+        provider_account_identity=result.provider_account_identity,
+        checks_performed=list(result.checks_performed),
+        checks_passed=list(result.checks_passed),
+        checks_failed=list(result.checks_failed),
+        checks_unavailable=list(result.checks_unavailable),
+    )
 
 
 @router.put(

@@ -704,6 +704,20 @@ class IntegrationAccountCredentialRead(IntegrationAccountRead):
     inbound_credential: str
 
 
+class ChannelConnectionValidationRead(BaseModel):
+    """Safe provider validation result without credential or raw response data."""
+
+    account: IntegrationAccountRead
+    succeeded: bool
+    reason_code: str | None
+    temporary_failure: bool
+    provider_account_identity: str | None
+    checks_performed: list[str]
+    checks_passed: list[str]
+    checks_failed: list[str]
+    checks_unavailable: list[str]
+
+
 class IntegrationAccountAuditEventRead(BaseModel):
     """Safe integration-account lifecycle history representation."""
 

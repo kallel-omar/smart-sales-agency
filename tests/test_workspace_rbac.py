@@ -25,7 +25,6 @@ from app.models import (
     ApprovalStatus,
     ConversationMessage,
     IntegrationAccount,
-    Lead,
     Workspace,
     WorkspaceMember,
     WorkspaceMemberRole,
@@ -36,7 +35,6 @@ from app.services.workspace_rbac import (
     WorkspacePermission,
     WorkspaceRBACPolicy,
 )
-
 
 TEST_PASSWORD = "correct-password"
 
@@ -585,6 +583,7 @@ def test_known_human_workspace_routes_declare_exact_permissions():
         ("POST", "/api/integrations/accounts"): "require_integration_manage_permission",
         ("POST", "/api/integrations/audit-events/retention-cleanup"): "require_integration_manage_permission",
         ("POST", "/api/integrations/accounts/{account_id}/deactivate"): "require_integration_manage_permission",
+        ("POST", "/api/integrations/accounts/{account_id}/validate-connection"): "require_integration_manage_permission",
         ("POST", "/api/integrations/accounts/{account_id}/reactivate"): "require_integration_manage_permission",
         ("POST", "/api/integrations/accounts/{account_id}/credential/rotate"): "require_integration_manage_permission",
         ("POST", "/api/integrations/accounts/{account_id}/secret-reference"): "require_integration_manage_permission",

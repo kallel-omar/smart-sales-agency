@@ -1,6 +1,7 @@
 """Provider-neutral channel connection lifecycle operations."""
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -27,17 +28,48 @@ class ChannelConnectionLifecycleError(ValueError):
 
 @dataclass(frozen=True)
 class ChannelConnectionValidationResult:
-    """Safe provider-neutral result returned by a future provider validator."""
+    """Safe provider-neutral result returned by a provider validator."""
 
     succeeded: bool
     reason_code: str | None = None
     reconnect_required: bool = False
+    temporary_failure: bool = False
+    provider_account_identity: str | None = None
+    checks_performed: tuple[str, ...] = ()
+    checks_passed: tuple[str, ...] = ()
+    checks_failed: tuple[str, ...] = ()
+    checks_unavailable: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ChannelConnectionValidationOutcome:
+    account: IntegrationAccount
+    result: ChannelConnectionValidationResult
 
 
 class ChannelConnectionValidator(Protocol):
-    """Narrow Task 295C seam; implementations may perform provider I/O later."""
+    """Narrow provider validation boundary separate from message delivery."""
 
     def validate(self, account: IntegrationAccount) -> ChannelConnectionValidationResult: ...
+
+
+class ChannelConnectionValidatorNotFoundError(LookupError):
+    """Raised when no approved validator exists for an integration provider."""
+
+
+class ChannelConnectionValidatorRegistry:
+    """Explicit allowlist of provider connection validators."""
+
+    def __init__(self, validators: Mapping[str, ChannelConnectionValidator]) -> None:
+        self.validators = dict(validators)
+
+    def get(self, provider: str) -> ChannelConnectionValidator:
+        try:
+            return self.validators[provider]
+        except KeyError as exc:
+            raise ChannelConnectionValidatorNotFoundError(
+                "Connection validation is not supported for this provider"
+            ) from exc
 
 
 class ChannelConnectionService:
@@ -58,6 +90,23 @@ class ChannelConnectionService:
     ) -> IntegrationAccount:
         """Apply one deterministic validation result without changing active."""
 
+        return self.validate_with_result(
+            workspace,
+            account_id,
+            validator,
+            actor_user_id=actor_user_id,
+        ).account
+
+    def validate_with_result(
+        self,
+        workspace: Workspace,
+        account_id: UUID,
+        validator: ChannelConnectionValidator,
+        *,
+        actor_user_id: UUID | None = None,
+    ) -> ChannelConnectionValidationOutcome:
+        """Apply validation and retain its safe structured provider result."""
+
         account = self.account_service.get_for_workspace(workspace, account_id)
         if account.connection_status == IntegrationAccountConnectionStatus.DISCONNECTED:
             raise ChannelConnectionLifecycleError(
@@ -66,16 +115,18 @@ class ChannelConnectionService:
 
         result = validator.validate(account)
         if result.succeeded:
-            return self._record_validation_success(
+            account = self._record_validation_success(
                 account,
                 actor_user_id=actor_user_id,
             )
-        return self._record_validation_failure(
-            account,
-            reason_code=result.reason_code or "connection_validation_failed",
-            reconnect_required=result.reconnect_required,
-            actor_user_id=actor_user_id,
-        )
+        else:
+            account = self._record_validation_failure(
+                account,
+                reason_code=result.reason_code or "connection_validation_failed",
+                reconnect_required=result.reconnect_required,
+                actor_user_id=actor_user_id,
+            )
+        return ChannelConnectionValidationOutcome(account=account, result=result)
 
     def mark_reconnect_required(
         self,
