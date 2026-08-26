@@ -9,7 +9,7 @@ def _url(account: dict, action: dict) -> str:
 
 
 def test_state_history_is_safe_ordered_and_bounded(client):
-    account, action = _setup(client, "company-a", "missing-provider")
+    account, action = _setup(client, "company-a", "generic_webhook")
     action_url = f"/api/integrations/accounts/{account['id']}/outbound-actions/{action['id']}"
     assert client.post(f"{action_url}/deliver", headers=_headers("company-a")).status_code == 200
     assert client.post(f"{action_url}/retry", headers=_headers("company-a")).status_code == 200

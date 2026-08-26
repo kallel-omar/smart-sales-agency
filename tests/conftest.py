@@ -1,3 +1,6 @@
+# The imported session fixture is intentionally re-exported through this conftest.
+# ruff: noqa: F401, F811
+
 import hmac
 import json
 import time
@@ -41,6 +44,7 @@ def client(monkeypatch) -> Generator[TestClient, None, None]:
         llm_mode="demo",
         require_human_approval=True,
         auth_token_secret="test-auth-token-secret-32-byte-value",
+        outbound_webhook_url="",
     )
 
     def get_test_settings() -> Settings:

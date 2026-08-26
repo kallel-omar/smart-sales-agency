@@ -133,7 +133,7 @@ def test_delivered_status_is_terminal_with_the_correct_attempt_count(client):
 
 def test_failed_status_reports_retry_allowed_under_the_configured_maximum(client):
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", provider="unconfigured-provider")
+    account = provision_account(client, "company-a", provider="generic_webhook")
     action = create_action(client, "company-a", account["id"])
 
     assert deliver(client, "company-a", account["id"], action["id"]).status_code == 200
@@ -142,7 +142,7 @@ def test_failed_status_reports_retry_allowed_under_the_configured_maximum(client
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "failed"
-    assert data["failure_code"] == "adapter_not_configured"
+    assert data["failure_code"] == "webhook_configuration_missing"
     assert data["attempt_count"] == 1
     assert data["retry_allowed"] is True
     assert data["retry_denial_reason"] is None
@@ -153,10 +153,11 @@ def test_failed_status_denies_retry_after_the_configured_maximum(client):
         environment="test",
         database_url="sqlite://",
         auth_token_secret="test-auth-token-secret-32-byte-value",
+        outbound_webhook_url="",
         outbound_delivery_max_attempts=2,
     )
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", provider="unconfigured-provider")
+    account = provision_account(client, "company-a", provider="generic_webhook")
     action = create_action(client, "company-a", account["id"])
 
     assert deliver(client, "company-a", account["id"], action["id"]).status_code == 200
@@ -174,10 +175,11 @@ def test_failed_status_denies_a_configured_non_retryable_failure_code(client):
         environment="test",
         database_url="sqlite://",
         auth_token_secret="test-auth-token-secret-32-byte-value",
-        outbound_delivery_non_retryable_failure_codes="adapter_not_configured",
+        outbound_webhook_url="",
+        outbound_delivery_non_retryable_failure_codes="webhook_configuration_missing",
     )
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", provider="unconfigured-provider")
+    account = provision_account(client, "company-a", provider="generic_webhook")
     action = create_action(client, "company-a", account["id"])
 
     assert deliver(client, "company-a", account["id"], action["id"]).status_code == 200

@@ -1,10 +1,12 @@
-from uuid import UUID
+from hashlib import sha256
+from uuid import UUID, uuid4
 
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.main import app
 from app.models import (
     IntegrationAccount,
+    IntegrationAccountConnectionStatus,
     OutboundIntegrationActionType,
     Workspace,
 )
@@ -14,7 +16,6 @@ from app.services.delivery_adapters import (
     HttpxWebhookHttpTransport,
 )
 from app.services.integration_runtime_readiness import IntegrationRuntimeReadinessService
-
 
 TEST_AUTH_TOKEN_SECRET = "test-auth-token-secret-32-byte-value"
 WHATSAPP_ACCOUNT_IDENTIFIER = "test-whatsapp-phone-number-id"
@@ -88,6 +89,26 @@ def _capability(data: dict, capability: str) -> dict:
     )
 
 
+def _insert_historical_account(client, slug: str, provider: str) -> dict:
+    assert client.post(
+        "/api/workspaces", json={"slug": slug, "name": slug}
+    ).status_code == 201
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        workspace = session.query(Workspace).filter(Workspace.slug == slug).one()
+        marker = uuid4().hex
+        account = IntegrationAccount(
+            workspace_id=workspace.id,
+            provider=provider,
+            external_account_id=f"historical-{marker}",
+            credential_hash=sha256(marker.encode()).hexdigest(),
+        )
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        return {"id": str(account.id)}
+
+
 def _settings(**overrides) -> Settings:
     values = {
         "environment": "test",
@@ -133,6 +154,7 @@ def test_runtime_readiness_reports_a_fully_configured_mvp_account_without_provid
         "id": account["id"],
         "provider": "generic_hmac",
         "active": True,
+        "connection_status": "configured",
         "status": "ready",
         "configuration_ready": True,
         "external_provider_availability_checked": False,
@@ -242,6 +264,12 @@ def test_whatsapp_cloud_channel_readiness_reports_supported_capabilities(
         provider="whatsapp_cloud",
         external_account_id=WHATSAPP_ACCOUNT_IDENTIFIER,
     )
+    _update_account(
+        client,
+        account["id"],
+        active=True,
+        connection_status=IntegrationAccountConnectionStatus.CONNECTED,
+    )
 
     def fail_if_called(*args, **kwargs):
         raise AssertionError("runtime readiness must not contact providers")
@@ -279,6 +307,12 @@ def test_whatsapp_readiness_blocks_missing_provider_account_identifier(
         provider="whatsapp_cloud",
         external_account_id=WHATSAPP_ACCOUNT_IDENTIFIER,
     )
+    _update_account(
+        client,
+        account["id"],
+        active=True,
+        connection_status=IntegrationAccountConnectionStatus.CONNECTED,
+    )
     _update_account(client, account["id"], external_account_id=None)
 
     response = _readiness(client, "whatsapp-missing-id", account["id"])
@@ -314,7 +348,7 @@ def test_whatsapp_readiness_blocks_missing_unresolvable_secret_reference_safely(
         client,
         "whatsapp-secret-unresolved",
         provider="whatsapp_cloud",
-        external_account_id=WHATSAPP_ACCOUNT_IDENTIFIER,
+        external_account_id=f"{WHATSAPP_ACCOUNT_IDENTIFIER}-unresolved",
     )
     _update_account(
         client,
@@ -343,6 +377,12 @@ def test_whatsapp_readiness_blocks_missing_outbound_webhook_configuration(client
         provider="whatsapp_cloud",
         external_account_id=WHATSAPP_ACCOUNT_IDENTIFIER,
     )
+    _update_account(
+        client,
+        account["id"],
+        active=True,
+        connection_status=IntegrationAccountConnectionStatus.CONNECTED,
+    )
 
     response = _readiness(client, "whatsapp-webhook-missing", account["id"])
 
@@ -365,6 +405,12 @@ def test_whatsapp_readiness_blocks_unsigned_outbound_transport(client, monkeypat
         "whatsapp-signing-disabled",
         provider="whatsapp_cloud",
         external_account_id=WHATSAPP_ACCOUNT_IDENTIFIER,
+    )
+    _update_account(
+        client,
+        account["id"],
+        active=True,
+        connection_status=IntegrationAccountConnectionStatus.CONNECTED,
     )
 
     response = _readiness(client, "whatsapp-signing-disabled", account["id"])
@@ -389,6 +435,12 @@ def test_whatsapp_readiness_blocks_disabled_approval_gate(client, monkeypatch):
         provider="whatsapp_cloud",
         external_account_id=WHATSAPP_ACCOUNT_IDENTIFIER,
     )
+    _update_account(
+        client,
+        account["id"],
+        active=True,
+        connection_status=IntegrationAccountConnectionStatus.CONNECTED,
+    )
 
     response = _readiness(client, "whatsapp-approval-disabled", account["id"])
 
@@ -402,7 +454,11 @@ def test_whatsapp_readiness_blocks_disabled_approval_gate(client, monkeypatch):
 
 
 def test_unsupported_provider_does_not_inherit_whatsapp_capabilities(client):
-    account = _provision(client, "unsupported-channel", provider="unsupported-provider")
+    account = _insert_historical_account(
+        client,
+        "unsupported-channel",
+        provider="unsupported-provider",
+    )
 
     response = _readiness(client, "unsupported-channel", account["id"])
 
@@ -469,7 +525,11 @@ def test_runtime_readiness_rejects_query_workspace_bypass(client):
 def test_runtime_readiness_reports_unregistered_adapter_and_generic_webhook_configuration(
     client, monkeypatch
 ):
-    missing_adapter = _provision(client, "missing-adapter", provider="unsupported-provider")
+    missing_adapter = _insert_historical_account(
+        client,
+        "missing-adapter",
+        provider="unsupported-provider",
+    )
     missing_adapter_response = _readiness(client, "missing-adapter", missing_adapter["id"])
     assert _codes(missing_adapter_response) == {
         "inbound_verifier_not_configured",

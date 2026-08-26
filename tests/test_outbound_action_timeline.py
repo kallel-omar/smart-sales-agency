@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlmodel import select
@@ -10,8 +10,8 @@ from app.models import (
     OutboundIntegrationAuditEvent,
     OutboundIntegrationDeliveryAttempt,
 )
-from tests.test_outbound_delivery_approval_gate import _create_workspace_and_action, _headers
 from tests.test_outbound_action_audit import _setup
+from tests.test_outbound_delivery_approval_gate import _create_workspace_and_action, _headers
 
 
 def _url(account: dict, action: dict) -> str:
@@ -41,7 +41,7 @@ def test_timeline_composes_safe_chronological_outbound_records(client):
         "approval_approved",
         "delivery_attempt",
         "delivery_attempted",
-        "action_failed",
+        "action_delivered",
     ]
     assert [entry["category"] for entry in entries] == [
         "approval",
@@ -54,7 +54,7 @@ def test_timeline_composes_safe_chronological_outbound_records(client):
     assert entries == sorted(entries, key=lambda entry: entry["created_at"])
     attempt = next(entry for entry in entries if entry["event"] == "delivery_attempt")
     assert attempt["attempt_number"] == 1
-    assert attempt["state"] == "failed"
+    assert attempt["state"] == "delivered"
     for entry in entries:
         for field in (
             "content",
@@ -68,7 +68,7 @@ def test_timeline_composes_safe_chronological_outbound_records(client):
 
 
 def test_timeline_is_bounded_and_workspace_scoped(client):
-    account, action = _setup(client, "company-a", "missing-provider")
+    account, action = _setup(client, "company-a", "generic_webhook")
     action_url = f"/api/integrations/accounts/{account['id']}/outbound-actions/{action['id']}"
     assert client.post(f"{action_url}/deliver", headers=_headers("company-a")).status_code == 200
     assert client.post(f"{action_url}/retry", headers=_headers("company-a")).status_code == 200
@@ -96,7 +96,7 @@ def test_timeline_query_filters_safe_composed_entries_in_chronological_order(cli
     ).status_code == 200
     assert client.post(f"{action_url}/deliver", headers=_headers("company-a")).status_code == 200
 
-    base_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         approval = session.get(ApprovalRequest, UUID(action["approval_request_id"]))
@@ -105,7 +105,7 @@ def test_timeline_query_filters_safe_composed_entries_in_chronological_order(cli
         approval.decided_at = base_time + timedelta(minutes=10)
         session.add(approval)
 
-        audit_offsets = {"created": 20, "delivery_attempted": 40, "failed": 50}
+        audit_offsets = {"created": 20, "delivery_attempted": 40, "delivered": 50}
         audits = session.exec(
             select(OutboundIntegrationAuditEvent).where(
                 OutboundIntegrationAuditEvent.outbound_integration_action_id
@@ -155,7 +155,7 @@ def test_timeline_query_filters_safe_composed_entries_in_chronological_order(cli
         "action_created",
         "delivery_attempt",
         "delivery_attempted",
-        "action_failed",
+        "action_delivered",
     ]
 
     before_response = client.get(

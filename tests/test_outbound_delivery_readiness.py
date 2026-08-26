@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlmodel import select
@@ -6,7 +6,11 @@ from sqlmodel import select
 from app.db import get_session
 from app.main import app
 from app.models import OutboundIntegrationAction, Workspace
-from app.services.delivery_adapters import DeliveryAdapterRegistry, DeliveryAdapterResult, NoopDeliveryAdapter
+from app.services.delivery_adapters import (
+    DeliveryAdapterRegistry,
+    DeliveryAdapterResult,
+    NoopDeliveryAdapter,
+)
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
 from app.services.outbound_delivery_readiness import OutboundDeliveryReadinessService
 from app.services.outbound_retry_delay_policy import OutboundDeliveryRetryDelayPolicy
@@ -28,7 +32,7 @@ def test_readiness_composes_approval_not_before_and_capability_constraints(clien
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         workspace = session.exec(select(Workspace).where(Workspace.slug == "company-a")).one()
-        registry = DeliveryAdapterRegistry({"approval-provider": NoopDeliveryAdapter()})
+        registry = DeliveryAdapterRegistry({"generic_hmac": NoopDeliveryAdapter()})
         view = _service(session, registry).evaluate(workspace, UUID(account["id"]), UUID(action["id"]))
         assert view.ready is False
         assert view.blocking_reasons == ("approval_pending",)
@@ -36,7 +40,7 @@ def test_readiness_composes_approval_not_before_and_capability_constraints(clien
         persisted = session.get(OutboundIntegrationAction, UUID(action["id"]))
         assert persisted is not None
         persisted.requires_approval = False
-        persisted.not_before = datetime.now(timezone.utc) + timedelta(minutes=5)
+        persisted.not_before = datetime.now(UTC) + timedelta(minutes=5)
         session.add(persisted)
         session.commit()
         view = _service(session, registry).evaluate(workspace, UUID(account["id"]), UUID(action["id"]))
@@ -54,7 +58,7 @@ def test_readiness_uses_existing_retry_policy_and_terminal_state(client):
     assert client.post("/api/workspaces", json={"slug": "company-a", "name": "company-a"}).status_code == 201
     account = client.post(
         "/api/integrations/accounts", headers=_headers("company-a"),
-        json={"provider": "test-provider", "external_account_id": "a", "secret_reference": "INTEGRATION_SECRET_GENERIC_HMAC_TEST"},
+        json={"provider": "generic_hmac", "external_account_id": "a", "secret_reference": "INTEGRATION_SECRET_GENERIC_HMAC_TEST"},
     ).json()
     action = client.post(
         f"/api/integrations/accounts/{account['id']}/outbound-actions", headers=_headers("company-a"),
@@ -65,7 +69,7 @@ def test_readiness_uses_existing_retry_policy_and_terminal_state(client):
         def deliver(self, action, account):
             return DeliveryAdapterResult.failure("temporary_failure", "temporary")
 
-    registry = DeliveryAdapterRegistry({"test-provider": FailingAdapter()})
+    registry = DeliveryAdapterRegistry({"generic_hmac": FailingAdapter()})
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         workspace = session.exec(select(Workspace).where(Workspace.slug == "company-a")).one()

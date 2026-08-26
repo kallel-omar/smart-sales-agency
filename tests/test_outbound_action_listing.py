@@ -72,7 +72,7 @@ def test_workspace_action_listing_supports_safe_filters_and_isolated_results(cli
     _workspace(client, "company-a")
     _workspace(client, "company-b")
     generic = _account(client, "company-a")
-    other = _account(client, "company-a", "other-provider")
+    other = _account(client, "company-a", "generic_webhook")
     _action(client, "company-a", generic["id"], "generic")
     other_action = _action(client, "company-a", other["id"], "other")
     _action(client, "company-b", _account(client, "company-b")["id"], "other-workspace")
@@ -80,7 +80,7 @@ def test_workspace_action_listing_supports_safe_filters_and_isolated_results(cli
     filtered = client.get(
         "/api/integrations/outbound-actions",
         headers=_headers("company-a"),
-        params={"provider": "other-provider", "integration_account_id": other["id"], "limit": 1},
+        params={"provider": "generic_webhook", "integration_account_id": other["id"], "limit": 1},
     )
     assert filtered.status_code == 200
     assert [item["id"] for item in filtered.json()] == [other_action["id"]]

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlmodel import select
@@ -6,10 +6,13 @@ from sqlmodel import select
 from app.db import get_session
 from app.main import app
 from app.models import (
+    IntegrationAccount,
+    IntegrationAccountConnectionStatus,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
     OutboundIntegrationAuditEvent,
     OutboundProviderDeliveryStatusEvent,
+    utc_now,
 )
 
 STATUS_ENDPOINT = "/api/integrations/inbound-events/provider-status-events"
@@ -39,7 +42,17 @@ def provision_account(client, workspace_slug: str, *, provider: str = "whatsapp_
         },
     )
     assert response.status_code == 201
-    return response.json()
+    account_payload = response.json()
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        account = session.get(IntegrationAccount, UUID(account_payload["id"]))
+        assert account is not None
+        account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        account.last_validated_at = utc_now()
+        account.active = True
+        session.add(account)
+        session.commit()
+    return account_payload
 
 
 def create_action(
@@ -72,7 +85,7 @@ def mark_action_delivered(action_id: str, provider_delivery_id: str = PROVIDER_D
         assert action is not None
         action.status = OutboundIntegrationActionStatus.DELIVERED
         action.provider_delivery_id = provider_delivery_id
-        action.delivered_at = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
+        action.delivered_at = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
         action.failed_at = None
         action.failure_code = None
         action.failure_message = None
@@ -226,7 +239,7 @@ def test_identical_provider_timestamps_use_created_at_and_id_tie_breakers(
 
     expected_order = force_status_event_created_at(
         action["id"],
-        datetime(2026, 8, 11, 14, 53, 36, tzinfo=timezone.utc),
+        datetime(2026, 8, 11, 14, 53, 36, tzinfo=UTC),
     )
     response = read_status_events(client, "company-a", account["id"], action["id"])
     events = response.json()

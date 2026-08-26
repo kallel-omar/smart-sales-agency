@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -15,6 +16,7 @@ from app.models import (
 DEFAULT_AUDIT_EVENT_LIMIT = 50
 MAX_AUDIT_EVENT_LIMIT = 100
 DEFAULT_AUDIT_RETENTION_CLEANUP_BATCH_SIZE = 100
+_SAFE_AUDIT_METADATA_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 
 
 @dataclass(frozen=True)
@@ -56,14 +58,37 @@ class IntegrationAccountAuditService:
         self,
         account: IntegrationAccount,
         action: IntegrationAccountAuditAction,
+        *,
+        actor_user_id: UUID | None = None,
+        credential_purpose: str | None = None,
+        reason_code: str | None = None,
     ) -> IntegrationAccountAuditEvent:
+        safe_credential_purpose = self._safe_metadata(
+            credential_purpose,
+            field_name="Credential purpose",
+        )
+        safe_reason_code = self._safe_metadata(reason_code, field_name="Reason code")
         event = IntegrationAccountAuditEvent(
             workspace_id=account.workspace_id,
             integration_account_id=account.id,
             action=action,
+            actor_user_id=actor_user_id,
+            credential_purpose=safe_credential_purpose,
+            reason_code=safe_reason_code,
         )
         self.session.add(event)
         return event
+
+    @staticmethod
+    def _safe_metadata(value: str | None, *, field_name: str) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not _SAFE_AUDIT_METADATA_PATTERN.fullmatch(normalized):
+            raise ValueError(
+                f"{field_name} must use lowercase letters, numbers, and underscores"
+            )
+        return normalized
 
     def list_for_account(
         self,

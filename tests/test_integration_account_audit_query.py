@@ -8,7 +8,11 @@ from sqlmodel import select
 from app.config import Settings
 from app.db import get_session
 from app.main import app
-from app.models import IntegrationAccountAuditEvent
+from app.models import (
+    IntegrationAccount,
+    IntegrationAccountAuditEvent,
+    IntegrationAccountConnectionStatus,
+)
 from app.services.integration_account_audit import (
     IntegrationAccountAuditRetentionPolicy,
 )
@@ -59,11 +63,22 @@ def set_event_times(client, account_id: str) -> None:
         session.commit()
 
 
+def mark_account_connected(account_id: str) -> None:
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        account = session.get(IntegrationAccount, UUID(account_id))
+        assert account is not None
+        account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        session.add(account)
+        session.commit()
+
+
 def test_workspace_audit_query_filters_safely_and_isolates_tenants(client):
     create_workspace(client, "company-a")
     create_workspace(client, "company-b")
     company_a_account = provision_account(client, "company-a", "company-a-account")
     company_b_account = provision_account(client, "company-b", "company-b-account")
+    mark_account_connected(company_a_account["id"])
 
     deactivate = client.post(
         f"/api/integrations/accounts/{company_a_account['id']}/deactivate",
@@ -83,9 +98,9 @@ def test_workspace_audit_query_filters_safely_and_isolates_tenants(client):
     )
     assert all_events.status_code == 200
     assert [event["action"] for event in all_events.json()] == [
-        "reactivated",
-        "deactivated",
-        "provisioned",
+        "enabled",
+        "disabled",
+        "configured",
     ]
     assert {event["workspace_id"] for event in all_events.json()} == {
         company_a_account["workspace_id"]
@@ -98,15 +113,18 @@ def test_workspace_audit_query_filters_safely_and_isolates_tenants(client):
         "workspace_id",
         "integration_account_id",
         "action",
+        "actor_user_id",
+        "credential_purpose",
+        "reason_code",
         "created_at",
     }
 
     action_filtered = client.get(
-        "/api/integrations/audit-events?action=deactivated",
+        "/api/integrations/audit-events?action=disabled",
         headers=workspace_headers("company-a"),
     )
     assert action_filtered.status_code == 200
-    assert [event["action"] for event in action_filtered.json()] == ["deactivated"]
+    assert [event["action"] for event in action_filtered.json()] == ["disabled"]
 
     ranged = client.get(
         "/api/integrations/audit-events",
@@ -117,7 +135,7 @@ def test_workspace_audit_query_filters_safely_and_isolates_tenants(client):
         },
     )
     assert ranged.status_code == 200
-    assert [event["action"] for event in ranged.json()] == ["reactivated", "deactivated"]
+    assert [event["action"] for event in ranged.json()] == ["enabled", "disabled"]
 
 
 def test_audit_queries_enforce_bounds_and_account_scope(client):
@@ -125,6 +143,7 @@ def test_audit_queries_enforce_bounds_and_account_scope(client):
     create_workspace(client, "company-b")
     company_a_account = provision_account(client, "company-a", "company-a-account")
     company_b_account = provision_account(client, "company-b", "company-b-account")
+    mark_account_connected(company_a_account["id"])
 
     for operation in ("deactivate", "reactivate"):
         response = client.post(
@@ -141,8 +160,8 @@ def test_audit_queries_enforce_bounds_and_account_scope(client):
     )
     assert account_events.status_code == 200
     assert [event["action"] for event in account_events.json()] == [
-        "reactivated",
-        "deactivated",
+        "enabled",
+        "disabled",
     ]
 
     maximum_bound = client.get(

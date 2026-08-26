@@ -46,7 +46,7 @@ def test_outbound_lifecycle_transitions_record_safe_audit_events(client):
 
 
 def test_failed_retry_cancel_and_expiration_audit_events_are_accurate(client):
-    account, action = _setup(client, "failed", "missing-provider")
+    account, action = _setup(client, "failed", "generic_webhook")
     url = f"/api/integrations/accounts/{account['id']}/outbound-actions/{action['id']}"
     assert client.post(f"{url}/deliver", headers=_headers("failed")).status_code == 200
     assert client.post(f"{url}/retry", headers=_headers("failed")).status_code == 200

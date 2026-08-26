@@ -4,7 +4,13 @@ from sqlmodel import select
 
 from app.db import get_session
 from app.main import app
-from app.models import ApprovalRequest, OutboundIntegrationDeliveryAttempt, Workspace
+from app.models import (
+    ApprovalRequest,
+    IntegrationAccount,
+    IntegrationAccountConnectionStatus,
+    OutboundIntegrationDeliveryAttempt,
+    Workspace,
+)
 from app.services.delivery_adapters import DeliveryAdapterRegistry, DeliveryAdapterResult
 from app.services.outbound_delivery import OutboundIntegrationDeliveryService
 
@@ -19,7 +25,7 @@ def _create_workspace_and_action(client, slug: str = "company-a") -> tuple[dict,
         "/api/integrations/accounts",
         headers=_headers(slug),
         json={
-            "provider": "approval-provider",
+            "provider": "generic_hmac",
             "external_account_id": slug,
             "secret_reference": "INTEGRATION_SECRET_GENERIC_HMAC_TEST",
         },
@@ -70,6 +76,14 @@ def test_pending_whatsapp_cloud_approval_blocks_delivery_before_transport(client
             "secret_reference": "INTEGRATION_SECRET_WHATSAPP_CLOUD",
         },
     ).json()
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        stored_account = session.get(IntegrationAccount, UUID(account["id"]))
+        assert stored_account is not None
+        stored_account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        stored_account.active = True
+        session.add(stored_account)
+        session.commit()
     created = client.post(
         f"/api/integrations/accounts/{account['id']}/outbound-actions",
         headers=_headers(slug),
@@ -91,7 +105,6 @@ def test_pending_whatsapp_cloud_approval_blocks_delivery_before_transport(client
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Outbound integration action requires approval before delivery"
-    session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         assert session.exec(select(OutboundIntegrationDeliveryAttempt)).all() == []
 
@@ -122,7 +135,7 @@ def test_approved_outbound_action_can_deliver_and_rejected_action_stays_blocked(
         workspace = session.exec(select(Workspace).where(Workspace.slug == "company-a")).one()
         delivered, _ = OutboundIntegrationDeliveryService(
             session,
-            adapter_registry=DeliveryAdapterRegistry({"approval-provider": adapter}),
+            adapter_registry=DeliveryAdapterRegistry({"generic_hmac": adapter}),
         ).deliver_pending_action(workspace, UUID(account["id"]), UUID(action["id"]))
         assert delivered.status == "delivered"
         assert adapter.calls == 1

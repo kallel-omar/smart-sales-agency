@@ -81,7 +81,7 @@ def attempt_numbers(client, workspace_slug: str, account_id: str, action_id: str
 
 def test_failed_action_below_max_attempts_can_retry_by_default(client):
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", "unconfigured-provider")
+    account = provision_account(client, "company-a", "generic_webhook")
     action = create_action(client, "company-a", account["id"])
 
     assert deliver(client, "company-a", account["id"], action["id"]).status_code == 200
@@ -100,7 +100,7 @@ def test_retry_is_denied_after_configured_maximum_without_a_new_attempt(client):
         outbound_delivery_max_attempts=2,
     )
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", "unconfigured-provider")
+    account = provision_account(client, "company-a", "generic_webhook")
     action = create_action(client, "company-a", account["id"])
 
     assert deliver(client, "company-a", account["id"], action["id"]).status_code == 200
@@ -121,7 +121,7 @@ def test_non_retryable_failure_code_is_denied_without_a_new_attempt(client):
             return DeliveryAdapterResult.failure("invalid_recipient", "Recipient is invalid")
 
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", "test-provider")
+    account = provision_account(client, "company-a", "generic_hmac")
     action = create_action(client, "company-a", account["id"])
     session_dependency = app.dependency_overrides[get_session]
 
@@ -129,7 +129,7 @@ def test_non_retryable_failure_code_is_denied_without_a_new_attempt(client):
         workspace = session.exec(select(Workspace).where(Workspace.slug == "company-a")).one()
         service = OutboundIntegrationDeliveryService(
             session,
-            adapter_registry=DeliveryAdapterRegistry({"test-provider": NonRetryableAdapter()}),
+            adapter_registry=DeliveryAdapterRegistry({"generic_hmac": NonRetryableAdapter()}),
             retry_policy=OutboundDeliveryRetryPolicy(3, {"invalid_recipient"}),
         )
         failed, _ = service.deliver_pending_action(

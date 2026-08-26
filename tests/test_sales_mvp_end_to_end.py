@@ -32,6 +32,7 @@ from app.models import (
     InboundExternalIdentity,
     InboundIntegrationEventReceipt,
     IntegrationAccount,
+    IntegrationAccountConnectionStatus,
     Lead,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
@@ -239,7 +240,16 @@ def _create_account(
         },
     )
     assert response.status_code == 201
-    return UUID(response.json()["id"]), response.json()["inbound_credential"]
+    account_id = UUID(response.json()["id"])
+    with next(app.dependency_overrides[get_session]()) as session:
+        account = session.get(IntegrationAccount, account_id)
+        assert account is not None
+        account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        account.last_validated_at = utc_now()
+        account.active = True
+        session.add(account)
+        session.commit()
+    return account_id, response.json()["inbound_credential"]
 
 
 def _grant(

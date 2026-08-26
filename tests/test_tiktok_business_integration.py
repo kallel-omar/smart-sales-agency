@@ -22,6 +22,7 @@ from app.models import (
     InboundIntegrationEventReceipt,
     IntegrationAccount,
     IntegrationAccountAuditEvent,
+    IntegrationAccountConnectionStatus,
     Lead,
     OutboundIntegrationAction,
     OutboundIntegrationActionType,
@@ -29,6 +30,7 @@ from app.models import (
     OutboundIntegrationDeliveryAttempt,
     WorkItem,
     Workspace,
+    utc_now,
 )
 from app.services.ai_employee_capability_assignments import (
     AIEmployeeCapabilityAssignmentService,
@@ -111,6 +113,18 @@ def _add_workforce(slug):
         )
 
 
+def _mark_test_account_connected(account_id: str, *, active: bool = True) -> None:
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        account = session.get(IntegrationAccount, UUID(account_id))
+        assert account is not None
+        account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        account.last_validated_at = utc_now()
+        account.active = active
+        session.add(account)
+        session.commit()
+
+
 def _create_account(
     client,
     slug,
@@ -141,6 +155,7 @@ def _create_account(
             json={"secret_reference": SECRET_REFERENCE},
         )
         assert configured.status_code == 200
+    _mark_test_account_connected(account_data["id"])
     if grant:
         _grant(slug, UUID(account_data["id"]), autonomy)
     if eligible:
@@ -271,7 +286,7 @@ def test_tiktok_active_ownership_allows_disconnect_reconnect_history(client):
     first = _create_account(client, "tt-owner-a", "shared-business")
     assert first["comment_to_message_eligible"] is False
 
-    conflict = client.post(
+    configured = client.post(
         "/api/integrations/accounts",
         headers={"X-Workspace-Slug": "tt-owner-b"},
         json={
@@ -280,6 +295,13 @@ def test_tiktok_active_ownership_allows_disconnect_reconnect_history(client):
             "secret_reference": SECRET_REFERENCE,
         },
     )
+    assert configured.status_code == 201
+    assert configured.json()["active"] is False
+    _mark_test_account_connected(configured.json()["id"], active=False)
+    conflict = client.post(
+        f"/api/integrations/accounts/{configured.json()['id']}/reactivate",
+        headers={"X-Workspace-Slug": "tt-owner-b"},
+    )
     assert conflict.status_code == 409
 
     deactivated = client.post(
@@ -287,14 +309,14 @@ def test_tiktok_active_ownership_allows_disconnect_reconnect_history(client):
         headers={"X-Workspace-Slug": "tt-owner-a"},
     )
     assert deactivated.status_code == 200
-    second = _create_account(client, "tt-owner-b", "shared-business")
+    second = configured.json()
     assert second["id"] != first["id"]
 
     reactivation = client.post(
-        f"/api/integrations/accounts/{first['id']}/reactivate",
-        headers={"X-Workspace-Slug": "tt-owner-a"},
+        f"/api/integrations/accounts/{second['id']}/reactivate",
+        headers={"X-Workspace-Slug": "tt-owner-b"},
     )
-    assert reactivation.status_code == 409
+    assert reactivation.status_code == 200
 
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:

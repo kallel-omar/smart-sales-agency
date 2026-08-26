@@ -98,7 +98,7 @@ def test_provider_specific_adapter_is_selected_and_safe_failure_is_persisted(cli
             return DeliveryAdapterResult.failure("recipient_unavailable", "Recipient unavailable")
 
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", provider="test-provider")
+    account = provision_account(client, "company-a")
     action = create_action(client, "company-a", account["id"])
     adapter = RecordingAdapter()
     session_dependency = app.dependency_overrides[get_session]
@@ -109,7 +109,7 @@ def test_provider_specific_adapter_is_selected_and_safe_failure_is_persisted(cli
         ).one()
         service = OutboundIntegrationDeliveryService(
             session,
-            adapter_registry=DeliveryAdapterRegistry({"test-provider": adapter}),
+            adapter_registry=DeliveryAdapterRegistry({"generic_hmac": adapter}),
         )
         processed, resolved_account = service.deliver_pending_action(
             workspace,
@@ -117,7 +117,7 @@ def test_provider_specific_adapter_is_selected_and_safe_failure_is_persisted(cli
             UUID(action["id"]),
         )
 
-        assert adapter.calls == [(action["id"], "test-provider")]
+        assert adapter.calls == [(action["id"], "generic_hmac")]
         assert resolved_account.id == UUID(account["id"])
         assert processed.status == OutboundIntegrationActionStatus.FAILED
         assert processed.failure_code == "recipient_unavailable"
@@ -127,27 +127,19 @@ def test_provider_specific_adapter_is_selected_and_safe_failure_is_persisted(cli
         assert processed.provider_delivery_id is None
 
 
-def test_unknown_provider_fails_safely_and_terminal_actions_are_not_delivered_twice(client):
+def test_unknown_provider_fails_closed_and_terminal_actions_are_not_delivered_twice(client):
     create_workspace(client, "company-a")
-    unknown_provider_account = provision_account(
-        client,
-        "company-a",
-        provider="unconfigured-provider",
+    unsupported = client.post(
+        "/api/integrations/accounts",
+        headers=workspace_headers("company-a"),
+        json={
+            "provider": "unconfigured-provider",
+            "external_account_id": "unsupported-account",
+            "secret_reference": "INTEGRATION_SECRET_GENERIC_HMAC_TEST",
+        },
     )
-    unknown_action = create_action(client, "company-a", unknown_provider_account["id"])
-
-    unavailable = deliver_action(
-        client,
-        "company-a",
-        unknown_provider_account["id"],
-        unknown_action["id"],
-    )
-    assert unavailable.status_code == 200
-    assert unavailable.json()["status"] == "failed"
-    assert unavailable.json()["failure_code"] == "adapter_not_configured"
-    assert unavailable.json()["failure_message"] == (
-        "No delivery adapter is configured for this provider"
-    )
+    assert unsupported.status_code == 422
+    assert unsupported.json()["detail"] == "Unsupported integration provider"
 
     default_account = provision_account(client, "company-a")
     delivered_action = create_action(client, "company-a", default_account["id"], key="message-2")

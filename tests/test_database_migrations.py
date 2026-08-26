@@ -332,6 +332,186 @@ def test_tiktok_migration_enforces_only_one_active_owner_and_preserves_history(
         get_settings.cache_clear()
 
 
+def test_channel_connection_migration_backfills_status_preserves_active_and_downgrades(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "task295b-lifecycle.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+
+    try:
+        command.upgrade(_alembic_config(), "head")
+        command.downgrade(_alembic_config(), "20260825_013")
+        engine = create_engine(database_url)
+        workspace_id = uuid4()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        account_ids = (uuid4(), uuid4())
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO workspace "
+                        "(id, slug, name, active, ai_model_tier_downgrade_mappings, "
+                        "created_at, updated_at) VALUES "
+                        "(:id, :slug, :name, :active, :mappings, :created_at, :updated_at)"
+                    ),
+                    {
+                        "id": workspace_id.hex,
+                        "slug": "task295b-migration",
+                        "name": "Task 295B Migration",
+                        "active": True,
+                        "mappings": "{}",
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                )
+                for account_id, active, credential_hash in (
+                    (account_ids[0], True, "a" * 64),
+                    (account_ids[1], False, "b" * 64),
+                ):
+                    connection.execute(
+                        text(
+                            "INSERT INTO integrationaccount "
+                            "(id, workspace_id, provider, external_account_id, "
+                            "provider_auth_mode, comment_to_message_eligible, "
+                            "secret_reference, credential_hash, active, created_at, updated_at) "
+                            "VALUES (:id, :workspace_id, 'generic_hmac', :external_id, "
+                            "NULL, 0, NULL, :credential_hash, :active, :created_at, :updated_at)"
+                        ),
+                        {
+                            "id": account_id.hex,
+                            "workspace_id": workspace_id.hex,
+                            "external_id": f"legacy-{credential_hash[0]}",
+                            "credential_hash": credential_hash,
+                            "active": active,
+                            "created_at": now,
+                            "updated_at": now,
+                        },
+                    )
+        finally:
+            engine.dispose()
+
+        command.upgrade(_alembic_config(), "head")
+        engine = create_engine(database_url)
+        try:
+            inspector = inspect(engine)
+            account_columns = {
+                column["name"]
+                for column in inspector.get_columns("integrationaccount")
+            }
+            credential_columns = {
+                column["name"]
+                for column in inspector.get_columns("integrationcredentialreference")
+            }
+            audit_columns = {
+                column["name"]
+                for column in inspector.get_columns("integrationaccountauditevent")
+            }
+            assert {
+                "connection_status",
+                "last_validated_at",
+                "reconnect_required_at",
+                "last_connection_error_code",
+            } <= account_columns
+            assert "expires_at" in credential_columns
+            assert {"actor_user_id", "credential_purpose", "reason_code"} <= audit_columns
+            with engine.connect() as connection:
+                rows = connection.execute(
+                    text(
+                        "SELECT active, connection_status FROM integrationaccount "
+                        "ORDER BY credential_hash"
+                    )
+                ).all()
+            assert rows == [(1, "configured"), (0, "configured")]
+        finally:
+            engine.dispose()
+
+        command.downgrade(_alembic_config(), "20260825_013")
+        engine = create_engine(database_url)
+        try:
+            inspector = inspect(engine)
+            assert "connection_status" not in {
+                column["name"]
+                for column in inspector.get_columns("integrationaccount")
+            }
+            assert "expires_at" not in {
+                column["name"]
+                for column in inspector.get_columns("integrationcredentialreference")
+            }
+            assert "actor_user_id" not in {
+                column["name"]
+                for column in inspector.get_columns("integrationaccountauditevent")
+            }
+        finally:
+            engine.dispose()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_channel_connection_migration_rejects_ambiguous_active_provider_ownership(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "task295b-conflict.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+
+    try:
+        command.upgrade(_alembic_config(), "head")
+        command.downgrade(_alembic_config(), "20260825_013")
+        engine = create_engine(database_url)
+        workspace_id = uuid4()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO workspace "
+                        "(id, slug, name, active, ai_model_tier_downgrade_mappings, "
+                        "created_at, updated_at) VALUES "
+                        "(:id, :slug, :name, 1, '{}', :created_at, :updated_at)"
+                    ),
+                    {
+                        "id": workspace_id.hex,
+                        "slug": "task295b-conflict",
+                        "name": "Task 295B Conflict",
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                )
+                for marker in ("a", "b"):
+                    connection.execute(
+                        text(
+                            "INSERT INTO integrationaccount "
+                            "(id, workspace_id, provider, external_account_id, "
+                            "provider_auth_mode, comment_to_message_eligible, "
+                            "secret_reference, credential_hash, active, created_at, updated_at) "
+                            "VALUES (:id, :workspace_id, 'whatsapp_cloud', 'duplicate-phone', "
+                            "NULL, 0, NULL, :credential_hash, 1, :created_at, :updated_at)"
+                        ),
+                        {
+                            "id": uuid4().hex,
+                            "workspace_id": workspace_id.hex,
+                            "credential_hash": marker * 64,
+                            "created_at": now,
+                            "updated_at": now,
+                        },
+                    )
+        finally:
+            engine.dispose()
+
+        with pytest.raises(
+            RuntimeError,
+            match="Active provider identity ownership conflicts must be resolved",
+        ):
+            command.upgrade(_alembic_config(), "head")
+    finally:
+        get_settings.cache_clear()
+
+
 def test_production_startup_does_not_run_create_all(monkeypatch):
     calls = {"create_all": 0}
 

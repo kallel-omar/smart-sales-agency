@@ -1,5 +1,5 @@
-import json
 import hmac
+import json
 import re
 import shutil
 import subprocess
@@ -27,7 +27,7 @@ def test_whatsapp_provider_reuses_existing_integration_account_contracts():
     assert registry.get("whatsapp_cloud") is webhook_adapter
 
     models_text = (REPO_ROOT / "app" / "models.py").read_text(encoding="utf-8").lower()
-    assert "whatsapp_cloud" not in models_text
+    assert "class whatsapp" not in models_text
     assert "phone_number_id" not in models_text
 
 

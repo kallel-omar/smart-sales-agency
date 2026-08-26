@@ -128,6 +128,30 @@ hardening; normal retries reuse the persisted root and downstream children.
 
 Latest verified backend result: **917 passed, 6 skipped, 25 warnings**.
 
+### Task 295B — Channel connection lifecycle foundation
+
+HIRI now models provider-neutral channel connection lifecycle states as
+`configured`, `connected`, `reconnect_required`, and `disconnected`. The
+`active` flag remains an independent execution switch: newly configured customer
+channels remain inactive until validated and enabled, while migrated active
+accounts retain their established runtime behavior.
+
+Provider/auth-mode requirements now define allowed credential purposes and drive
+safe readiness and credential-expiry metadata. Confirmed permanent authentication
+failures are non-retryable and move only the affected account to
+`reconnect_required`; transient network, rate-limit, and provider failures retain
+their existing retry behavior. Disable preserves connection configuration and
+credentials, while disconnect disables the account, clears its stored credential
+references, and preserves its business, action, and audit history for safe reuse.
+
+Active provider-identity ownership is protected for customer messaging channels,
+and lifecycle operations do not grant AIEmployee tool access automatically. This
+is an operator-assisted foundation only: provider-side validation, OAuth, token
+refresh/rotation, writable SecretStore support, and customer self-service channel
+connection remain incomplete.
+
+Latest verified backend result: **930 passed, 7 skipped, 39 warnings**.
+
 Task 290 validated a real Instagram professional-account inbound DM through the
 Meta webhook and existing HIRI Sales architecture. HIRI created the governed
 `SEND_MESSAGE` outbound action, but Meta rejected the Facebook Login Graph API

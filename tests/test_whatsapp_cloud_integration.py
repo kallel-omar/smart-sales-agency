@@ -26,6 +26,7 @@ from app.models import (
     InboundExternalIdentity,
     InboundIntegrationEventReceipt,
     IntegrationAccount,
+    IntegrationAccountConnectionStatus,
     Lead,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
@@ -38,6 +39,7 @@ from app.models import (
     Workspace,
     WorkspaceMember,
     WorkspaceMemberRole,
+    utc_now,
 )
 from app.services.ai_employee_capability_assignments import (
     AIEmployeeCapabilityAssignmentService,
@@ -142,6 +144,18 @@ def _create_lead(client, slug: str, *, phone: str = CUSTOMER_EXTERNAL_ID) -> str
     return response.json()["id"]
 
 
+def _mark_test_account_connected(account_id: str) -> None:
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        account = session.get(IntegrationAccount, UUID(account_id))
+        assert account is not None
+        account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        account.last_validated_at = utc_now()
+        account.active = True
+        session.add(account)
+        session.commit()
+
+
 def _provision_account(
     client,
     slug: str,
@@ -162,6 +176,7 @@ def _provision_account(
     )
     assert response.status_code == 201
     account_data = response.json()
+    _mark_test_account_connected(account_data["id"])
     if not grant_tool_access:
         return account_data
     session_dependency = app.dependency_overrides[get_session]

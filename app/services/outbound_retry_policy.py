@@ -79,6 +79,14 @@ class OutboundDeliveryRetryPolicy:
                 denial_reason="maximum_attempts_reached",
             )
         if (
+            failure_classification
+            == OutboundDeliveryFailureClassification.AUTHENTICATION
+        ):
+            return OutboundDeliveryRetryEligibility(
+                allowed=False,
+                denial_reason="authentication_failure_requires_reconnect",
+            )
+        if (
             failure_code is not None
             and self._normalize_failure_code(failure_code) in self.non_retryable_failure_codes
         ):

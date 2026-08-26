@@ -5,7 +5,7 @@ import pytest
 
 from app.db import get_session
 from app.main import app
-from app.models import IntegrationAccount
+from app.models import IntegrationAccount, IntegrationAccountConnectionStatus
 
 
 def create_workspace(client, slug: str) -> None:
@@ -46,6 +46,16 @@ def provision_account(client, workspace_slug: str) -> dict:
     )
     assert response.status_code == 201
     return response.json()
+
+
+def mark_account_connected(account_id: str) -> None:
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        account = session.get(IntegrationAccount, UUID(account_id))
+        assert account is not None
+        account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        session.add(account)
+        session.commit()
 
 
 def provision_instagram_account(
@@ -210,6 +220,7 @@ def test_deactivation_and_reactivation_control_authentication_for_current_creden
 ):
     create_workspace(client, "company-a")
     account = provision_account(client, "company-a")
+    mark_account_connected(account["id"])
     lead_id = create_lead(client, "company-a")
 
     deactivated = client.post(

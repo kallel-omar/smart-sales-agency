@@ -82,7 +82,7 @@ def _deliver_with_recording_adapter(client, account: dict, action: dict, adapter
 
 
 def test_supported_action_is_delivered_after_capability_validation(client):
-    account, action = _setup(client, "capability-provider", content="hello")
+    account, action = _setup(client, "generic_hmac", content="hello")
     adapter = RecordingAdapter()
 
     processed, _ = _deliver_with_recording_adapter(client, account, action, adapter)
@@ -92,7 +92,7 @@ def test_supported_action_is_delivered_after_capability_validation(client):
 
 
 def test_unsupported_action_type_fails_without_invoking_adapter(client):
-    account, _ = _setup(client, "capability-provider", content="hello")
+    account, _ = _setup(client, "generic_hmac", content="hello")
     unsupported = client.post(
         f"/api/integrations/accounts/{account['id']}/outbound-actions",
         headers={"X-Workspace-Slug": "company-a"},
@@ -118,7 +118,7 @@ def test_unsupported_action_type_fails_without_invoking_adapter(client):
 
 
 def test_content_limit_failure_is_persisted_without_invoking_adapter(client):
-    account, action = _setup(client, "capability-provider", content="too long")
+    account, action = _setup(client, "generic_hmac", content="too long")
     adapter = RecordingAdapter()
 
     processed, attempt = _deliver_with_recording_adapter(client, account, action, adapter)

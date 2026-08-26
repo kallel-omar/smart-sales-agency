@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlmodel import select
@@ -18,7 +18,7 @@ def _service(session):
         session,
         retry_policy=OutboundDeliveryRetryPolicy(3),
         retry_delay_policy=OutboundDeliveryRetryDelayPolicy("fixed", 0, 0),
-        adapter_registry=DeliveryAdapterRegistry({"approval-provider": NoopDeliveryAdapter()}),
+        adapter_registry=DeliveryAdapterRegistry({"generic_hmac": NoopDeliveryAdapter()}),
     )
 
 
@@ -29,7 +29,7 @@ def test_readiness_explanation_exposes_only_the_relevant_safe_timestamp(client):
         workspace = session.exec(select(Workspace).where(Workspace.slug == "company-a")).one()
         persisted = session.get(OutboundIntegrationAction, UUID(action["id"]))
         assert persisted is not None
-        not_before = datetime.now(timezone.utc) + timedelta(minutes=5)
+        not_before = datetime.now(UTC) + timedelta(minutes=5)
         persisted.requires_approval = False
         persisted.not_before = not_before
         session.add(persisted)

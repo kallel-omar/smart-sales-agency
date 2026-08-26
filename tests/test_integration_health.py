@@ -22,18 +22,19 @@ def test_integration_health_uses_safe_persisted_outbound_state(client):
     account, action = _setup(client, "company-a")
     response = client.get(f"/api/integrations/accounts/{account['id']}/health", headers=_headers("company-a"))
     assert response.status_code == 200
-    assert response.json()["health"] == "attention"
+    assert response.json()["health"] == "setup_required"
+    assert response.json()["connection_status"] == "configured"
     assert response.json()["pending_action_count"] == 1
     assert response.json()["most_recent_outbound_at"] is not None
 
     assert client.post(f"/api/integrations/accounts/{account['id']}/outbound-actions/{action['id']}/deliver", headers=_headers("company-a")).status_code == 200
     response = client.get(f"/api/integrations/accounts/{account['id']}/health", headers=_headers("company-a"))
-    assert response.json()["health"] == "healthy"
+    assert response.json()["health"] == "setup_required"
     assert response.json()["recent_delivered_count"] == 1
 
 
 def test_integration_health_is_read_only_and_workspace_scoped(client):
-    account, _ = _setup(client, "company-a", provider="missing-provider")
+    account, _ = _setup(client, "company-a")
     assert client.post("/api/workspaces", json={"slug": "company-b", "name": "company-b"}).status_code == 201
     assert client.get(f"/api/integrations/accounts/{account['id']}/health", headers=_headers("company-b")).status_code == 404
     before = client.get(f"/api/integrations/accounts/{account['id']}/health", headers=_headers("company-a")).json()

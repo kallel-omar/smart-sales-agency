@@ -114,11 +114,30 @@ class ApprovalStatus(StrEnum):
     EXECUTED = "executed"
 
 
+class IntegrationAccountConnectionStatus(StrEnum):
+    """Durable provider-connection lifecycle, separate from execution enablement."""
+
+    CONFIGURED = "configured"
+    CONNECTED = "connected"
+    RECONNECT_REQUIRED = "reconnect_required"
+    DISCONNECTED = "disconnected"
+
+
 class IntegrationAccountAuditAction(StrEnum):
     PROVISIONED = "provisioned"
+    CONFIGURED = "configured"
+    VALIDATION_SUCCEEDED = "validation_succeeded"
+    VALIDATION_FAILED = "validation_failed"
+    CONNECTED = "connected"
+    RECONNECT_REQUIRED = "reconnect_required"
+    RECONNECT_COMPLETED = "reconnect_completed"
     CREDENTIAL_ROTATED = "credential_rotated"
     DEACTIVATED = "deactivated"
     REACTIVATED = "reactivated"
+    DISABLED = "disabled"
+    ENABLED = "enabled"
+    DISCONNECTED = "disconnected"
+    CREDENTIAL_REFERENCE_CHANGED = "credential_reference_changed"
     SECRET_REFERENCE_CHANGED = "secret_reference_changed"
     COMMENT_TO_MESSAGE_ELIGIBILITY_CHANGED = "comment_to_message_eligibility_changed"
 
@@ -480,6 +499,20 @@ class IntegrationAccount(SQLModel, table=True):
                 "AND active = 1"
             ),
         ),
+        Index(
+            "uq_active_meta_whatsapp_external_account",
+            "provider",
+            "external_account_id",
+            unique=True,
+            postgresql_where=text(
+                "provider IN ('whatsapp_cloud', 'facebook_messenger', 'instagram_dm') "
+                "AND external_account_id IS NOT NULL AND active IS TRUE"
+            ),
+            sqlite_where=text(
+                "provider IN ('whatsapp_cloud', 'facebook_messenger', 'instagram_dm') "
+                "AND external_account_id IS NOT NULL AND active = 1"
+            ),
+        ),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -499,6 +532,18 @@ class IntegrationAccount(SQLModel, table=True):
         sa_column=Column(String(64), unique=True, index=True, nullable=False)
     )
     active: bool = Field(default=True, index=True)
+    connection_status: IntegrationAccountConnectionStatus = Field(
+        default=IntegrationAccountConnectionStatus.CONFIGURED,
+        sa_column=Column(
+            String(50),
+            nullable=False,
+            index=True,
+            server_default=IntegrationAccountConnectionStatus.CONFIGURED.value,
+        ),
+    )
+    last_validated_at: datetime | None = Field(default=None, index=True)
+    reconnect_required_at: datetime | None = Field(default=None, index=True)
+    last_connection_error_code: str | None = Field(default=None, max_length=100)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -524,6 +569,7 @@ class IntegrationCredentialReference(SQLModel, table=True):
     # Reference resolved through HIRI's configured secret backend.
     # Never persist the actual credential value here.
     secret_reference: str = Field(max_length=255)
+    expires_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 class IntegrationAccountAuditEvent(SQLModel, table=True):
@@ -536,6 +582,13 @@ class IntegrationAccountAuditEvent(SQLModel, table=True):
         index=True,
     )
     action: IntegrationAccountAuditAction = Field(index=True)
+    actor_user_id: UUID | None = Field(
+        default=None,
+        foreign_key="platform_user.id",
+        index=True,
+    )
+    credential_purpose: str | None = Field(default=None, max_length=100)
+    reason_code: str | None = Field(default=None, max_length=100)
     created_at: datetime = Field(default_factory=utc_now)
 
 

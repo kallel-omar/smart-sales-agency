@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlmodel import select
@@ -22,7 +22,7 @@ def _service(session):
         session,
         retry_policy=OutboundDeliveryRetryPolicy(3),
         retry_delay_policy=OutboundDeliveryRetryDelayPolicy("fixed", 0, 0),
-        adapter_registry=DeliveryAdapterRegistry({"approval-provider": NoopDeliveryAdapter()}),
+        adapter_registry=DeliveryAdapterRegistry({"generic_hmac": NoopDeliveryAdapter()}),
     )
 
 
@@ -47,7 +47,7 @@ def test_readiness_registry_normalizes_timing_capability_and_terminal_reasons(cl
         persisted = session.get(OutboundIntegrationAction, UUID(action["id"]))
         assert persisted is not None
         persisted.requires_approval = False
-        persisted.not_before = datetime.now(timezone.utc) + timedelta(minutes=1)
+        persisted.not_before = datetime.now(UTC) + timedelta(minutes=1)
         session.add(persisted)
         session.commit()
         assert _service(session).evaluate(

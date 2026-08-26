@@ -15,6 +15,7 @@ from app.models import (
     AIInvocationStatus,
     ApprovalStatus,
     IntegrationAccountAuditAction,
+    IntegrationAccountConnectionStatus,
     LeadStatus,
     OutboundActionPriority,
     OutboundDeliveryFailureClassification,
@@ -648,6 +649,7 @@ class IntegrationCredentialReferenceUpsert(BaseModel):
         min_length=1,
         max_length=255,
     )
+    expires_at: datetime | None = None
 
 
 class IntegrationCredentialReferenceRead(BaseModel):
@@ -657,6 +659,7 @@ class IntegrationCredentialReferenceRead(BaseModel):
     workspace_id: UUID
     integration_account_id: UUID
     purpose: str
+    expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
 class IntegrationAccountSecretReferenceUpdate(BaseModel):
@@ -687,6 +690,10 @@ class IntegrationAccountRead(BaseModel):
     provider_auth_mode: str | None
     comment_to_message_eligible: bool
     active: bool
+    connection_status: IntegrationAccountConnectionStatus
+    last_validated_at: datetime | None
+    reconnect_required_at: datetime | None
+    last_connection_error_code: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -706,6 +713,9 @@ class IntegrationAccountAuditEventRead(BaseModel):
     workspace_id: UUID
     integration_account_id: UUID
     action: IntegrationAccountAuditAction
+    actor_user_id: UUID | None
+    credential_purpose: str | None
+    reason_code: str | None
     created_at: datetime
 
 
@@ -1036,6 +1046,10 @@ class IntegrationAccountHealthRead(BaseModel):
     id: UUID
     provider: str
     active: bool
+    connection_status: IntegrationAccountConnectionStatus
+    last_validated_at: datetime | None
+    credential_references_ready: bool
+    credential_expired: bool
     health: str
     most_recent_outbound_at: datetime | None
     recent_delivered_count: int
@@ -1067,6 +1081,7 @@ class IntegrationRuntimeReadinessRead(BaseModel):
     id: UUID
     provider: str
     active: bool
+    connection_status: IntegrationAccountConnectionStatus
     status: str
     configuration_ready: bool
     external_provider_availability_checked: bool = False

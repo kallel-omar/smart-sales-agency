@@ -24,18 +24,21 @@ def test_configured_failure_classes_deny_retries_deterministically():
         3,
         non_retryable_failure_classes=("permanent", "authentication", "validation"),
     )
-    for classification in (
-        OutboundDeliveryFailureClassification.PERMANENT,
-        OutboundDeliveryFailureClassification.AUTHENTICATION,
-        OutboundDeliveryFailureClassification.VALIDATION,
-    ):
+    expected_reasons = {
+        OutboundDeliveryFailureClassification.PERMANENT: "failure_classification_not_retryable",
+        OutboundDeliveryFailureClassification.AUTHENTICATION: (
+            "authentication_failure_requires_reconnect"
+        ),
+        OutboundDeliveryFailureClassification.VALIDATION: "failure_classification_not_retryable",
+    }
+    for classification, expected_reason in expected_reasons.items():
         result = policy.evaluate(
             attempt_count=1,
             failure_code="safe_code",
             failure_classification=classification,
         )
         assert result.allowed is False
-        assert result.denial_reason == "failure_classification_not_retryable"
+        assert result.denial_reason == expected_reason
 
 
 def test_failure_class_configuration_is_validated_and_loaded_from_settings():

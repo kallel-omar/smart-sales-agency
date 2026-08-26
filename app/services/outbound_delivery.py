@@ -9,6 +9,8 @@ from sqlmodel import Session, select
 
 from app.models import (
     IntegrationAccount,
+    IntegrationAccountConnectionStatus,
+    OutboundDeliveryFailureClassification,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
     OutboundIntegrationAuditAction,
@@ -16,6 +18,7 @@ from app.models import (
     Workspace,
     utc_now,
 )
+from app.services.channel_connections import ChannelConnectionService
 from app.services.delivery_adapters import (
     DeliveryAdapterRegistry,
     DeliveryAdapterResult,
@@ -70,6 +73,10 @@ class OutboundIntegrationActionNotReadyError(ValueError):
     """Raised before an action's UTC not-before time is reached."""
 
 
+class IntegrationAccountReconnectRequiredError(ValueError):
+    """Raised before credential-dependent delivery through an unsafe connection."""
+
+
 class OutboundDeliveryAttemptQueryValidationError(ValueError):
     """Raised when a delivery-attempt read filter has an invalid range."""
 
@@ -94,6 +101,7 @@ class OutboundIntegrationDeliveryService:
         self.audit_service = OutboundIntegrationActionAuditService(session)
         self.approval_service = OutboundDeliveryApprovalService(session)
         self.transition_guard = OutboundIntegrationActionStateTransitionGuard()
+        self.connection_service = ChannelConnectionService(session)
 
     @classmethod
     def from_settings(
@@ -151,6 +159,7 @@ class OutboundIntegrationDeliveryService:
         account = self.account_service.get_for_workspace(workspace, account_id)
         if not account.active:
             raise InactiveIntegrationAccountError("Integration account is inactive")
+        self._require_connection_execution_allowed(account)
 
         action = self._get_action_for_account(workspace, account, action_id)
         if (
@@ -192,6 +201,7 @@ class OutboundIntegrationDeliveryService:
         account = self.account_service.get_for_workspace(workspace, account_id)
         if not account.active:
             raise InactiveIntegrationAccountError("Integration account is inactive")
+        self._require_connection_execution_allowed(account)
 
         action = self._get_action_for_account(workspace, account, action_id)
         try:
@@ -316,7 +326,7 @@ class OutboundIntegrationDeliveryService:
                         "Delivery adapter execution failed",
                     )
 
-        self._persist_outcome(action, attempt, result)
+        self._persist_outcome(action, attempt, result, account)
         self.session.commit()
         self.session.refresh(action)
         return action, account
@@ -377,6 +387,7 @@ class OutboundIntegrationDeliveryService:
         action: OutboundIntegrationAction,
         attempt: OutboundIntegrationDeliveryAttempt,
         result: DeliveryAdapterResult,
+        account: IntegrationAccount,
     ) -> None:
         recorded_at = utc_now()
         previous_status = action.status
@@ -416,8 +427,26 @@ class OutboundIntegrationDeliveryService:
             attempt.failure_message = action.failure_message
             attempt.failure_classification = action.failure_classification
             self._record_transition_audit(action, previous_status)
+            if (
+                action.failure_classification
+                == OutboundDeliveryFailureClassification.AUTHENTICATION
+            ):
+                self.connection_service.apply_reconnect_required(
+                    account,
+                    reason_code=action.failure_code,
+                )
         self.session.add(action)
         self.session.add(attempt)
+
+    @staticmethod
+    def _require_connection_execution_allowed(account: IntegrationAccount) -> None:
+        if account.connection_status in {
+            IntegrationAccountConnectionStatus.RECONNECT_REQUIRED,
+            IntegrationAccountConnectionStatus.DISCONNECTED,
+        }:
+            raise IntegrationAccountReconnectRequiredError(
+                "Integration account connection requires operator attention"
+            )
 
     def _record_transition_audit(
         self,

@@ -18,7 +18,7 @@ def _setup_failed_action(client) -> tuple[dict, dict]:
         "/api/integrations/accounts",
         headers=_headers("company-a"),
         json={
-            "provider": "unconfigured-provider",
+            "provider": "generic_webhook",
             "external_account_id": "company-a",
             "secret_reference": "INTEGRATION_SECRET_GENERIC_HMAC_TEST",
         },

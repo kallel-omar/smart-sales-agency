@@ -22,7 +22,7 @@ def _action(client, slug: str, account_id: str, key: str) -> dict:
 def test_operational_summary_aggregates_only_current_workspace_and_is_read_only(client):
     assert client.post("/api/workspaces", json={"slug": "company-a", "name": "Company A"}).status_code == 201
     delivered_account = _account(client, "company-a", "generic_hmac")
-    failed_account = _account(client, "company-a", "missing-provider")
+    failed_account = _account(client, "company-a", "generic_webhook")
     pending = _action(client, "company-a", delivered_account["id"], "pending")
     delivered = _action(client, "company-a", delivered_account["id"], "delivered")
     failed = _action(client, "company-a", failed_account["id"], "failed")

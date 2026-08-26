@@ -21,7 +21,7 @@ def test_failed_status_exposes_future_retry_time_without_mutating_action(client)
         "/api/integrations/accounts",
         headers=headers,
         json={
-            "provider": "missing-provider",
+            "provider": "generic_webhook",
             "external_account_id": "company-a",
             "secret_reference": "INTEGRATION_SECRET_GENERIC_HMAC_TEST",
         },

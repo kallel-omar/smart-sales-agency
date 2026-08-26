@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.integrations.providers import get_provider_requirements
 from app.models import (
     IntegrationAccount,
+    IntegrationAccountAuditAction,
     IntegrationCredentialReference,
     Workspace,
     utc_now,
 )
+from app.services.integration_account_audit import IntegrationAccountAuditService
 from app.services.integration_accounts import IntegrationAccountService
 from app.services.secret_reference_policy import IntegrationSecretReferencePolicy
 
@@ -38,6 +42,7 @@ class IntegrationCredentialReferenceService:
             session,
             self.secret_reference_policy,
         )
+        self.audit_service = IntegrationAccountAuditService(session)
 
     def set_reference(
         self,
@@ -45,11 +50,15 @@ class IntegrationCredentialReferenceService:
         account_id: UUID,
         purpose: str,
         secret_reference: str,
+        *,
+        expires_at: datetime | None = None,
+        actor_user_id: UUID | None = None,
     ) -> IntegrationCredentialReference:
         """Create or update one secret reference without resolving its value."""
-        self.account_service.get_for_workspace(workspace, account_id)
+        account = self.account_service.get_for_workspace(workspace, account_id)
 
         normalized_purpose = self._validate_purpose(purpose)
+        self._require_allowed_purpose(account, normalized_purpose)
         validated_secret_reference = self.secret_reference_policy.validate(
             secret_reference
         )
@@ -68,12 +77,23 @@ class IntegrationCredentialReferenceService:
                 integration_account_id=account_id,
                 purpose=normalized_purpose,
                 secret_reference=validated_secret_reference,
+                expires_at=expires_at,
             )
+            reason_code = "credential_reference_created"
         else:
             reference.secret_reference = validated_secret_reference
+            reference.expires_at = expires_at
             reference.updated_at = utc_now()
+            reason_code = "credential_reference_updated"
 
         self.session.add(reference)
+        self.audit_service.record(
+            account,
+            IntegrationAccountAuditAction.CREDENTIAL_REFERENCE_CHANGED,
+            actor_user_id=actor_user_id,
+            credential_purpose=normalized_purpose,
+            reason_code=reason_code,
+        )
         self.session.commit()
         self.session.refresh(reference)
         return reference
@@ -106,8 +126,9 @@ class IntegrationCredentialReferenceService:
         purpose: str,
     ) -> IntegrationCredentialReference:
         """Return one credential reference from the requesting workspace only."""
-        self.account_service.get_for_workspace(workspace, account_id)
+        account = self.account_service.get_for_workspace(workspace, account_id)
         normalized_purpose = self._validate_purpose(purpose)
+        self._require_allowed_purpose(account, normalized_purpose)
 
         reference = self.session.exec(
             select(IntegrationCredentialReference).where(
@@ -123,6 +144,7 @@ class IntegrationCredentialReferenceService:
             )
 
         return reference
+
     def get_for_integration_account(
         self,
         account: IntegrationAccount,
@@ -130,6 +152,7 @@ class IntegrationCredentialReferenceService:
     ) -> IntegrationCredentialReference:
         """Return a credential reference for an account already scoped by HIRI."""
         normalized_purpose = self._validate_purpose(purpose)
+        self._require_allowed_purpose(account, normalized_purpose)
 
         reference = self.session.exec(
             select(IntegrationCredentialReference).where(
@@ -145,6 +168,21 @@ class IntegrationCredentialReferenceService:
             )
 
         return reference
+
+    @staticmethod
+    def _require_allowed_purpose(
+        account: IntegrationAccount,
+        purpose: str,
+    ) -> None:
+        requirements = get_provider_requirements(
+            account.provider,
+            account.provider_auth_mode,
+        )
+        if requirements is None or purpose not in requirements.allowed_credential_purposes:
+            raise IntegrationCredentialPurposeValidationError(
+                "Credential purpose is not allowed for this provider authentication mode"
+            )
+
     @staticmethod
     def _validate_purpose(purpose: str) -> str:
         normalized = purpose.strip().lower()

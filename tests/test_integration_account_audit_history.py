@@ -4,7 +4,11 @@ from sqlmodel import select
 
 from app.db import get_session
 from app.main import app
-from app.models import IntegrationAccountAuditEvent
+from app.models import (
+    IntegrationAccount,
+    IntegrationAccountAuditEvent,
+    IntegrationAccountConnectionStatus,
+)
 
 
 def create_workspace(client, slug: str) -> None:
@@ -42,13 +46,23 @@ def account_events(client, workspace_slug: str, account_id: str) -> list[dict]:
     return response.json()
 
 
+def mark_account_connected(account_id: str) -> None:
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        account = session.get(IntegrationAccount, UUID(account_id))
+        assert account is not None
+        account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        session.add(account)
+        session.commit()
+
+
 def test_provision_creates_a_safe_workspace_scoped_audit_event(client):
     create_workspace(client, "company-a")
     account = provision_account(client, "company-a")
 
     events = account_events(client, "company-a", account["id"])
 
-    assert [event["action"] for event in events] == ["provisioned"]
+    assert [event["action"] for event in events] == ["configured"]
     assert events[0]["integration_account_id"] == account["id"]
     assert events[0]["workspace_id"] == account["workspace_id"]
     serialized_event = str(events[0])
@@ -77,6 +91,7 @@ def test_provision_creates_a_safe_workspace_scoped_audit_event(client):
 def test_lifecycle_operations_record_only_safe_audit_actions(client):
     create_workspace(client, "company-a")
     account = provision_account(client, "company-a")
+    mark_account_connected(account["id"])
 
     deactivate = client.post(
         f"/api/integrations/accounts/{account['id']}/deactivate",
@@ -105,9 +120,9 @@ def test_lifecycle_operations_record_only_safe_audit_actions(client):
     assert [event["action"] for event in events] == [
         "secret_reference_changed",
         "credential_rotated",
-        "reactivated",
-        "deactivated",
-        "provisioned",
+        "enabled",
+        "disabled",
+        "configured",
     ]
     assert "INTEGRATION_SECRET_AUDIT_UPDATED" not in str(events)
     assert account["inbound_credential"] not in str(events)

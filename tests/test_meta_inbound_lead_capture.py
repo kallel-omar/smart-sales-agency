@@ -24,6 +24,7 @@ from app.models import (
     InboundExternalIdentity,
     InboundIntegrationEventReceipt,
     IntegrationAccount,
+    IntegrationAccountConnectionStatus,
     IntegrationCredentialReference,
     Lead,
     OutboundIntegrationAction,
@@ -33,6 +34,7 @@ from app.models import (
     OutboundIntegrationDeliveryAttempt,
     WorkItem,
     Workspace,
+    utc_now,
 )
 from app.services.ai_employee_capability_assignments import (
     AIEmployeeCapabilityAssignmentService,
@@ -112,6 +114,18 @@ def _workspace(client, slug: str) -> None:
         )
 
 
+def _mark_test_account_connected(workspace_slug: str, account_id: str) -> None:
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        account = session.get(IntegrationAccount, UUID(account_id))
+        assert account is not None
+        account.connection_status = IntegrationAccountConnectionStatus.CONNECTED
+        account.last_validated_at = utc_now()
+        account.active = True
+        session.add(account)
+        session.commit()
+
+
 def _account(
     client,
     workspace_slug: str,
@@ -143,6 +157,7 @@ def _account(
             json={"secret_reference": META_SECRET_REFERENCE},
         )
         assert configured.status_code == 200
+    _mark_test_account_connected(workspace_slug, account_data["id"])
     if grant_tool_access:
         session_dependency = app.dependency_overrides[get_session]
         with next(session_dependency()) as session:

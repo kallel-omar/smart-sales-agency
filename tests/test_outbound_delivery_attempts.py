@@ -117,7 +117,7 @@ def test_first_delivery_creates_safe_attempt_one(client):
 
 def test_failed_retries_use_the_same_action_and_increase_attempt_numbers(client):
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", provider="unconfigured-provider")
+    account = provision_account(client, "company-a", provider="generic_webhook")
     action = create_action(client, "company-a", account["id"])
 
     first = deliver(client, "company-a", account["id"], action["id"])
@@ -145,7 +145,7 @@ def test_successful_explicit_retry_marks_the_original_action_delivered(client):
             return self.results.pop(0)
 
     create_workspace(client, "company-a")
-    account = provision_account(client, "company-a", provider="flaky-provider")
+    account = provision_account(client, "company-a", provider="generic_hmac")
     action = create_action(client, "company-a", account["id"])
     session_dependency = app.dependency_overrides[get_session]
     adapter = FlakyAdapter()
@@ -154,7 +154,7 @@ def test_successful_explicit_retry_marks_the_original_action_delivered(client):
         workspace = session.exec(select(Workspace).where(Workspace.slug == "company-a")).one()
         service = OutboundIntegrationDeliveryService(
             session,
-            adapter_registry=DeliveryAdapterRegistry({"flaky-provider": adapter}),
+            adapter_registry=DeliveryAdapterRegistry({"generic_hmac": adapter}),
         )
         failed, _ = service.deliver_pending_action(
             workspace,
@@ -188,7 +188,7 @@ def test_successful_explicit_retry_marks_the_original_action_delivered(client):
 def test_attempt_history_and_retry_are_workspace_scoped(client):
     create_workspace(client, "company-a")
     create_workspace(client, "company-b")
-    company_b_account = provision_account(client, "company-b", provider="unconfigured-provider")
+    company_b_account = provision_account(client, "company-b", provider="generic_webhook")
     company_b_action = create_action(client, "company-b", company_b_account["id"])
 
     assert deliver(client, "company-b", company_b_account["id"], company_b_action["id"]).status_code == 200

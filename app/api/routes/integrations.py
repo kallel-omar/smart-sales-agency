@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.dependencies import (
     AIUsageReadPermissionDep,
+    AuthenticatedWorkspaceContextDep,
     CurrentWorkspaceDep,
     IntegrationIngestRateLimitDep,
     IntegrationManagePermissionDep,
@@ -78,6 +79,10 @@ from app.schemas import (
     SalesReply,
 )
 from app.services.ai_invocation_usage import AIInvocationUsageService
+from app.services.channel_connections import (
+    ChannelConnectionLifecycleError,
+    ChannelConnectionService,
+)
 from app.services.inbound_integrations import (
     InboundIntegrationEventIdValidationError,
     InboundIntegrationService,
@@ -160,6 +165,7 @@ from app.services.outbound_approval_status import (
 from app.services.outbound_delivery import (
     DEFAULT_DELIVERY_ATTEMPT_LIMIT,
     MAX_DELIVERY_ATTEMPT_LIMIT,
+    IntegrationAccountReconnectRequiredError,
     OutboundDeliveryAttemptQueryValidationError,
     OutboundIntegrationActionAlreadyProcessedError,
     OutboundIntegrationActionExpiredError,
@@ -517,6 +523,7 @@ def provision_integration_account(
     payload: IntegrationAccountProvision,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
     _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountCredentialRead:
     """Provision a workspace-owned account and return its credential once."""
@@ -527,6 +534,7 @@ def provision_integration_account(
             payload.external_account_id,
             payload.secret_reference,
             payload.provider_auth_mode,
+            actor_user_id=context.principal.user_id,
         )
     except IntegrationAccountOwnershipConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -622,6 +630,10 @@ def get_integration_account_health(
         id=view.account.id,
         provider=view.account.provider,
         active=view.account.active,
+        connection_status=view.account.connection_status,
+        last_validated_at=view.account.last_validated_at,
+        credential_references_ready=view.credential_references_ready,
+        credential_expired=view.credential_expired,
         health=view.health,
         most_recent_outbound_at=view.most_recent_outbound_at,
         recent_delivered_count=view.recent_delivered_count,
@@ -656,6 +668,7 @@ def get_integration_runtime_readiness(
         id=view.account.id,
         provider=view.account.provider,
         active=view.account.active,
+        connection_status=view.account.connection_status,
         status="ready" if view.configuration_ready else "blocked",
         configuration_ready=view.configuration_ready,
         external_provider_availability_checked=False,
@@ -779,10 +792,15 @@ def deactivate_integration_account(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
     _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountRead:
     try:
-        account = IntegrationAccountService(session).deactivate(workspace, account_id)
+        account = ChannelConnectionService(session).disable(
+            workspace,
+            account_id,
+            actor_user_id=context.principal.user_id,
+        )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
     return account_read(account)
@@ -793,14 +811,42 @@ def reactivate_integration_account(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
     _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountRead:
     try:
-        account = IntegrationAccountService(session).reactivate(workspace, account_id)
+        account = ChannelConnectionService(session).enable(
+            workspace,
+            account_id,
+            actor_user_id=context.principal.user_id,
+        )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
     except IntegrationAccountOwnershipConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ChannelConnectionLifecycleError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return account_read(account)
+
+
+@router.post("/accounts/{account_id}/disconnect", response_model=IntegrationAccountRead)
+def disconnect_integration_account(
+    account_id: UUID,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
+    _: IntegrationManagePermissionDep,
+) -> IntegrationAccountRead:
+    """Disconnect HIRI while preserving business and audit history."""
+
+    try:
+        account = ChannelConnectionService(session).disconnect(
+            workspace,
+            account_id,
+            actor_user_id=context.principal.user_id,
+        )
+    except IntegrationAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Integration account not found") from exc
     return account_read(account)
 
 
@@ -813,6 +859,7 @@ def update_comment_to_message_eligibility(
     payload: IntegrationAccountCommentToMessageEligibilityUpdate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
     _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountRead:
     """Record operator-confirmed TikTok Comment-to-Message eligibility."""
@@ -821,6 +868,7 @@ def update_comment_to_message_eligibility(
             workspace,
             account_id,
             eligible=payload.eligible,
+            actor_user_id=context.principal.user_id,
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
@@ -837,12 +885,14 @@ def rotate_integration_account_credential(
     account_id: UUID,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
     _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountCredentialRead:
     try:
         account, credential = IntegrationAccountService(session).rotate_credential(
             workspace,
             account_id,
+            actor_user_id=context.principal.user_id,
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
@@ -858,6 +908,7 @@ def update_integration_account_secret_reference(
     payload: IntegrationAccountSecretReferenceUpdate,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
     _: IntegrationManagePermissionDep,
 ) -> IntegrationAccountRead:
     """Update an account's internal secret reference without resolving it."""
@@ -866,6 +917,7 @@ def update_integration_account_secret_reference(
             workspace,
             account_id,
             payload.secret_reference,
+            actor_user_id=context.principal.user_id,
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
@@ -886,6 +938,7 @@ def set_integration_credential_reference(
     payload: IntegrationCredentialReferenceUpsert,
     session: SessionDep,
     workspace: CurrentWorkspaceDep,
+    context: AuthenticatedWorkspaceContextDep,
     _permission: IntegrationManagePermissionDep,
 ) -> IntegrationCredentialReferenceRead:
     try:
@@ -894,6 +947,8 @@ def set_integration_credential_reference(
             account_id,
             purpose,
             payload.secret_reference,
+            expires_at=payload.expires_at,
+            actor_user_id=context.principal.user_id,
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(
@@ -959,7 +1014,7 @@ def create_outbound_integration_action(
             action_type=payload.action_type,
             content=payload.content,
             payload=payload.payload,
-        correlation_id=payload.correlation_id,
+            correlation_id=payload.correlation_id,
             idempotency_key=payload.idempotency_key,
             expires_at=payload.expires_at,
             requires_approval=payload.requires_approval,
@@ -967,7 +1022,10 @@ def create_outbound_integration_action(
         )
     except IntegrationAccountNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
-    except InactiveIntegrationAccountError as exc:
+    except (
+        InactiveIntegrationAccountError,
+        IntegrationAccountReconnectRequiredError,
+    ) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionIdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1259,7 +1317,10 @@ def deliver_outbound_integration_action(
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
     except OutboundIntegrationActionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
-    except InactiveIntegrationAccountError as exc:
+    except (
+        InactiveIntegrationAccountError,
+        IntegrationAccountReconnectRequiredError,
+    ) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionAlreadyProcessedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1325,7 +1386,10 @@ def retry_failed_outbound_integration_action(
         raise HTTPException(status_code=404, detail="Integration account not found") from exc
     except OutboundIntegrationActionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Outbound integration action not found") from exc
-    except InactiveIntegrationAccountError as exc:
+    except (
+        InactiveIntegrationAccountError,
+        IntegrationAccountReconnectRequiredError,
+    ) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except OutboundIntegrationActionRetryDeniedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -59,13 +59,13 @@ def test_adapter_classification_is_persisted_on_action_and_attempt(client):
                 OutboundDeliveryFailureClassification.RATE_LIMIT,
             )
 
-    account, action = _create_action(client, "classification-provider")
+    account, action = _create_action(client, "generic_hmac")
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
         workspace = session.exec(select(Workspace).where(Workspace.slug == "company-a")).one()
         delivered_action, _ = OutboundIntegrationDeliveryService(
             session,
-            adapter_registry=DeliveryAdapterRegistry({"classification-provider": FailingAdapter()}),
+            adapter_registry=DeliveryAdapterRegistry({"generic_hmac": FailingAdapter()}),
         ).deliver_pending_action(workspace, UUID(account["id"]), UUID(action["id"]))
         attempt = session.exec(
             select(OutboundIntegrationDeliveryAttempt).where(
@@ -77,14 +77,14 @@ def test_adapter_classification_is_persisted_on_action_and_attempt(client):
 
 
 def test_unknown_adapter_failure_is_classified_and_persisted(client):
-    account, action = _create_action(client, "missing-provider")
-    response = client.post(
-        f"/api/integrations/accounts/{account['id']}/outbound-actions/{action['id']}/deliver",
-        headers={"X-Workspace-Slug": "company-a"},
-    )
-    assert response.status_code == 200
+    account, action = _create_action(client, "generic_hmac")
     session_dependency = app.dependency_overrides[get_session]
     with next(session_dependency()) as session:
+        workspace = session.exec(select(Workspace).where(Workspace.slug == "company-a")).one()
+        OutboundIntegrationDeliveryService(
+            session,
+            adapter_registry=DeliveryAdapterRegistry({}),
+        ).deliver_pending_action(workspace, UUID(account["id"]), UUID(action["id"]))
         stored = session.get(OutboundIntegrationAction, UUID(action["id"]))
         assert stored is not None
         assert stored.failure_classification == OutboundDeliveryFailureClassification.PERMANENT
