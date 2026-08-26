@@ -99,6 +99,7 @@ _PROVIDER_REQUIREMENTS = {
         allowed_credential_purposes=_META_CREDENTIAL_PURPOSES,
         external_identity_required=True,
         native_delivery_adapter=True,
+        validation_credential_purposes=frozenset({API_ACCESS_TOKEN_PURPOSE}),
     ),
     (
         INSTAGRAM_DM_PROVIDER,
