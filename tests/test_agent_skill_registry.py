@@ -62,6 +62,7 @@ def definition(
         output_contract=f"test.{key}.output.v1",
         allowed_tool_ceiling=tools,
         validator=f"test.{key}.validator.v1",
+        instruction_component=f"test.{key}.instruction.v1",
     )
 
 
@@ -122,6 +123,7 @@ def test_definition_and_nested_collections_are_immutable() -> None:
         ({"input_contract": ""}, "input contract"),
         ({"output_contract": "invalid-contract"}, "output contract"),
         ({"validator": ""}, "validator"),
+        ({"instruction_component": ""}, "instruction component"),
         ({"eligible_roles": frozenset()}, "eligible roles"),
         ({"allowed_tool_ceiling": {"send_message"}}, "tool ceiling"),
     ],
@@ -137,6 +139,7 @@ def test_invalid_or_mutable_definition_contracts_are_rejected(changes, message) 
         "output_contract": "test.pricing.output.v1",
         "allowed_tool_ceiling": frozenset(),
         "validator": "test.pricing.validator.v1",
+        "instruction_component": "test.pricing.instruction.v1",
     }
     values.update(changes)
 
@@ -267,6 +270,7 @@ def test_representative_sales_definitions_use_canonical_contracts_and_no_tools()
         assert item.input_contract == f"sales.{key}.input.v1"
         assert item.output_contract == f"sales.{key}.output.v1"
         assert item.validator == f"sales.{key}.output_validator.v1"
+        assert item.instruction_component == f"sales.{key}.instruction.v1"
 
 
 def test_custom_employee_with_canonical_role_remains_eligible_after_assignment() -> None:

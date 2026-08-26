@@ -22,6 +22,7 @@ def _sales_skill(
         output_contract=f"sales.{key}.output.v1",
         allowed_tool_ceiling=frozenset(),
         validator=f"sales.{key}.output_validator.v1",
+        instruction_component=f"sales.{key}.instruction.v1",
     )
 
 

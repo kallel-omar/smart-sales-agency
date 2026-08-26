@@ -84,6 +84,9 @@ class PromptSectionKind(StrEnum):
     DEPARTMENT_POLICY = "department_policy"
     COMMERCIAL_GROUNDING_POLICY = "commercial_grounding_policy"
     AGENT_INSTRUCTIONS = "agent_instructions"
+    ROLE_INSTRUCTIONS = "role_instructions"
+    CAPABILITY_INSTRUCTIONS = "capability_instructions"
+    SKILL_INSTRUCTIONS = "skill_instructions"
     SALES_CONVERSATION_STRATEGY_POLICY = "sales_conversation_strategy_policy"
     SALES_CONVERSATION_QUALITY_POLICY = "sales_conversation_quality_policy"
     SALES_HANDOFF_POLICY = "sales_handoff_policy"
@@ -138,6 +141,30 @@ class UntrustedPromptContext:
 class WorkspaceSalesInstructions:
     """Trusted, server-owned workspace Sales instructions when configured."""
 
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class SalesRoleInstruction:
+    """Application-owned role expertise composed below platform policy."""
+
+    identifier: str
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class SalesCapabilityInstruction:
+    """Application-owned business-capability procedure instructions."""
+
+    identifier: str
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class SalesSkillInstruction:
+    """Versioned skill instruction selected only by trusted application code."""
+
+    identifier: str
     content: str
 
 
@@ -218,6 +245,9 @@ class PromptCompositionInput:
     sales_handoff_policy: str | None = None
     handoff_instruction: SalesHandoffInstruction | None = None
     language_tone_instruction: SalesLanguageToneInstruction | None = None
+    role_instruction: SalesRoleInstruction | None = None
+    capability_instruction: SalesCapabilityInstruction | None = None
+    skill_instruction: SalesSkillInstruction | None = None
     workspace_instructions: WorkspaceSalesInstructions | None = None
     business_context: SalesBusinessContext | None = None
     untrusted_context: tuple[UntrustedPromptContext, ...] = ()
@@ -297,6 +327,24 @@ class SalesPromptComposer:
                 trust_level=PromptTrustLevel.TRUSTED,
             )
         )
+        for instruction, kind in (
+            (source.role_instruction, PromptSectionKind.ROLE_INSTRUCTIONS),
+            (
+                source.capability_instruction,
+                PromptSectionKind.CAPABILITY_INSTRUCTIONS,
+            ),
+            (source.skill_instruction, PromptSectionKind.SKILL_INSTRUCTIONS),
+        ):
+            if instruction and instruction.content:
+                sections.append(
+                    PromptSection(
+                        kind=kind,
+                        content=instruction.content,
+                        role=PromptMessageRole.SYSTEM,
+                        trust_level=PromptTrustLevel.TRUSTED,
+                        label=instruction.identifier,
+                    )
+                )
         if source.sales_conversation_strategy_policy:
             sections.append(
                 PromptSection(

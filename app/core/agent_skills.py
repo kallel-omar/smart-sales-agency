@@ -60,6 +60,7 @@ class AgentSkillDefinition:
     output_contract: str
     allowed_tool_ceiling: frozenset[str]
     validator: str
+    instruction_component: str
 
     def __post_init__(self) -> None:
         self._require_identifier(self.key, "AgentSkill key", _KEY_PATTERN)
@@ -77,6 +78,11 @@ class AgentSkillDefinition:
         self._require_identifier(
             self.validator,
             "AgentSkill validator",
+            _IDENTIFIER_PATTERN,
+        )
+        self._require_identifier(
+            self.instruction_component,
+            "AgentSkill instruction component",
             _IDENTIFIER_PATTERN,
         )
         if not isinstance(self.department, Department):
@@ -101,6 +107,16 @@ class AgentSkillDefinition:
                 "AgentSkill tool ceiling entry",
                 _KEY_PATTERN,
             )
+        if len(self.attribution_identifier) > 100:
+            raise AgentSkillDefinitionError(
+                "AgentSkill attribution identifier exceeds the AI task identifier limit"
+            )
+
+    @property
+    def attribution_identifier(self) -> str:
+        """Stable, provider-neutral identifier suitable for AI usage attribution."""
+
+        return f"{self.department.value}.{self.key}.{self.version}"
 
     @staticmethod
     def _require_identifier(value: object, label: str, pattern: re.Pattern[str]) -> None:
