@@ -271,6 +271,10 @@ def test_representative_sales_definitions_use_canonical_contracts_and_no_tools()
             AIEmployeeRoleKey.FOLLOW_UP,
             BusinessCapabilityKey.FOLLOW_UP_LEAD,
         ),
+        "followup_message_generation": (
+            AIEmployeeRoleKey.FOLLOW_UP,
+            BusinessCapabilityKey.FOLLOW_UP_LEAD,
+        ),
     }
 
     assert {item.key for item in registry.list_definitions()} == set(expected)

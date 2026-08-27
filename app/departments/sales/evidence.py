@@ -16,6 +16,7 @@ class SalesEvidenceSourceType(StrEnum):
     LEAD_RECORD = "lead_record"
     CONVERSATION = "conversation"
     LEAD_RESEARCH = "lead_research"
+    FOLLOW_UP_TASK = "follow_up_task"
     MISSING = "missing"
 
 

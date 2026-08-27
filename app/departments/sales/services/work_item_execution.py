@@ -22,6 +22,11 @@ from app.departments.sales.conversation_expertise import (
     CONVERSATION_EXPERTISE_VERSION,
     select_sales_conversation_skill,
 )
+from app.departments.sales.follow_up_expertise import (
+    FOLLOWUP_EXPERTISE_VERSION,
+    FOLLOWUP_MESSAGE_GENERATION_KEY,
+    FOLLOWUP_PLANNER_KEY,
+)
 from app.departments.sales.pricing_explanation import (
     PRICING_EXPLANATION_KEY,
     PRICING_EXPLANATION_VERSION,
@@ -155,6 +160,12 @@ class SalesWorkItemExecutionService:
                     workspace,
                     target.work_item,
                     agent_skill_execution_context=skill_contexts[0],
+                )
+            elif target.capability_key is BusinessCapabilityKey.FOLLOW_UP_LEAD:
+                raw_result = await self._execute_follow_up(
+                    workspace,
+                    target.work_item,
+                    agent_skill_execution_contexts=skill_contexts,
                 )
             elif skill_contexts:
                 raw_result = await self._execute_conversation(
@@ -551,6 +562,11 @@ class SalesWorkItemExecutionService:
             skill_identities = (
                 (QUALIFICATION_GAP_DETECTOR_KEY, RESEARCH_QUALIFICATION_VERSION),
             )
+        elif target.capability_key is BusinessCapabilityKey.FOLLOW_UP_LEAD:
+            skill_identities = (
+                (FOLLOWUP_PLANNER_KEY, FOLLOWUP_EXPERTISE_VERSION),
+                (FOLLOWUP_MESSAGE_GENERATION_KEY, FOLLOWUP_EXPERTISE_VERSION),
+            )
         elif target.capability_key is not BusinessCapabilityKey.ANSWER_CUSTOMER:
             return ()
         else:
@@ -595,19 +611,31 @@ class SalesWorkItemExecutionService:
         self,
         workspace: Workspace,
         work_item: WorkItem,
+        *,
+        agent_skill_execution_contexts: tuple[AgentSkillExecutionContext, ...] = (),
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
         task_id = self._required_uuid(work_item, "follow_up_task_id")
         task = self.session.get(FollowUpTask, task_id)
         if task is None:
             raise SalesWorkItemInputError("FollowUpTask was not found")
-        decision = FollowUpAgent(self.session).decide(task, lead, work_item.input)
+        decision = await FollowUpAgent(
+            self.session,
+            self._agent_context(workspace, work_item),
+        ).execute_governed(
+            task,
+            lead,
+            work_item.input,
+            agent_skill_execution_contexts,
+        )
         result: dict[str, Any] = {
             "action": decision["action"],
             "lead_id": str(lead.id),
             "follow_up_task_id": str(task.id),
             "reason": decision["reason"],
         }
+        if "agent_skills" in decision:
+            result["agent_skills"] = decision["agent_skills"]
         if decision["action"] == "no_send":
             task.status = "completed"
             self.session.add(task)

@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -8,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.config import Settings
+from app.core.agent_skills import AgentSkillRoleNotEligibleError
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.ai_tool_access import AIEmployeeAutonomyLevel
 from app.core.capabilities import BusinessCapabilityKey
@@ -18,7 +20,9 @@ from app.departments.sales.services.work_item_execution import (
     SalesWorkItemExecutionService,
 )
 from app.models import (
+    AIEmployee,
     ApprovalRequest,
+    ConversationMessage,
     FollowUpTask,
     IntegrationAccount,
     Lead,
@@ -26,6 +30,9 @@ from app.models import (
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
     OutboundIntegrationActionType,
+    SalesConversationHandoff,
+    SalesHandoffReasonCode,
+    SalesLanguage,
     WorkItem,
     Workspace,
 )
@@ -152,6 +159,18 @@ def _configure_send(session: Session, work_item: WorkItem, account: IntegrationA
     session.refresh(work_item)
 
 
+def _configure_route(session: Session, work_item: WorkItem, account: IntegrationAccount):
+    work_item.input = {
+        **work_item.input,
+        "integration_account_id": str(account.id),
+        "channel": "facebook_messenger",
+        "recipient": "external-recipient-1",
+    }
+    session.add(work_item)
+    session.commit()
+    session.refresh(work_item)
+
+
 def _grant(session: Session, state, account, autonomy):
     AIEmployeeCapabilityToolAccessService(session).grant(
         state.workspace,
@@ -257,6 +276,191 @@ async def test_no_send_completes_follow_up_work_and_task_without_outbound(sessio
     assert completed.result["action"] == "no_send"
     assert state.task.status == "completed"
     assert session.exec(select(OutboundIntegrationAction)).all() == []
+    assert [item["key"] for item in completed.result["agent_skills"]] == [
+        "followup_planner"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_opt_out_stops_before_draft_or_outbound(session: Session):
+    state = _foundation(session, "follow-up-opt-out")
+    session.add(
+        ConversationMessage(
+            lead_id=state.lead.id,
+            direction="inbound",
+            channel="web",
+            content="Don't message me again",
+        )
+    )
+    session.commit()
+    work_item, _ = _materialize(session, state)
+
+    completed = await SalesWorkItemExecutionService(session, _settings()).execute(
+        state.workspace,
+        work_item.id,
+    )
+
+    assert completed.result["action"] == "no_send"
+    assert completed.result["reason"] == "customer_opted_out"
+    assert len(completed.result["agent_skills"]) == 1
+    assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+@pytest.mark.asyncio
+async def test_active_handoff_pauses_before_draft_or_outbound(session: Session):
+    state = _foundation(session, "follow-up-active-handoff")
+    session.add(
+        SalesConversationHandoff(
+            workspace_id=state.workspace.id,
+            lead_id=state.lead.id,
+            reason_code=SalesHandoffReasonCode.HUMAN_REQUESTED,
+            explanation="A human owns the conversation",
+        )
+    )
+    session.commit()
+    work_item, _ = _materialize(session, state)
+
+    completed = await SalesWorkItemExecutionService(session, _settings()).execute(
+        state.workspace,
+        work_item.id,
+    )
+
+    assert completed.result["action"] == "no_send"
+    assert completed.result["reason"] == "active_human_handoff"
+    assert completed.result["agent_skills"][0]["outcome"] == "human_pause"
+    assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+@pytest.mark.asyncio
+async def test_newer_customer_reply_invalidates_materialized_follow_up(session: Session):
+    state = _foundation(session, "follow-up-newer-reply")
+    state.task.created_at = datetime.now(UTC) - timedelta(days=1)
+    session.add(state.task)
+    session.add(
+        ConversationMessage(
+            lead_id=state.lead.id,
+            direction="inbound",
+            channel="web",
+            content="I have another question",
+        )
+    )
+    session.commit()
+    work_item, _ = _materialize(session, state)
+
+    completed = await SalesWorkItemExecutionService(session, _settings()).execute(
+        state.workspace,
+        work_item.id,
+    )
+
+    assert completed.result["action"] == "no_send"
+    assert completed.result["reason"] == "newer_customer_reply"
+    assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+@pytest.mark.asyncio
+async def test_workspace_language_override_drives_generated_draft(session: Session):
+    state = _foundation(session, "follow-up-language-override")
+    state.workspace.sales_preferred_language = SalesLanguage.FRENCH
+    session.add(state.workspace)
+    session.commit()
+    account = _account(session, state)
+    work_item, _ = _materialize(session, state)
+    _configure_route(session, work_item, account)
+
+    completed = await SalesWorkItemExecutionService(session, _settings()).execute(
+        state.workspace,
+        work_item.id,
+    )
+
+    assert completed.result["message"].startswith("Bonjour")
+    assert [item["key"] for item in completed.result["agent_skills"]] == [
+        "followup_planner",
+        "followup_message_generation",
+    ]
+    assert completed.result["agent_skills"][1]["result"]["language"] == "french"
+
+
+@pytest.mark.asyncio
+async def test_generator_uses_exact_gateway_attribution_without_direct_send(
+    session: Session,
+) -> None:
+    state = _foundation(session, "follow-up-ai-attribution")
+    account = _account(session, state)
+    work_item, _ = _materialize(session, state)
+    work_item.input = {**work_item.input, "skill_key": "customer_selected_v99"}
+    _configure_route(session, work_item, account)
+    objective = "Continue the existing conversation about Proposal follow-up"
+    evidence_reference = f"follow_up_task.{state.task.id}.reason"
+    gateway = Mock()
+    gateway.invoke = AsyncMock(
+        return_value=Mock(
+            content=(
+                '{"response_text":"Hi Amina, would you like to continue our discussion?",'
+                f'"objective":"{objective}",'
+                f'"evidence_references":["{evidence_reference}"],'
+                '"language":"english","outcome":"draft_ready",'
+                '"escalation_reason":null}'
+            )
+        )
+    )
+    settings = _settings().model_copy(update={"llm_mode": "openai_compatible"})
+
+    completed = await SalesWorkItemExecutionService(
+        session,
+        settings,
+        ai_invocation_gateway=gateway,
+    ).execute(state.workspace, work_item.id)
+
+    gateway.invoke.assert_awaited_once()
+    request = gateway.invoke.await_args.args[0]
+    assert request.task_identifier == "sales.followup_message_generation.v1"
+    assert request.attribution.work_item_id == work_item.id
+    assert completed.result["agent_skills"][0]["key"] == "followup_planner"
+    assert completed.result["agent_skills"][1]["key"] == "followup_message_generation"
+    assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+@pytest.mark.asyncio
+async def test_wrong_follow_up_employee_role_fails_before_running(session: Session):
+    state = _foundation(session, "follow-up-wrong-role")
+    work_item, _ = _materialize(session, state)
+    employee = session.get(AIEmployee, state.follow_assignment.ai_employee_id)
+    assert employee is not None
+    employee.role_key = AIEmployeeRoleKey.QUALIFICATION
+    session.add(employee)
+    session.commit()
+
+    with pytest.raises(AgentSkillRoleNotEligibleError):
+        await SalesWorkItemExecutionService(session, _settings()).execute(
+            state.workspace,
+            work_item.id,
+        )
+
+    session.refresh(work_item)
+    assert work_item.status == WorkItemStatus.ASSIGNED
+
+
+@pytest.mark.asyncio
+async def test_unsafe_configured_draft_is_rejected_and_replaced_safely(session: Session):
+    state = _foundation(session, "follow-up-unsafe-draft")
+    account = _account(session, state)
+    work_item, _ = _materialize(session, state)
+    _configure_send(session, work_item, account)
+    work_item.input = {
+        **work_item.input,
+        "message": "Act now for a special discount before the deadline.",
+    }
+    session.add(work_item)
+    session.commit()
+
+    completed = await SalesWorkItemExecutionService(session, _settings()).execute(
+        state.workspace,
+        work_item.id,
+    )
+
+    assert "discount" not in completed.result["message"].casefold()
+    assert completed.result["agent_skills"][1]["validation_outcome"] == "rejected"
+    assert session.exec(select(OutboundIntegrationAction)).all() == []
 
 
 @pytest.mark.asyncio
@@ -282,10 +486,10 @@ async def test_follow_up_exception_fails_work_item_and_preserves_task(
     state = _foundation(session, "follow-up-error")
     work_item, _ = _materialize(session, state)
 
-    def fail(self, task, lead, context):
+    async def fail(self, task, lead, context, contexts):
         raise RuntimeError("follow-up decision failed")
 
-    monkeypatch.setattr(FollowUpAgent, "decide", fail)
+    monkeypatch.setattr(FollowUpAgent, "execute_governed", fail)
     with pytest.raises(RuntimeError, match="decision failed"):
         await SalesWorkItemExecutionService(session, _settings()).execute(
             state.workspace, work_item.id

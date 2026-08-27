@@ -161,5 +161,4 @@ class FollowUpWorkItemMaterializationService:
             "integration_account_id": str(account.id),
             "channel": identity.channel,
             "recipient": identity.external_subject_id,
-            "message": f"Following up: {task.reason.strip()}",
         }

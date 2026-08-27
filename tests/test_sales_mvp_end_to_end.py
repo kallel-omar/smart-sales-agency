@@ -838,9 +838,9 @@ def test_sales_mvp_real_boundaries_end_to_end(
     assert analytics_a["approvals"]["requests_created"] == 2
     assert analytics_a["approvals"]["approved"] == 1
     assert analytics_a["approvals"]["rejected"] == 1
-    assert analytics_a["ai_usage"]["invocation_count"] == 1
-    assert analytics_a["ai_usage"]["total_tokens"] == 20
-    assert analytics_a["ai_usage"]["known_estimated_cost"] == "0.00005600"
+    assert analytics_a["ai_usage"]["invocation_count"] == 2
+    assert analytics_a["ai_usage"]["total_tokens"] == 40
+    assert analytics_a["ai_usage"]["known_estimated_cost"] == "0.00011200"
     assert analytics_a["sales"]["outcomes"]["follow_up_completed"] == 1
     workforce_rows = {row["employee_id"]: row for row in analytics_a["workforce"]}
     assert workforce_rows[str(workforce.conversation_employee_id)]["workitems"] == 5
@@ -848,6 +848,12 @@ def test_sales_mvp_real_boundaries_end_to_end(
     capability_rows = {row["capability_id"]: row for row in analytics_a["capabilities"]}
     assert (
         capability_rows[str(workforce.capability_ids[BusinessCapabilityKey.ANSWER_CUSTOMER])][
+            "invocation_count"
+        ]
+        == 1
+    )
+    assert (
+        capability_rows[str(workforce.capability_ids[BusinessCapabilityKey.FOLLOW_UP_LEAD])][
             "invocation_count"
         ]
         == 1

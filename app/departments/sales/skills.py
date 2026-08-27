@@ -67,6 +67,11 @@ SALES_AGENT_SKILL_DEFINITIONS = (
         role=AIEmployeeRoleKey.FOLLOW_UP,
         capability=BusinessCapabilityKey.FOLLOW_UP_LEAD,
     ),
+    _sales_skill(
+        key="followup_message_generation",
+        role=AIEmployeeRoleKey.FOLLOW_UP,
+        capability=BusinessCapabilityKey.FOLLOW_UP_LEAD,
+    ),
 )
 
 
