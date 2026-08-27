@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from sqlmodel import Session
+
 from app.config import Settings
 from app.core.agent_skill_execution import AgentSkillExecutionContext
 from app.core.ai_execution_attribution import AIExecutionAttribution
@@ -33,6 +35,7 @@ from app.models import (
     Workspace,
 )
 from app.services.ai_invocation_gateway import AIInvocationGateway
+from app.services.qualification_collection import QualificationCollectionService
 from app.services.repository import NotFoundError, SalesRepository
 
 
@@ -125,6 +128,24 @@ class SalesConversationTurnService:
             source.customer_message,
         )
         agent = SalesConversationAgent(self._agent_context())
+        collection_service = (
+            QualificationCollectionService(
+                self.repository.session,
+                self.settings,
+                ai_invocation_gateway=self.ai_invocation_gateway,
+            )
+            if isinstance(self.repository.session, Session)
+            else None
+        )
+        qualification_context = (
+            None
+            if handoff.human_attention_required or collection_service is None
+            else collection_service.pending_context(
+                self.workspace,
+                lead,
+                source.customer_message,
+            )
+        )
 
         if handoff.human_attention_required:
             assert handoff.reason_code is not None and handoff.explanation is not None
@@ -146,6 +167,7 @@ class SalesConversationTurnService:
                     self.agent_skill_execution_context,
                     conversation_history=history,
                     current_stage=canonical_stage,
+                    qualification_context=qualification_context,
                 )
                 structured_result = None
             else:
@@ -156,6 +178,7 @@ class SalesConversationTurnService:
                     communication_channel=source.channel,
                     conversation_history=history,
                     current_stage=canonical_stage,
+                    qualification_context=qualification_context,
                 )
                 structured_result = skill_result.structured_result
             reply = skill_result.response_text
@@ -185,13 +208,14 @@ class SalesConversationTurnService:
                 source.customer_message,
                 conversation_history=history,
                 current_stage=canonical_stage,
+                qualification_context=qualification_context,
             )
             ai_invoked = self.settings.llm_mode != "demo"
             agent_skill = None
 
         # The turn service is the only owner of reply-message persistence.
         # Existing approval behavior deliberately remains unchanged.
-        self.repository.add_message(
+        inbound_message = self.repository.add_message(
             ConversationMessage(
                 lead_id=lead.id,
                 direction="inbound",
@@ -200,6 +224,13 @@ class SalesConversationTurnService:
                 content=source.customer_message,
             )
         )
+
+        if not handoff.human_attention_required and collection_service is not None:
+            await collection_service.process_persisted_message(
+                self.workspace,
+                lead,
+                inbound_message,
+            )
 
         approval_id: UUID | None = None
         if self.settings.require_human_approval:

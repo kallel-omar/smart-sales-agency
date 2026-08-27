@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.departments.sales.qualification_collection import SalesQualificationContext
+
 SALES_PLATFORM_POLICY = (
     "Never invent prices, discounts, stock, guarantees, or customer facts. "
     "Do not expose internal, secret, or system information. Use supplied business "
@@ -216,6 +218,7 @@ class SalesBusinessContext:
 
     company_name: str | None = None
     products: tuple[SalesProductContext, ...] = ()
+    qualification_context: SalesQualificationContext | None = None
 
     def render(self) -> str:
         parts: list[str] = []
@@ -224,6 +227,8 @@ class SalesBusinessContext:
         if self.products:
             products = "\n\n".join(product.render() for product in self.products)
             parts.append(f"Authoritative product catalog:\n{products}")
+        if self.qualification_context is not None:
+            parts.append(self.qualification_context.render())
         return "\n".join(parts)
 
 

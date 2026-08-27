@@ -4,15 +4,19 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.departments.sales.icp_scoring import ICPScoringInput
+from app.departments.sales.icp_scoring import MAX_ICP_FACTS, ICPScoringInput
+from app.departments.sales.qualification_collection import (
+    conversation_facts_for_playbook,
+)
 from app.departments.sales.qualification_facts import (
     PersistedQualificationEvidence,
     adapt_qualification_facts,
 )
-from app.models import Lead, LeadResearch, Workspace
+from app.models import ConversationMessage, Lead, LeadResearch, Workspace
 from app.services.sales_playbooks import WorkspaceSalesPlaybookService
 
 MAX_QUALIFICATION_RESEARCH_RECORDS = 10
+MAX_QUALIFICATION_CONVERSATION_MESSAGES = 20
 
 
 class QualificationFactScopeError(PermissionError):
@@ -37,6 +41,7 @@ class QualificationFactAdapter:
         lead_id: UUID,
         *,
         research_id: UUID | None = None,
+        conversation_message_ids: tuple[UUID, ...] = (),
     ) -> ICPScoringInput:
         lead = self.session.get(Lead, lead_id)
         if lead is None or lead.tenant_id != workspace.slug:
@@ -49,20 +54,35 @@ class QualificationFactAdapter:
                 "Sales Playbook is not configured"
             )
         research_records = self._research_records(lead, research_id)
-        facts = adapt_qualification_facts(
-            playbook,
-            tuple(
-                PersistedQualificationEvidence(
-                    research.id,
-                    (
-                        tuple(research.evidence)
-                        if isinstance(research.evidence, list)
-                        else ()
-                    ),
-                )
-                for research in research_records
-            ),
+        research_facts = list(
+            adapt_qualification_facts(
+                playbook,
+                tuple(
+                    PersistedQualificationEvidence(
+                        research.id,
+                        (
+                            tuple(research.evidence)
+                            if isinstance(research.evidence, list)
+                            else ()
+                        ),
+                    )
+                    for research in research_records
+                ),
+            )
         )
+        conversation_facts = [
+            fact
+            for message in self._conversation_messages(
+                lead,
+                conversation_message_ids,
+            )
+            for fact in conversation_facts_for_playbook(
+                playbook,
+                message.content,
+                source_reference=f"conversation_message:{message.id}",
+            )
+        ]
+        facts = tuple((conversation_facts + research_facts)[:MAX_ICP_FACTS])
         return ICPScoringInput(workspace.id, lead.id, facts)
 
     def _research_records(
@@ -85,3 +105,32 @@ class QualificationFactAdapter:
                 .limit(MAX_QUALIFICATION_RESEARCH_RECORDS)
             ).all()
         )
+
+    def _conversation_messages(
+        self,
+        lead: Lead,
+        message_ids: tuple[UUID, ...],
+    ) -> tuple[ConversationMessage, ...]:
+        if (
+            not isinstance(message_ids, tuple)
+            or len(message_ids) > MAX_QUALIFICATION_CONVERSATION_MESSAGES
+            or len(set(message_ids)) != len(message_ids)
+        ):
+            raise QualificationFactScopeError("Qualification conversation evidence is invalid")
+        if not message_ids:
+            return ()
+        messages = tuple(
+            self.session.exec(
+                select(ConversationMessage).where(
+                    ConversationMessage.id.in_(message_ids),
+                    ConversationMessage.lead_id == lead.id,
+                    ConversationMessage.direction == "inbound",
+                )
+            ).all()
+        )
+        if len(messages) != len(set(message_ids)):
+            raise QualificationFactScopeError(
+                "Qualification conversation evidence does not belong to the resolved Lead"
+            )
+        by_id = {message.id: message for message in messages}
+        return tuple(by_id[message_id] for message_id in message_ids)

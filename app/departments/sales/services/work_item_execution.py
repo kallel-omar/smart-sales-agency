@@ -36,6 +36,9 @@ from app.departments.sales.qualification_authority import (
     QualificationAuthorityDecisionValue,
     QualificationDecisionPolicy,
 )
+from app.departments.sales.qualification_collection import (
+    build_qualification_collection_plan,
+)
 from app.departments.sales.research_qualification_expertise import (
     ACCOUNT_RESEARCH_KEY,
     BUYING_SIGNAL_DETECTION_KEY,
@@ -72,6 +75,7 @@ from app.services.ai_invocation_gateway import AIInvocationGateway
 from app.services.department_supervisors import DepartmentSupervisorRoutingService
 from app.services.icp_scoring import QualificationICPAssessmentService
 from app.services.repository import NotFoundError, SalesRepository
+from app.services.sales_playbooks import WorkspaceSalesPlaybookService
 from app.services.send_message_work_items import SendMessageWorkItemService
 from app.services.work_items import WorkItemService
 
@@ -444,6 +448,9 @@ class SalesWorkItemExecutionService:
                 lead,
                 icp_context,
                 research_id=research_id,
+                conversation_message_ids=self._qualification_conversation_message_ids(
+                    work_item
+                ),
             )
         legacy_result = QualificationAgent(
             self._agent_context(workspace, work_item)
@@ -483,6 +490,21 @@ class SalesWorkItemExecutionService:
             response["agent_skill"] = agent_skill
         if icp_assessment is not None:
             response["icp_assessment"] = icp_assessment
+            if (
+                outcome
+                == QualificationAuthorityDecisionValue.NEEDS_MORE_INFORMATION.value
+                and icp_assessment.get("status") == "assessed"
+            ):
+                playbook = WorkspaceSalesPlaybookService(self.session).read(workspace)
+                assert playbook is not None
+                collection_plan = build_qualification_collection_plan(
+                    qualification_work_item_id=str(work_item.id),
+                    playbook=playbook,
+                    icp_assessment=icp_assessment,
+                    qualification_policy=response["qualification_policy"],
+                )
+                if collection_plan is not None:
+                    response["qualification_collection"] = collection_plan
         return response
 
     def _qualification_gap_metadata(
@@ -549,6 +571,25 @@ class SalesWorkItemExecutionService:
             },
             research.id,
         )
+
+    def _qualification_conversation_message_ids(
+        self,
+        work_item: WorkItem,
+    ) -> tuple[UUID, ...]:
+        value = work_item.input.get("qualification_evidence_message_ids", [])
+        if not isinstance(value, list) or len(value) > 20:
+            raise SalesWorkItemInputError(
+                "Qualification conversation evidence must be a bounded list"
+            )
+        resolved = tuple(
+            self._uuid_value(item, "qualification_evidence_message_ids")
+            for item in value
+        )
+        if len(set(resolved)) != len(resolved):
+            raise SalesWorkItemInputError(
+                "Qualification conversation evidence cannot contain duplicates"
+            )
+        return resolved
 
     async def _execute_conversation(
         self,

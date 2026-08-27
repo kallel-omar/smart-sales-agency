@@ -76,6 +76,7 @@ class QualificationICPAssessmentService:
         context: AgentSkillExecutionContext,
         *,
         research_id: UUID | None,
+        conversation_message_ids: tuple[UUID, ...] = (),
     ) -> dict[str, object]:
         skill = self._skill_attribution(workspace, context)
         try:
@@ -83,6 +84,7 @@ class QualificationICPAssessmentService:
                 workspace,
                 lead.id,
                 research_id=research_id,
+                conversation_message_ids=conversation_message_ids,
             )
             execution = WorkspaceICPScoringService(self.session).score(
                 workspace,

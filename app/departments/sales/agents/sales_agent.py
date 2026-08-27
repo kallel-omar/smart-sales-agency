@@ -68,6 +68,7 @@ from app.departments.sales.prompt_composition import (
     SalesSkillInstruction,
     WorkspaceSalesInstructions,
 )
+from app.departments.sales.qualification_collection import SalesQualificationContext
 from app.departments.sales.skills import sales_agent_skill_registry
 from app.models import ConversationMessage, Lead, Product, SalesStage
 from app.services.ai_invocation_gateway import AIInvocationGatewayRequest
@@ -150,6 +151,7 @@ class SalesConversationAgent:
         products: list[Product],
         conversation_history: list[ConversationMessage] | None = None,
         skill_instruction: SalesSkillInstruction | None = None,
+        qualification_context: SalesQualificationContext | None = None,
     ) -> PromptComposition:
         """Build transient Sales context while keeping customer text untrusted."""
 
@@ -201,6 +203,7 @@ class SalesConversationAgent:
                 business_context=SalesBusinessContext(
                     company_name=self.context.workspace.name if self.context.workspace else None,
                     products=self._product_context(products),
+                    qualification_context=qualification_context,
                 ),
                 conversation_messages=self._conversation_context(history),
                 current_task=(
@@ -217,6 +220,7 @@ class SalesConversationAgent:
         *,
         conversation_history: list[ConversationMessage] | None = None,
         current_stage: SalesStage | None = None,
+        qualification_context: SalesQualificationContext | None = None,
     ) -> tuple[SalesStage, str]:
         stage = self.detect_stage(inbound)
         canonical_stage = current_stage or stage
@@ -274,6 +278,7 @@ class SalesConversationAgent:
                 stage=canonical_stage,
                 products=products,
                 conversation_history=history,
+                qualification_context=qualification_context,
             ).render()
             if self.context.ai_invocation_gateway is None:
                 raise RuntimeError("No AI invocation gateway is configured for sales conversation")
@@ -306,6 +311,7 @@ class SalesConversationAgent:
         *,
         conversation_history: list[ConversationMessage] | None = None,
         current_stage: SalesStage | None = None,
+        qualification_context: SalesQualificationContext | None = None,
     ) -> tuple[SalesStage, PricingExplanationExecutionResult]:
         """Execute the one authorized pricing Skill through the existing gateway."""
 
@@ -377,6 +383,7 @@ class SalesConversationAgent:
             stage=canonical_stage,
             products=products,
             conversation_history=history,
+            qualification_context=qualification_context,
             skill_instruction=SalesSkillInstruction(
                 identifier=skill_context.instruction_component,
                 content=PRICING_EXPLANATION_INSTRUCTIONS + code_switching_instruction,
@@ -438,6 +445,7 @@ class SalesConversationAgent:
         communication_channel: str | None = None,
         conversation_history: list[ConversationMessage] | None = None,
         current_stage: SalesStage | None = None,
+        qualification_context: SalesQualificationContext | None = None,
     ) -> tuple[SalesStage, ConversationExpertiseExecutionResult]:
         """Execute one authorized 296E Skill through existing HIRI boundaries."""
 
@@ -508,6 +516,7 @@ class SalesConversationAgent:
             stage=canonical_stage,
             products=products,
             conversation_history=history,
+            qualification_context=qualification_context,
             skill_instruction=SalesSkillInstruction(
                 identifier=skill_context.instruction_component,
                 content=skill_instructions(skill_context.skill_key) + code_switching_instruction,
