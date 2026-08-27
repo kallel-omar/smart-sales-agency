@@ -3,7 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.agent_skills import AgentSkillNotFoundError
+from app.core.ai_employees import AIEmployeeRoleKey
+from app.core.capabilities import BusinessCapabilityKey
 from app.departments.sales.evidence import (
     SalesEvidenceClassification,
     SalesEvidenceContractError,
@@ -295,9 +296,12 @@ def test_qualification_recommendations_are_bounded() -> None:
         QualificationGapOutputValidator().validate(output, source_value)
 
 
-def test_icp_scoring_is_not_registered_without_structured_workspace_criteria() -> None:
-    with pytest.raises(AgentSkillNotFoundError):
-        sales_agent_skill_registry().resolve("icp_scoring", "v1")
+def test_icp_scoring_is_registered_as_tool_free_qualification_skill() -> None:
+    definition = sales_agent_skill_registry().resolve("icp_scoring", "v1")
+
+    assert definition.eligible_roles == frozenset({AIEmployeeRoleKey.QUALIFICATION})
+    assert definition.required_capability is BusinessCapabilityKey.QUALIFY_LEAD
+    assert definition.allowed_tool_ceiling == frozenset()
 
 
 def test_research_and_qualification_skill_tool_ceilings_are_empty() -> None:
@@ -307,5 +311,6 @@ def test_research_and_qualification_skill_tool_ceilings_are_empty() -> None:
         "account_research",
         "buying_signal_detection",
         "qualification_gap_detector",
+        "icp_scoring",
     ):
         assert registry.resolve(key, "v1").allowed_tool_ceiling == frozenset()

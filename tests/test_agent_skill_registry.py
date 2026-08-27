@@ -251,6 +251,10 @@ def test_representative_sales_definitions_use_canonical_contracts_and_no_tools()
             AIEmployeeRoleKey.QUALIFICATION,
             BusinessCapabilityKey.QUALIFY_LEAD,
         ),
+        "icp_scoring": (
+            AIEmployeeRoleKey.QUALIFICATION,
+            BusinessCapabilityKey.QUALIFY_LEAD,
+        ),
         "pricing_explanation": (
             AIEmployeeRoleKey.SALES_CONVERSATION,
             BusinessCapabilityKey.ANSWER_CUSTOMER,

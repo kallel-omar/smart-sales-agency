@@ -43,6 +43,11 @@ SALES_AGENT_SKILL_DEFINITIONS = (
         capability=BusinessCapabilityKey.QUALIFY_LEAD,
     ),
     _sales_skill(
+        key="icp_scoring",
+        role=AIEmployeeRoleKey.QUALIFICATION,
+        capability=BusinessCapabilityKey.QUALIFY_LEAD,
+    ),
+    _sales_skill(
         key="pricing_explanation",
         role=AIEmployeeRoleKey.SALES_CONVERSATION,
         capability=BusinessCapabilityKey.ANSWER_CUSTOMER,
