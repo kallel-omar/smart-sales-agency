@@ -8,6 +8,8 @@ from sqlmodel import Session, select
 
 from app.core.agent_skill_execution import AgentSkillExecutionContext
 from app.core.agent_skills import AgentSkillRegistry, effective_agent_skill_tools
+from app.core.ai_employees import AIEmployeeRoleKey
+from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
 from app.core.work_items import WorkItemStatus
 from app.models import (
@@ -66,13 +68,13 @@ class AgentSkillExecutionContextResolver:
         return AgentSkillExecutionContext(
             workspace_id=workspace.id,
             department_id=department.id,
-            department=department.kind,
+            department=DepartmentKind(department.kind),
             work_item_id=work_item.id,
             ai_employee_id=employee.id,
-            employee_role=employee.role_key,
+            employee_role=AIEmployeeRoleKey(employee.role_key),
             assignment_id=assignment.id,
             capability_id=capability.id,
-            capability=capability.key,
+            capability=BusinessCapabilityKey(capability.key),
             skill_key=definition.key,
             skill_version=definition.version,
             input_contract=definition.input_contract,

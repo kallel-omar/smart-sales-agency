@@ -27,6 +27,7 @@ from app.departments.sales.follow_up_expertise import (
     FOLLOWUP_MESSAGE_GENERATION_KEY,
     FOLLOWUP_PLANNER_KEY,
 )
+from app.departments.sales.icp_scoring import ICP_SCORING_KEY, ICP_SCORING_VERSION
 from app.departments.sales.pricing_explanation import (
     PRICING_EXPLANATION_KEY,
     PRICING_EXPLANATION_VERSION,
@@ -64,6 +65,7 @@ from app.services.agent_skill_execution import AgentSkillExecutionContextResolve
 from app.services.ai_execution_attribution import AIExecutionAttributionService
 from app.services.ai_invocation_gateway import AIInvocationGateway
 from app.services.department_supervisors import DepartmentSupervisorRoutingService
+from app.services.icp_scoring import QualificationICPAssessmentService
 from app.services.repository import NotFoundError, SalesRepository
 from app.services.send_message_work_items import SendMessageWorkItemService
 from app.services.work_items import WorkItemService
@@ -159,7 +161,7 @@ class SalesWorkItemExecutionService:
                 raw_result = await self._execute_qualification(
                     workspace,
                     target.work_item,
-                    agent_skill_execution_context=skill_contexts[0],
+                    agent_skill_execution_contexts=skill_contexts,
                 )
             elif target.capability_key is BusinessCapabilityKey.FOLLOW_UP_LEAD:
                 raw_result = await self._execute_follow_up(
@@ -408,17 +410,35 @@ class SalesWorkItemExecutionService:
         workspace: Workspace,
         work_item: WorkItem,
         *,
-        agent_skill_execution_context: AgentSkillExecutionContext | None = None,
+        agent_skill_execution_contexts: tuple[AgentSkillExecutionContext, ...] = (),
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
-        research = self._qualification_research(workspace, lead, work_item)
+        research, research_id = self._qualification_research(
+            workspace,
+            lead,
+            work_item,
+        )
         agent_skill: dict[str, object] | None = None
-        if agent_skill_execution_context is not None:
+        icp_assessment: dict[str, object] | None = None
+        if agent_skill_execution_contexts:
+            if len(agent_skill_execution_contexts) != 2:
+                raise SalesWorkItemExecutionAssignmentError(
+                    "Qualification requires exactly two AgentSkill contexts"
+                )
+            gap_context, icp_context = agent_skill_execution_contexts
             agent_skill = self._qualification_gap_metadata(
                 workspace,
                 lead,
                 research,
-                agent_skill_execution_context,
+                gap_context,
+            )
+            icp_assessment = QualificationICPAssessmentService(
+                self.session
+            ).assess(
+                workspace,
+                lead,
+                icp_context,
+                research_id=research_id,
             )
         result = await QualificationAgent(self._agent_context(workspace, work_item)).run(
             lead,
@@ -432,6 +452,8 @@ class SalesWorkItemExecutionService:
         }
         if agent_skill is not None:
             response["agent_skill"] = agent_skill
+        if icp_assessment is not None:
+            response["icp_assessment"] = icp_assessment
         return response
 
     def _qualification_gap_metadata(
@@ -479,22 +501,25 @@ class SalesWorkItemExecutionService:
         workspace: Workspace,
         lead: Lead,
         work_item: WorkItem,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], UUID | None]:
         research_id_value = work_item.input.get("lead_research_id")
         if research_id_value is None:
-            return dict(work_item.input["research"])
+            return dict(work_item.input["research"]), None
         research_id = self._uuid_value(research_id_value, "lead_research_id")
         research = self.session.get(LeadResearch, research_id)
         if research is None or research.lead_id != lead.id or lead.tenant_id != workspace.slug:
             raise SalesWorkItemExecutionScopeError(
                 "Qualification research does not belong to this workspace Lead"
             )
-        return {
-            "summary": research.summary,
-            "pain_points": list(research.pain_points),
-            "opportunities": list(research.opportunities),
-            "evidence": list(research.evidence),
-        }
+        return (
+            {
+                "summary": research.summary,
+                "pain_points": list(research.pain_points),
+                "opportunities": list(research.opportunities),
+                "evidence": list(research.evidence),
+            },
+            research.id,
+        )
 
     async def _execute_conversation(
         self,
@@ -561,6 +586,7 @@ class SalesWorkItemExecutionService:
         elif target.capability_key is BusinessCapabilityKey.QUALIFY_LEAD:
             skill_identities = (
                 (QUALIFICATION_GAP_DETECTOR_KEY, RESEARCH_QUALIFICATION_VERSION),
+                (ICP_SCORING_KEY, ICP_SCORING_VERSION),
             )
         elif target.capability_key is BusinessCapabilityKey.FOLLOW_UP_LEAD:
             skill_identities = (

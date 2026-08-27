@@ -388,7 +388,10 @@ async def test_qualification_work_item_executes_existing_agent_and_completes(
     session.refresh(lead)
     assert completed.status == WorkItemStatus.COMPLETED
     assert completed.result is not None
-    assert completed.result | {"agent_skill": {}} == {
+    assert {
+        key: completed.result[key]
+        for key in ("score", "qualified", "outcome", "reasons")
+    } == {
         "score": 85,
         "qualified": True,
         "outcome": "qualified",
@@ -399,9 +402,18 @@ async def test_qualification_work_item_executes_existing_agent_and_completes(
             "Useful discovery notes are available",
             "The research brief identified relevant opportunities",
         ],
-        "agent_skill": {},
     }
     assert completed.result["agent_skill"]["key"] == "qualification_gap_detector"
+    assert completed.result["icp_assessment"] == {
+        "status": "unavailable",
+        "reason_code": "playbook_not_configured",
+        "skill": {
+            "key": "icp_scoring",
+            "version": "v1",
+            "attribution_identifier": "sales.icp_scoring.v1",
+            "ai_invoked": False,
+        },
+    }
     assert lead.score == 85
 
 
