@@ -11,6 +11,7 @@ from app.core.capabilities import BusinessCapabilityKey
 from app.core.comment_triggers import CommentTriggerResult, InboundCommentChannel
 from app.core.events import Department as DepartmentKind
 from app.core.work_items import WorkItemStatus
+from app.departments.sales.playbook import SalesPlaybookV1
 from app.models import (
     AIInvocationStatus,
     ApprovalStatus,
@@ -1315,3 +1316,17 @@ class WorkspaceSalesCommunicationRead(BaseModel):
     preferred_language: SalesLanguage | None
     preferred_script: SalesWritingScript | None
     preferred_tone: SalesTone | None
+
+
+class WorkspaceSalesPlaybookUpdate(BaseModel):
+    """Complete validated replacement for the current workspace's Playbook."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sales_playbook: SalesPlaybookV1
+
+
+class WorkspaceSalesPlaybookRead(BaseModel):
+    """Dedicated settings view; null explicitly means not configured."""
+
+    sales_playbook: SalesPlaybookV1 | None

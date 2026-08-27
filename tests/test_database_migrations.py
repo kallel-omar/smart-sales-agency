@@ -658,3 +658,78 @@ def test_postgresql_migration_and_representative_schema_roundtrip(monkeypatch):
         with admin_engine.connect() as connection:
             connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
         admin_engine.dispose()
+
+
+def test_sales_playbook_migration_adds_nullable_column_and_downgrades_cleanly(
+    tmp_path,
+    monkeypatch,
+):
+    database_path = tmp_path / "task296h_sales_playbook.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    get_settings.cache_clear()
+
+    try:
+        command.upgrade(_alembic_config(), "20260826_014")
+        engine = create_engine(database_url)
+        workspace_id = uuid4()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        try:
+            # The repository baseline migration creates current SQLModel metadata
+            # on a brand-new database. Reconstruct the actual pre-015 schema so
+            # this focused test exercises revision 015 rather than that baseline
+            # convenience behavior.
+            if "sales_playbook" in {
+                column["name"] for column in inspect(engine).get_columns("workspace")
+            }:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE workspace DROP COLUMN sales_playbook"))
+            assert "sales_playbook" not in {
+                column["name"] for column in inspect(engine).get_columns("workspace")
+            }
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO workspace "
+                        "(id, slug, name, active, ai_model_tier_downgrade_mappings, "
+                        "created_at, updated_at) "
+                        "VALUES (:id, :slug, :name, 1, '{}', :created_at, :updated_at)"
+                    ),
+                    {
+                        "id": workspace_id.hex,
+                        "slug": "task296h-existing",
+                        "name": "Task 296H Existing",
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                )
+        finally:
+            engine.dispose()
+
+        command.upgrade(_alembic_config(), "head")
+        engine = create_engine(database_url)
+        try:
+            columns = {
+                column["name"] for column in inspect(engine).get_columns("workspace")
+            }
+            assert "sales_playbook" in columns
+            with engine.connect() as connection:
+                assert connection.execute(
+                    text(
+                        "SELECT sales_playbook FROM workspace "
+                        "WHERE slug = 'task296h-existing'"
+                    )
+                ).scalar_one() is None
+        finally:
+            engine.dispose()
+
+        command.downgrade(_alembic_config(), "20260826_014")
+        engine = create_engine(database_url)
+        try:
+            assert "sales_playbook" not in {
+                column["name"] for column in inspect(engine).get_columns("workspace")
+            }
+        finally:
+            engine.dispose()
+    finally:
+        get_settings.cache_clear()

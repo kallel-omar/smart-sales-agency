@@ -4,9 +4,6 @@ import jwt
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
-from app.config import get_settings
-from app.db import get_session
-from app.main import app
 from app.api.routes import (
     approvals_router,
     auth_router,
@@ -17,6 +14,9 @@ from app.api.routes import (
     workflows_router,
     workspaces_router,
 )
+from app.config import get_settings
+from app.db import get_session
+from app.main import app
 from app.models import (
     AIInvocationUsage,
     ApprovalRequest,
@@ -30,7 +30,6 @@ from app.models import (
     WorkspaceMemberRole,
 )
 from app.services.authentication import AuthenticationService
-
 
 TEST_PASSWORD = "correct-password"
 
@@ -230,7 +229,7 @@ def test_workspace_creation_requires_authentication_and_bootstraps_owner(client)
 def test_workspace_list_and_slug_read_are_membership_scoped(client):
     user_a, token_a = _new_user("list-a@example.com")
     _, token_b = _new_user("list-b@example.com")
-    workspace_a = _create_workspace(client, "list-a", token_a)
+    _create_workspace(client, "list-a", token_a)
     workspace_b = _create_workspace(client, "list-b", token_b)
 
     list_response = client.get("/api/workspaces", headers=_auth_headers(token_a))
@@ -569,6 +568,8 @@ def test_known_human_workspace_routes_depend_on_membership_context():
         ("DELETE", "/api/workspaces/sales-instructions"),
         ("GET", "/api/workspaces/sales-communication"),
         ("PUT", "/api/workspaces/sales-communication"),
+        ("GET", "/api/workspaces/sales-playbook"),
+        ("PUT", "/api/workspaces/sales-playbook"),
         ("GET", "/api/integrations/outbound-audit-events"),
         ("POST", "/api/integrations/accounts"),
         ("GET", "/api/integrations/accounts"),

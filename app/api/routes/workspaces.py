@@ -17,6 +17,12 @@ from app.schemas import (
     WorkspaceSalesCommunicationUpdate,
     WorkspaceSalesInstructionsRead,
     WorkspaceSalesInstructionsUpdate,
+    WorkspaceSalesPlaybookRead,
+    WorkspaceSalesPlaybookUpdate,
+)
+from app.services.sales_playbooks import (
+    WorkspaceSalesPlaybookPersistenceError,
+    WorkspaceSalesPlaybookService,
 )
 from app.services.workspaces import (
     DuplicateWorkspaceSlugError,
@@ -86,6 +92,17 @@ def list_workspaces(
     )
 
     return list(session.exec(statement).all())
+
+
+def sales_playbook_read(
+    workspace: Workspace,
+    session: SessionDep,
+) -> WorkspaceSalesPlaybookRead:
+    try:
+        playbook = WorkspaceSalesPlaybookService(session).read(workspace)
+    except WorkspaceSalesPlaybookPersistenceError as exc:
+        raise HTTPException(status_code=500, detail="Stored Sales Playbook is invalid") from exc
+    return WorkspaceSalesPlaybookRead(sales_playbook=playbook)
 
 
 @router.get(
@@ -170,6 +187,39 @@ def update_workspace_sales_communication(
         preferred_tone=payload.preferred_tone,
     )
     return sales_communication_read(updated)
+
+
+@router.get(
+    "/sales-playbook",
+    response_model=WorkspaceSalesPlaybookRead,
+)
+def get_workspace_sales_playbook(
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: WorkspaceReadPermissionDep,
+) -> WorkspaceSalesPlaybookRead:
+    """Return only the current workspace's validated Sales Playbook policy."""
+
+    return sales_playbook_read(workspace, session)
+
+
+@router.put(
+    "/sales-playbook",
+    response_model=WorkspaceSalesPlaybookRead,
+)
+def replace_workspace_sales_playbook(
+    payload: WorkspaceSalesPlaybookUpdate,
+    session: SessionDep,
+    workspace: CurrentWorkspaceDep,
+    _: WorkspaceSettingsManagePermissionDep,
+) -> WorkspaceSalesPlaybookRead:
+    """Replace one resolved workspace's complete validated Sales Playbook."""
+
+    updated = WorkspaceSalesPlaybookService(session).replace(
+        workspace,
+        payload.sales_playbook,
+    )
+    return WorkspaceSalesPlaybookRead(sales_playbook=updated)
 
 
 @router.get("/{slug}", response_model=WorkspaceRead)

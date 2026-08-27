@@ -247,6 +247,13 @@ class Workspace(SQLModel, table=True):
     # customer's latest clearly detected writing system.
     sales_preferred_script: SalesWritingScript | None = Field(default=None)
     sales_preferred_tone: SalesTone | None = Field(default=None)
+    # Optional structured Sales business policy. The JSON is validated through
+    # the immutable SalesPlaybookV1 contract before writes and after reads.
+    # Prospect state, execution state, prompts, and credentials do not belong here.
+    sales_playbook: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

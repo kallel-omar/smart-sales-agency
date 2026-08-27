@@ -366,6 +366,15 @@ The current test suite verifies substantial implementation beyond the old checkp
 - WorkItem-driven follow-up
 - Sales MVP end-to-end test
 
+### Sales AI expertise and Playbook foundation
+- code-first AgentSkill registry and governed execution context
+- grounded Sales conversation, research, qualification-gap, and follow-up expertise
+- workspace-owned structured Sales Playbook v1 foundation
+- Playbook v1 is limited to ICP criteria, ICP disqualifiers, and qualification
+  required-information policy
+- ICP scoring remains pending; no universal HIRI ICP score is implemented
+- the existing QualificationAgent and current `Lead.score` semantics remain authoritative
+
 ### Lead capture and channels
 - generic lead capture
 - lead capture channels
