@@ -243,6 +243,10 @@ def test_representative_sales_definitions_use_canonical_contracts_and_no_tools()
             AIEmployeeRoleKey.LEAD_RESEARCH,
             BusinessCapabilityKey.RESEARCH_COMPANY,
         ),
+        "buying_signal_detection": (
+            AIEmployeeRoleKey.LEAD_RESEARCH,
+            BusinessCapabilityKey.RESEARCH_COMPANY,
+        ),
         "qualification_gap_detector": (
             AIEmployeeRoleKey.QUALIFICATION,
             BusinessCapabilityKey.QUALIFY_LEAD,

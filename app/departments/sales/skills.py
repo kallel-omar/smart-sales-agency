@@ -33,6 +33,11 @@ SALES_AGENT_SKILL_DEFINITIONS = (
         capability=BusinessCapabilityKey.RESEARCH_COMPANY,
     ),
     _sales_skill(
+        key="buying_signal_detection",
+        role=AIEmployeeRoleKey.LEAD_RESEARCH,
+        capability=BusinessCapabilityKey.RESEARCH_COMPANY,
+    ),
+    _sales_skill(
         key="qualification_gap_detector",
         role=AIEmployeeRoleKey.QUALIFICATION,
         capability=BusinessCapabilityKey.QUALIFY_LEAD,

@@ -255,7 +255,7 @@ async def test_research_failure_stops_before_qualification(
     research = _child(session, capture.id)
     DepartmentSupervisorRoutingService(session).route_and_assign(workspace, research.id)
 
-    async def fail_research(self, lead):
+    async def fail_research(self, lead, **kwargs):
         raise RuntimeError("research failed")
 
     monkeypatch.setattr(LeadResearchAgent, "run", fail_research)

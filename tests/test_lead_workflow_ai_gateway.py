@@ -11,10 +11,10 @@ from app.db import get_session
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.lead_researcher import LeadResearchAgent
 from app.departments.sales.prompt_composition import (
-    PromptSectionKind,
-    PromptTrustLevel,
     SALES_DEPARTMENT_POLICY,
     SALES_PLATFORM_POLICY,
+    PromptSectionKind,
+    PromptTrustLevel,
 )
 from app.main import app
 from app.models import AIInvocationStatus, AIInvocationUsage, Lead, Workspace
@@ -218,7 +218,16 @@ async def test_lead_workflow_passes_server_resolved_workspace_to_gateway(client,
 
     async def capture_workspace(request):
         gateway_workspace_ids.append(request.workspace.id)
-        return Mock(content="Gateway research brief")
+        return Mock(
+            content=(
+                '{"company_summary":"Example",'
+                '"confirmed_facts":[{"classification":"confirmed",'
+                '"claim":"Example","source_type":"lead_record",'
+                '"source_reference":"lead.company_name","captured_at":null}],'
+                '"inferred_context":[],"unknowns":[],"potential_needs":[],'
+                '"research_gaps":[],"outcome":"context_researched"}'
+            )
+        )
 
     invoke = AsyncMock(side_effect=capture_workspace)
     monkeypatch.setattr("app.services.ai_invocation_gateway.AIInvocationGateway.invoke", invoke)
@@ -230,13 +239,13 @@ async def test_lead_workflow_passes_server_resolved_workspace_to_gateway(client,
 
     assert workspace_response.status_code == 201
     assert response.status_code == 200
-    assert response.json()["research_summary"] == "Gateway research brief"
+    assert response.json()["research_summary"] == "Example"
     invoke.assert_awaited_once()
     request = invoke.await_args.args[0]
     assert gateway_workspace_ids == [UUID(workspace_response.json()["id"])]
     assert request.conversation_id == UUID(lead_response.json()["id"])
     assert request.task.value == "simple_summary"
-    assert request.task_identifier == "sales.lead_research"
+    assert request.task_identifier == "sales.account_research.v1"
     assert request.agent_identifier == "lead_research"
 
 

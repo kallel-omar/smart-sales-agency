@@ -21,6 +21,7 @@ from app.core.agent_skill_execution import (
     ResolvedAgentSkillComponents,
 )
 from app.core.agent_skills import AgentSkillDefinition
+from app.departments.sales.evidence import SalesEvidenceClassification
 from app.departments.sales.language_policy import (
     SalesCommunicationStyle,
     detect_sales_language,
@@ -151,12 +152,6 @@ _ASSERTED_PRODUCT_CLAIM = re.compile(
     r"HIRI\s+(?:يشمل|يدعم|يضمن|يوفر))"
 )
 _NUMBER = re.compile(r"(?<![\w])\d+(?:[.,]\d+)?(?![\w])")
-
-
-class SalesEvidenceClassification(StrEnum):
-    CONFIRMED = "confirmed"
-    INFERENCE = "inference"
-    UNKNOWN = "unknown"
 
 
 class ConversationSkillValidationOutcome(StrEnum):

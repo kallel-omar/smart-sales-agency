@@ -1,10 +1,12 @@
 from collections.abc import Iterator
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.config import Settings
+from app.core.agent_skills import AgentSkillRoleNotEligibleError
 from app.core.ai_employees import AIEmployeeRoleKey
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
@@ -185,14 +187,85 @@ async def test_research_work_item_executes_existing_agent_and_completes(
     assert completed.status == WorkItemStatus.COMPLETED
     assert completed.started_at is not None
     assert completed.completed_at is not None
-    assert completed.result == {
+    assert completed.result is not None
+    assert completed.result | {"agent_skills": []} == {
         "lead_id": str(lead.id),
         "lead_research_id": str(research.id),
         "summary": research.summary,
         "pain_points": research.pain_points,
         "opportunities": research.opportunities,
         "evidence": research.evidence,
+        "agent_skills": [],
     }
+    assert [item["key"] for item in completed.result["agent_skills"]] == [
+        "account_research",
+        "buying_signal_detection",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_research_work_item_uses_exact_ai_attribution_and_rejects_invention(
+    session: Session,
+) -> None:
+    workspace, _, _, _, _, _, work_item = _assigned_work_item(
+        session,
+        BusinessCapabilityKey.RESEARCH_COMPANY,
+        slug="work-item-research-attribution",
+        source={"_use_lead_id": True, "skill_key": "icp_scoring"},
+    )
+    gateway = Mock()
+    gateway.invoke = AsyncMock(
+        return_value=Mock(
+            content=(
+                '{"company_summary":"Example Co has 500 employees",'
+                '"confirmed_facts":[],"inferred_context":[],"unknowns":[],'
+                '"potential_needs":[],"research_gaps":[],'
+                '"outcome":"context_researched"}'
+            )
+        )
+    )
+    settings = _settings().model_copy(update={"llm_mode": "openai_compatible"})
+
+    completed = await SalesWorkItemExecutionService(
+        session,
+        settings,
+        ai_invocation_gateway=gateway,
+    ).execute(workspace, work_item.id)
+
+    gateway.invoke.assert_awaited_once()
+    request = gateway.invoke.await_args.args[0]
+    assert request.task_identifier == "sales.account_research.v1"
+    assert request.attribution.work_item_id == work_item.id
+    assert completed.result is not None
+    assert [item["key"] for item in completed.result["agent_skills"]] == [
+        "account_research",
+        "buying_signal_detection",
+    ]
+    assert completed.result["agent_skills"][0]["validation_outcome"] == "rejected"
+    assert "500 employees" not in completed.result["summary"]
+
+
+@pytest.mark.asyncio
+async def test_research_skill_role_authorization_fails_before_running(
+    session: Session,
+) -> None:
+    workspace, _, _, _, employee, _, work_item = _assigned_work_item(
+        session,
+        BusinessCapabilityKey.RESEARCH_COMPANY,
+        slug="work-item-research-wrong-role",
+    )
+    employee.role_key = AIEmployeeRoleKey.QUALIFICATION
+    session.add(employee)
+    session.commit()
+
+    with pytest.raises(AgentSkillRoleNotEligibleError):
+        await SalesWorkItemExecutionService(session, _settings()).execute(
+            workspace,
+            work_item.id,
+        )
+
+    session.refresh(work_item)
+    assert work_item.status == WorkItemStatus.ASSIGNED
 
 
 @pytest.mark.asyncio
@@ -212,7 +285,8 @@ async def test_qualification_work_item_executes_existing_agent_and_completes(
 
     session.refresh(lead)
     assert completed.status == WorkItemStatus.COMPLETED
-    assert completed.result == {
+    assert completed.result is not None
+    assert completed.result | {"agent_skill": {}} == {
         "score": 85,
         "qualified": True,
         "outcome": "qualified",
@@ -223,7 +297,9 @@ async def test_qualification_work_item_executes_existing_agent_and_completes(
             "Useful discovery notes are available",
             "The research brief identified relevant opportunities",
         ],
+        "agent_skill": {},
     }
+    assert completed.result["agent_skill"]["key"] == "qualification_gap_detector"
     assert lead.score == 85
 
 
@@ -546,7 +622,7 @@ async def test_execution_exception_marks_failed_with_bounded_error_and_reraises(
     )
     error_message = "provider failure " + ("x" * 600)
 
-    async def fail(self, lead):
+    async def fail(self, lead, **kwargs):
         raise RuntimeError(error_message)
 
     monkeypatch.setattr(LeadResearchAgent, "run", fail)

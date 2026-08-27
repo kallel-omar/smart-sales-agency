@@ -26,6 +26,16 @@ from app.departments.sales.pricing_explanation import (
     PRICING_EXPLANATION_KEY,
     PRICING_EXPLANATION_VERSION,
 )
+from app.departments.sales.research_qualification_expertise import (
+    ACCOUNT_RESEARCH_KEY,
+    BUYING_SIGNAL_DETECTION_KEY,
+    QUALIFICATION_GAP_DETECTOR_KEY,
+    RESEARCH_QUALIFICATION_VERSION,
+    build_qualification_gap_input,
+    detect_qualification_gaps,
+    qualification_gap_components,
+    qualification_gap_execution_result,
+)
 from app.departments.sales.services.conversation_turn_service import (
     SalesConversationTurnInput,
     SalesConversationTurnService,
@@ -127,18 +137,30 @@ class SalesWorkItemExecutionService:
         target = self._execution_target(workspace, work_item_id)
         executor = self._executors()[target.capability_key]
         self._validate_input(workspace, target.work_item, target.capability_key)
-        skill_context = self._agent_skill_context(workspace, target)
+        skill_contexts = self._agent_skill_contexts(workspace, target)
         self.work_items.transition_work_item(
             workspace,
             work_item_id,
             WorkItemStatus.RUNNING,
         )
         try:
-            if skill_context is not None:
+            if target.capability_key is BusinessCapabilityKey.RESEARCH_COMPANY:
+                raw_result = await self._execute_research(
+                    workspace,
+                    target.work_item,
+                    agent_skill_execution_contexts=skill_contexts,
+                )
+            elif target.capability_key is BusinessCapabilityKey.QUALIFY_LEAD:
+                raw_result = await self._execute_qualification(
+                    workspace,
+                    target.work_item,
+                    agent_skill_execution_context=skill_contexts[0],
+                )
+            elif skill_contexts:
                 raw_result = await self._execute_conversation(
                     workspace,
                     target.work_item,
-                    agent_skill_execution_context=skill_context,
+                    agent_skill_execution_context=skill_contexts[0],
                 )
             else:
                 raw_result = await executor(workspace, target.work_item)
@@ -361,26 +383,84 @@ class SalesWorkItemExecutionService:
         self,
         workspace: Workspace,
         work_item: WorkItem,
+        *,
+        agent_skill_execution_contexts: tuple[AgentSkillExecutionContext, ...] = (),
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
-        return await LeadResearchAgent(self._agent_context(workspace, work_item)).run(lead)
+        return await LeadResearchAgent(self._agent_context(workspace, work_item)).run(
+            lead,
+            agent_skill_execution_contexts=agent_skill_execution_contexts,
+        )
 
     async def _execute_qualification(
         self,
         workspace: Workspace,
         work_item: WorkItem,
+        *,
+        agent_skill_execution_context: AgentSkillExecutionContext | None = None,
     ) -> dict[str, Any]:
         lead = self._lead(workspace, work_item)
         research = self._qualification_research(workspace, lead, work_item)
+        agent_skill: dict[str, object] | None = None
+        if agent_skill_execution_context is not None:
+            agent_skill = self._qualification_gap_metadata(
+                workspace,
+                lead,
+                research,
+                agent_skill_execution_context,
+            )
         result = await QualificationAgent(self._agent_context(workspace, work_item)).run(
             lead,
             research,
         )
-        return {
+        response: dict[str, Any] = {
             "score": result.score,
             "qualified": result.qualified,
             "reasons": list(result.reasons),
             "outcome": "qualified" if result.qualified else "unqualified",
+        }
+        if agent_skill is not None:
+            response["agent_skill"] = agent_skill
+        return response
+
+    def _qualification_gap_metadata(
+        self,
+        workspace: Workspace,
+        lead: Lead,
+        research: dict[str, Any],
+        context: AgentSkillExecutionContext,
+    ) -> dict[str, object]:
+        if (
+            context.skill_key != QUALIFICATION_GAP_DETECTOR_KEY
+            or context.skill_version != RESEARCH_QUALIFICATION_VERSION
+            or context.effective_tool_ceiling
+        ):
+            raise SalesWorkItemExecutionAssignmentError(
+                "Qualification AgentSkill execution context is invalid"
+            )
+        definition = sales_agent_skill_registry().resolve(
+            QUALIFICATION_GAP_DETECTOR_KEY,
+            RESEARCH_QUALIFICATION_VERSION,
+        )
+        components = qualification_gap_components(definition)
+        source = build_qualification_gap_input(workspace.id, lead, research)
+        if not isinstance(source, components.input_contract):
+            raise SalesWorkItemResultError(
+                "Qualification AgentSkill input contract is invalid"
+            )
+        gap_output = detect_qualification_gaps(source)
+        gap_output = components.validator.validate(gap_output, source)
+        if not isinstance(gap_output, components.output_contract):
+            raise SalesWorkItemResultError(
+                "Qualification AgentSkill output contract is invalid"
+            )
+        gap_result = qualification_gap_execution_result(gap_output)
+        return {
+            "key": context.skill_key,
+            "version": context.skill_version,
+            "outcome": gap_result.outcome.value,
+            "validation_outcome": gap_result.validation_outcome.value,
+            "result": gap_result.structured_result,
         }
 
     def _qualification_research(
@@ -456,15 +536,48 @@ class SalesWorkItemExecutionService:
                 response["agent_skill"]["result"] = result.agent_skill.structured_result
         return response
 
-    def _agent_skill_context(
+    def _agent_skill_contexts(
         self,
         workspace: Workspace,
         target: _ExecutionTarget,
-    ) -> AgentSkillExecutionContext | None:
-        if target.capability_key is not BusinessCapabilityKey.ANSWER_CUSTOMER:
-            return None
+    ) -> tuple[AgentSkillExecutionContext, ...]:
+        skill_identities: tuple[tuple[str, str], ...]
+        if target.capability_key is BusinessCapabilityKey.RESEARCH_COMPANY:
+            skill_identities = (
+                (ACCOUNT_RESEARCH_KEY, RESEARCH_QUALIFICATION_VERSION),
+                (BUYING_SIGNAL_DETECTION_KEY, RESEARCH_QUALIFICATION_VERSION),
+            )
+        elif target.capability_key is BusinessCapabilityKey.QUALIFY_LEAD:
+            skill_identities = (
+                (QUALIFICATION_GAP_DETECTOR_KEY, RESEARCH_QUALIFICATION_VERSION),
+            )
+        elif target.capability_key is not BusinessCapabilityKey.ANSWER_CUSTOMER:
+            return ()
+        else:
+            skill_identity = self._conversation_skill_identity(target.work_item)
+            if skill_identity is None:
+                return ()
+            skill_identities = (skill_identity,)
+        resolver = AgentSkillExecutionContextResolver(
+            self.session,
+            sales_agent_skill_registry(),
+        )
+        return tuple(
+            resolver.resolve(
+                workspace,
+                target.work_item.id,
+                skill_key=skill_key,
+                skill_version=skill_version,
+            )
+            for skill_key, skill_version in skill_identities
+        )
+
+    def _conversation_skill_identity(
+        self,
+        work_item: WorkItem,
+    ) -> tuple[str, str] | None:
         customer_message = self._required_text(
-            target.work_item,
+            work_item,
             "customer_message",
             max_length=10_000,
         )
@@ -476,15 +589,7 @@ class SalesWorkItemExecutionService:
             if skill_key == PRICING_EXPLANATION_KEY
             else CONVERSATION_EXPERTISE_VERSION
         )
-        return AgentSkillExecutionContextResolver(
-            self.session,
-            sales_agent_skill_registry(),
-        ).resolve(
-            workspace,
-            target.work_item.id,
-            skill_key=skill_key,
-            skill_version=skill_version,
-        )
+        return skill_key, skill_version
 
     async def _execute_follow_up(
         self,
