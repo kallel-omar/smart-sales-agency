@@ -32,6 +32,10 @@ from app.departments.sales.pricing_explanation import (
     PRICING_EXPLANATION_KEY,
     PRICING_EXPLANATION_VERSION,
 )
+from app.departments.sales.qualification_authority import (
+    QualificationAuthorityDecisionValue,
+    QualificationDecisionPolicy,
+)
 from app.departments.sales.research_qualification_expertise import (
     ACCOUNT_RESEARCH_KEY,
     BUYING_SIGNAL_DETECTION_KEY,
@@ -58,6 +62,7 @@ from app.models import (
     IntegrationAccount,
     Lead,
     LeadResearch,
+    LeadStatus,
     WorkItem,
     Workspace,
 )
@@ -440,15 +445,39 @@ class SalesWorkItemExecutionService:
                 icp_context,
                 research_id=research_id,
             )
-        result = await QualificationAgent(self._agent_context(workspace, work_item)).run(
+        legacy_result = QualificationAgent(
+            self._agent_context(workspace, work_item)
+        ).evaluate(
             lead,
             research,
         )
+        decision = QualificationDecisionPolicy().decide(
+            legacy_qualified=legacy_result.qualified,
+            icp_assessment=icp_assessment,
+            current_lead_status=LeadStatus(lead.status),
+        )
+        self.repository.update_lead_qualification_state(
+            lead,
+            score=legacy_result.score,
+            status=decision.resulting_lead_status,
+        )
+        if (
+            decision.decision
+            is QualificationAuthorityDecisionValue.NEEDS_MORE_INFORMATION
+        ):
+            outcome = QualificationAuthorityDecisionValue.NEEDS_MORE_INFORMATION.value
+        else:
+            outcome = (
+                QualificationAuthorityDecisionValue.QUALIFIED.value
+                if decision.qualified_for_downstream
+                else QualificationAuthorityDecisionValue.UNQUALIFIED.value
+            )
         response: dict[str, Any] = {
-            "score": result.score,
-            "qualified": result.qualified,
-            "reasons": list(result.reasons),
-            "outcome": "qualified" if result.qualified else "unqualified",
+            "score": legacy_result.score,
+            "qualified": decision.qualified_for_downstream,
+            "reasons": list(legacy_result.reasons),
+            "outcome": outcome,
+            "qualification_policy": decision.as_dict(),
         }
         if agent_skill is not None:
             response["agent_skill"] = agent_skill

@@ -11,6 +11,10 @@ from app.core.capabilities import BusinessCapabilityKey
 from app.core.work_items import WorkItemStatus
 from app.departments.sales.icp_scoring import ICPFitStatus
 from app.departments.sales.playbook import SalesPlaybookV1
+from app.departments.sales.qualification_authority import (
+    QUALIFICATION_AUTHORITY_POLICY_VERSION,
+    QualificationAuthorityDecisionValue,
+)
 from app.departments.sales.services.work_item_execution import (
     SalesWorkItemExecutionScopeError,
     SalesWorkItemExecutionService,
@@ -35,6 +39,7 @@ from app.services.ai_employee_capability_assignments import (
 from app.services.ai_employees import AIEmployeeService
 from app.services.capabilities import CapabilityService
 from app.services.departments import DepartmentService
+from app.services.repository import SalesRepository
 from app.services.work_items import WorkItemNotFoundError, WorkItemService
 
 
@@ -62,13 +67,17 @@ def settings() -> Settings:
     )
 
 
-def rule(value: str) -> dict[str, object]:
+def rule(
+    value: str,
+    *,
+    importance: str = "required",
+) -> dict[str, object]:
     return {
         "key": "target_problem",
         "criterion_type": "business_problem",
         "operator": "equals",
         "values": [value],
-        "importance": "required",
+        "importance": importance,
     }
 
 
@@ -85,6 +94,7 @@ def playbook(
     *,
     criteria: list[dict[str, object]] | None = None,
     disqualifiers: list[dict[str, object]] | None = None,
+    required_information: list[dict[str, str]] | None = None,
 ) -> SalesPlaybookV1:
     return SalesPlaybookV1.model_validate(
         {
@@ -93,7 +103,9 @@ def playbook(
                 "criteria": criteria or [],
                 "disqualifiers": disqualifiers or [],
             },
-            "qualification": {"required_information": []},
+            "qualification": {
+                "required_information": required_information or [],
+            },
         }
     )
 
@@ -189,37 +201,85 @@ def qualification_work_item(
     return workspace, lead, research, work_item, employee
 
 
+def test_qualification_repository_rejects_unrelated_lifecycle_transition(
+    session: Session,
+) -> None:
+    lead = Lead(
+        tenant_id="qualification-repository-guard",
+        full_name="Prospect",
+        company_name="Acme",
+        status=LeadStatus.RESEARCHED,
+        score=30,
+    )
+    session.add(lead)
+    session.commit()
+    session.refresh(lead)
+
+    with pytest.raises(ValueError, match="unrelated Lead lifecycle"):
+        SalesRepository(session).update_lead_qualification_state(
+            lead,
+            score=85,
+            status=LeadStatus.WON,
+        )
+
+    session.refresh(lead)
+    assert lead.status is LeadStatus.RESEARCHED
+    assert lead.score == 30
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("policy", "evidence", "fit_status"),
+    (
+        "policy",
+        "evidence",
+        "fit_status",
+        "decision",
+        "qualified",
+        "lead_status",
+    ),
     [
         (
             playbook(criteria=[rule("slow response")]),
             [fact("slow response")],
             ICPFitStatus.FIT,
+            QualificationAuthorityDecisionValue.QUALIFIED,
+            True,
+            LeadStatus.QUALIFIED,
         ),
         (
             playbook(criteria=[rule("fast response")]),
             [fact("slow response")],
             ICPFitStatus.NOT_FIT,
+            QualificationAuthorityDecisionValue.UNQUALIFIED,
+            False,
+            LeadStatus.UNQUALIFIED,
         ),
         (
             playbook(disqualifiers=[disqualifier("slow response")]),
             [fact("slow response")],
             ICPFitStatus.DISQUALIFIED,
+            QualificationAuthorityDecisionValue.UNQUALIFIED,
+            False,
+            LeadStatus.UNQUALIFIED,
         ),
         (
             playbook(criteria=[rule("slow response")]),
             [{"type": "legacy_research", "value": "slow response"}],
             ICPFitStatus.INSUFFICIENT_INFORMATION,
+            QualificationAuthorityDecisionValue.NEEDS_MORE_INFORMATION,
+            False,
+            LeadStatus.NEW,
         ),
     ],
 )
-async def test_real_qualification_work_item_persists_observational_icp_assessment(
+async def test_real_qualification_work_item_applies_authoritative_icp_policy(
     session: Session,
     policy: SalesPlaybookV1,
     evidence: list[dict[str, object]],
     fit_status: ICPFitStatus,
+    decision: QualificationAuthorityDecisionValue,
+    qualified: bool,
+    lead_status: LeadStatus,
 ) -> None:
     workspace, lead, _, work_item, _ = qualification_work_item(
         session,
@@ -267,10 +327,19 @@ async def test_real_qualification_work_item_persists_observational_icp_assessmen
         + evidence_summary["unknown"]
     )
     assert completed.result["score"] == 85
-    assert completed.result["qualified"] is True
-    assert completed.result["outcome"] == "qualified"
+    assert completed.result["qualified"] is qualified
+    assert completed.result["outcome"] == (
+        "needs_more_information"
+        if decision is QualificationAuthorityDecisionValue.NEEDS_MORE_INFORMATION
+        else decision.value
+    )
+    authority = completed.result["qualification_policy"]
+    assert authority["policy_version"] == QUALIFICATION_AUTHORITY_POLICY_VERSION
+    assert authority["decision"] == decision.value
+    assert authority["icp_fit_status"] == fit_status.value
+    assert authority["qualified_for_downstream"] is qualified
     session.refresh(lead)
-    assert lead.status == LeadStatus.QUALIFIED
+    assert lead.status == lead_status
     assert lead.score == 85
     assert lead.sales_stage == original_stage == SalesStage.INTRODUCTION
     assert session.exec(select(FollowUpTask)).all() == []
@@ -318,6 +387,18 @@ async def test_playbook_unavailable_preserves_legacy_qualification(
     }
     assert completed.result["score"] == 85
     assert completed.result["qualified"] is True
+    assert completed.result["qualification_policy"] == {
+        "policy_version": QUALIFICATION_AUTHORITY_POLICY_VERSION,
+        "decision": "preserve_legacy",
+        "reason_codes": [reason_code],
+        "legacy_outcome": "qualified",
+        "icp_fit_status": None,
+        "icp_authoritative": False,
+        "more_information_required": False,
+        "next_action": "continue_existing_flow",
+        "resulting_lead_status": "qualified",
+        "qualified_for_downstream": True,
+    }
     session.refresh(lead)
     assert lead.status == LeadStatus.QUALIFIED
     assert lead.score == 85
@@ -351,9 +432,119 @@ async def test_fit_assessment_does_not_override_legacy_unqualified_result(
     assert completed.result["icp_assessment"]["fit_status"] == "fit"
     assert completed.result["qualified"] is False
     assert completed.result["score"] == 10
+    assert completed.result["qualification_policy"]["decision"] == "preserve_legacy"
+    assert completed.result["qualification_policy"]["reason_codes"] == [
+        "icp_fit_preserves_legacy_unqualified"
+    ]
     session.refresh(lead)
     assert lead.status == LeadStatus.UNQUALIFIED
     assert lead.score == 10
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (
+        "policy",
+        "evidence",
+        "fit_status",
+        "decision",
+        "reason_code",
+    ),
+    [
+        (
+            playbook(disqualifiers=[disqualifier("slow response")]),
+            [fact("slow response", classification="inference")],
+            "fit",
+            "qualified",
+            "icp_fit_and_legacy_qualified",
+        ),
+        (
+            playbook(disqualifiers=[disqualifier("slow response")]),
+            [],
+            "fit",
+            "qualified",
+            "icp_fit_and_legacy_qualified",
+        ),
+        (
+            playbook(
+                criteria=[rule("fast response", importance="preferred")]
+            ),
+            [fact("slow response")],
+            "fit",
+            "qualified",
+            "icp_fit_and_legacy_qualified",
+        ),
+        (
+            playbook(
+                required_information=[
+                    {
+                        "key": "business_problem",
+                        "description": "Confirmed business problem",
+                    }
+                ]
+            ),
+            [],
+            "fit",
+            "needs_more_information",
+            "required_information_missing",
+        ),
+        (
+            playbook(
+                required_information=[
+                    {
+                        "key": "business_problem",
+                        "description": "Confirmed business problem",
+                    }
+                ]
+            ),
+            [fact("slow response")],
+            "fit",
+            "qualified",
+            "icp_fit_and_legacy_qualified",
+        ),
+        (
+            playbook(criteria=[rule("slow response")]),
+            [fact("slow response"), fact("fast response")],
+            "insufficient_information",
+            "needs_more_information",
+            "confirmed_evidence_conflict",
+        ),
+    ],
+)
+async def test_evidence_authority_and_required_information_rules(
+    session: Session,
+    policy: SalesPlaybookV1,
+    evidence: list[dict[str, object]],
+    fit_status: str,
+    decision: str,
+    reason_code: str,
+) -> None:
+    workspace, lead, _, work_item, _ = qualification_work_item(
+        session,
+        f"qualification-policy-{decision}-{reason_code}",
+        policy=policy,
+        evidence=evidence,
+    )
+
+    completed = await SalesWorkItemExecutionService(
+        session,
+        settings(),
+    ).execute(workspace, work_item.id)
+
+    assert completed.result is not None
+    assert completed.result["icp_assessment"]["fit_status"] == fit_status
+    authority = completed.result["qualification_policy"]
+    assert authority["decision"] == decision
+    assert authority["reason_codes"] == [reason_code]
+    assert completed.result["score"] == 85
+    assert completed.result["qualified"] is (decision == "qualified")
+    session.refresh(lead)
+    assert lead.score == 85
+    assert lead.status == (
+        LeadStatus.QUALIFIED
+        if decision == "qualified"
+        else LeadStatus.NEW
+    )
 
 
 @pytest.mark.asyncio

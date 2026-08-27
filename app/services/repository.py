@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -64,7 +64,7 @@ class SalesRepository:
             evidence=evidence,
         )
         lead.status = LeadStatus.RESEARCHED
-        lead.updated_at = datetime.now(timezone.utc)
+        lead.updated_at = datetime.now(UTC)
         self.session.add(research)
         self.session.add(lead)
         self.session.commit()
@@ -72,9 +72,34 @@ class SalesRepository:
         return research
 
     def update_lead_score(self, lead: Lead, score: int, qualified: bool) -> Lead:
+        return self.update_lead_qualification_state(
+            lead,
+            score=score,
+            status=(LeadStatus.QUALIFIED if qualified else LeadStatus.UNQUALIFIED),
+        )
+
+    def update_lead_qualification_state(
+        self,
+        lead: Lead,
+        *,
+        score: int,
+        status: LeadStatus,
+    ) -> Lead:
+        """Persist a score and status already resolved by Sales domain policy."""
+
+        current_status = LeadStatus(lead.status)
+        resolved_status = LeadStatus(status)
+        if resolved_status not in {
+            current_status,
+            LeadStatus.QUALIFIED,
+            LeadStatus.UNQUALIFIED,
+        }:
+            raise ValueError(
+                "Qualification persistence cannot advance unrelated Lead lifecycle state"
+            )
         lead.score = max(0, min(100, score))
-        lead.status = LeadStatus.QUALIFIED if qualified else LeadStatus.UNQUALIFIED
-        lead.updated_at = datetime.now(timezone.utc)
+        lead.status = resolved_status
+        lead.updated_at = datetime.now(UTC)
         self.session.add(lead)
         self.session.commit()
         self.session.refresh(lead)
@@ -84,7 +109,7 @@ class SalesRepository:
         """Persist a transition already validated by the Sales domain policy."""
 
         lead.sales_stage = stage
-        lead.updated_at = datetime.now(timezone.utc)
+        lead.updated_at = datetime.now(UTC)
         self.session.add(lead)
         self.session.commit()
         self.session.refresh(lead)
@@ -161,7 +186,7 @@ class SalesRepository:
         receipt.approval_id = approval_id
         receipt.handoff_required = handoff_required
         receipt.handoff_reason_code = handoff_reason_code
-        receipt.completed_at = datetime.now(timezone.utc)
+        receipt.completed_at = datetime.now(UTC)
         self.session.add(receipt)
         self.session.commit()
         self.session.refresh(receipt)
@@ -269,7 +294,7 @@ class SalesRepository:
             raise NotFoundError("Sales handoff not found")
 
         handoff.status = SalesConversationHandoffStatus.RESOLVED
-        handoff.resolved_at = datetime.now(timezone.utc)
+        handoff.resolved_at = datetime.now(UTC)
         self.session.add(handoff)
         self.session.commit()
         self.session.refresh(handoff)

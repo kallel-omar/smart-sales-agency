@@ -21,6 +21,21 @@ class QualificationAgent:
         lead: Lead,
         research: dict,
     ) -> QualificationResult:
+        result = self.evaluate(lead, research)
+        self.context.repository.update_lead_score(
+            lead,
+            result.score,
+            result.qualified,
+        )
+        return result
+
+    def evaluate(
+        self,
+        lead: Lead,
+        research: dict,
+    ) -> QualificationResult:
+        """Calculate the legacy result without claiming persistence authority."""
+
         score = 10
         reasons: list[str] = []
 
@@ -51,13 +66,6 @@ class QualificationAgent:
 
         score = min(score, 100)
         qualified = score >= self.threshold
-
-        self.context.repository.update_lead_score(
-            lead,
-            score,
-            qualified,
-        )
-
         return QualificationResult(
             score=score,
             qualified=qualified,

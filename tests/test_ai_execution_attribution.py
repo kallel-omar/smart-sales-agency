@@ -477,11 +477,11 @@ async def test_qualification_work_item_receives_attribution_without_new_ai_cost(
     )
     captured: list[AIExecutionAttribution | None] = []
 
-    async def qualify(self, lead, research):
+    def qualify(self, lead, research):
         captured.append(self.context.ai_execution_attribution)
         return QualificationResult(score=60, qualified=True, reasons=["Qualified"])
 
-    monkeypatch.setattr(QualificationAgent, "run", qualify)
+    monkeypatch.setattr(QualificationAgent, "evaluate", qualify)
 
     await SalesWorkItemExecutionService(
         session,

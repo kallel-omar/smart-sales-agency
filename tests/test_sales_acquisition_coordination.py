@@ -26,6 +26,7 @@ from app.models import (
     Contact,
     Lead,
     LeadResearch,
+    LeadStatus,
     WorkItem,
     Workspace,
 )
@@ -107,7 +108,6 @@ async def test_persisted_acquisition_chain_is_attributed_linked_and_terminal(
         session,
         _settings(),
     ).run(workspace, capture_result.lead_id)
-
     session.refresh(research)
     qualification = _child(session, research.id)
     items = [capture, research, qualification]
@@ -159,6 +159,57 @@ async def test_persisted_acquisition_chain_is_attributed_linked_and_terminal(
     assert state["draft_message"] is None
     assert state["approval_id"] is None
     assert lead is not None and lead.score == qualification.result["score"]  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_missing_playbook_information_stops_downstream_as_unresolved(
+    session: Session,
+) -> None:
+    workspace = _workspace(session, "acquisition-needs-information")
+    workspace.sales_playbook = {
+        "schema_version": 1,
+        "icp": {"criteria": [], "disqualifiers": []},
+        "qualification": {
+            "required_information": [
+                {
+                    "key": "annual_revenue",
+                    "description": "Confirmed annual revenue",
+                }
+            ]
+        },
+    }
+    session.add(workspace)
+    session.commit()
+    capture_result = _capture(session, workspace)
+
+    state = await SalesAcquisitionWorkItemService(
+        session,
+        _settings(),
+    ).run(workspace, capture_result.lead_id)
+    repeated_state = await SalesAcquisitionWorkItemService(
+        session,
+        _settings(),
+    ).run(workspace, capture_result.lead_id)
+
+    lead = session.get(Lead, capture_result.lead_id)
+    qualification = session.exec(
+        select(WorkItem).where(
+            WorkItem.workspace_id == workspace.id,
+            WorkItem.work_type == BusinessCapabilityKey.QUALIFY_LEAD.value,
+        )
+    ).one()
+    assert state["qualified"] is False
+    assert state["status"] == "needs_more_information"
+    assert state["next_action"] == "collect_more_information"
+    assert repeated_state["status"] == state["status"]
+    assert repeated_state["score"] == state["score"]
+    assert lead is not None and lead.status == LeadStatus.RESEARCHED
+    assert qualification.result is not None
+    assert qualification.result["outcome"] == "needs_more_information"
+    assert qualification.result["qualification_policy"]["decision"] == (
+        "needs_more_information"
+    )
+    assert len(session.exec(select(WorkItem)).all()) == 3
 
 
 @pytest.mark.asyncio
@@ -306,10 +357,10 @@ async def test_qualification_failure_remains_terminal(
         qualification.id,
     )
 
-    async def fail_qualification(self, lead, research):
+    def fail_qualification(self, lead, research):
         raise RuntimeError("qualification failed")
 
-    monkeypatch.setattr(QualificationAgent, "run", fail_qualification)
+    monkeypatch.setattr(QualificationAgent, "evaluate", fail_qualification)
     with pytest.raises(RuntimeError, match="qualification failed"):
         await SalesWorkItemExecutionService(session, _settings()).execute(
             workspace,

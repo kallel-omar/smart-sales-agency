@@ -10,6 +10,9 @@ from app.config import Settings
 from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
 from app.core.work_items import WorkItemStatus
+from app.departments.sales.qualification_authority import (
+    QualificationAuthorityDecisionValue,
+)
 from app.departments.sales.services.work_item_execution import (
     SalesWorkItemExecutionService,
 )
@@ -354,6 +357,22 @@ class SalesAcquisitionWorkItemService:
         ):
             raise SalesAcquisitionResultError("Persisted research result was not found")
         qualified = result["qualified"]
+        policy = result.get("qualification_policy")
+        needs_more_information = (
+            isinstance(policy, dict)
+            and policy.get("decision")
+            == QualificationAuthorityDecisionValue.NEEDS_MORE_INFORMATION.value
+        )
+        if needs_more_information:
+            status = QualificationAuthorityDecisionValue.NEEDS_MORE_INFORMATION.value
+            next_action = "collect_more_information"
+        else:
+            status = "qualified" if qualified else "unqualified"
+            next_action = (
+                "await_business_event"
+                if qualified
+                else "collect_more_information_or_archive"
+            )
         return {
             "lead_id": lead.id,
             "lead": lead,
@@ -361,12 +380,8 @@ class SalesAcquisitionWorkItemService:
             "score": int(result["score"]),
             "qualified": qualified,
             "qualification_reasons": list(result.get("reasons", [])),
-            "status": "qualified" if qualified else "unqualified",
+            "status": status,
             "draft_message": None,
             "approval_id": None,
-            "next_action": (
-                "await_business_event"
-                if qualified
-                else "collect_more_information_or_archive"
-            ),
+            "next_action": next_action,
         }
