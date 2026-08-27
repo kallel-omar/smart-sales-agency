@@ -1,7 +1,30 @@
-﻿import re
+import re
 
 from app.core.agent_skill_execution import AgentSkillExecutionContext
 from app.departments.sales.agents.base import AgentContext
+from app.departments.sales.conversation_expertise import (
+    BUYER_INDECISION_KEY,
+    CONVERSATION_EXPERTISE_VERSION,
+    NEEDS_DISCOVERY_KEY,
+    OBJECTION_HANDLING_KEY,
+    BuyerIndecisionOutput,
+    ConversationExpertiseContractError,
+    ConversationExpertiseExecutionResult,
+    ConversationExpertiseInput,
+    ConversationExpertiseMessage,
+    ConversationExpertiseValidationError,
+    NeedsDiscoveryOutput,
+    ObjectionHandlingOutput,
+    ObjectionType,
+    SalesEvidenceClassification,
+    SalesEvidenceFact,
+    accepted_conversation_expertise_result,
+    conversation_expertise_components,
+    objection_type_for,
+    parse_conversation_expertise_output,
+    safe_conversation_expertise_result,
+    skill_instructions,
+)
 from app.departments.sales.language_policy import (
     render_sales_communication_instruction,
     select_sales_communication_style,
@@ -404,6 +427,182 @@ class SalesConversationAgent:
                 if output.outcome.value in {"escalation_required", "insufficient_verified_pricing"}
                 else None
             ),
+        )
+
+    async def execute_conversation_expertise(
+        self,
+        lead: Lead,
+        inbound: str,
+        skill_context: AgentSkillExecutionContext,
+        *,
+        communication_channel: str | None = None,
+        conversation_history: list[ConversationMessage] | None = None,
+        current_stage: SalesStage | None = None,
+    ) -> tuple[SalesStage, ConversationExpertiseExecutionResult]:
+        """Execute one authorized 296E Skill through existing HIRI boundaries."""
+
+        if self.context.workspace is None:
+            raise RuntimeError("A server-resolved workspace is required for AgentSkill execution")
+        if (
+            skill_context.workspace_id != self.context.workspace.id
+            or skill_context.skill_key
+            not in {NEEDS_DISCOVERY_KEY, OBJECTION_HANDLING_KEY, BUYER_INDECISION_KEY}
+            or skill_context.skill_version != CONVERSATION_EXPERTISE_VERSION
+            or skill_context.effective_tool_ceiling
+        ):
+            raise PermissionError("Sales conversation AgentSkill context is not authorized")
+        definition = sales_agent_skill_registry().resolve(
+            skill_context.skill_key,
+            skill_context.skill_version,
+        )
+        if (
+            skill_context.input_contract != definition.input_contract
+            or skill_context.output_contract != definition.output_contract
+            or skill_context.validator != definition.validator
+            or skill_context.instruction_component != definition.instruction_component
+            or skill_context.attribution_identifier != definition.attribution_identifier
+        ):
+            raise PermissionError("Sales conversation AgentSkill definition does not match context")
+        components = conversation_expertise_components(definition)
+        if components.input_contract is not ConversationExpertiseInput:
+            raise RuntimeError("Sales conversation AgentSkill input is not registered")
+        expected_outputs = {
+            NEEDS_DISCOVERY_KEY: NeedsDiscoveryOutput,
+            OBJECTION_HANDLING_KEY: ObjectionHandlingOutput,
+            BUYER_INDECISION_KEY: BuyerIndecisionOutput,
+        }
+        if components.output_contract is not expected_outputs[skill_context.skill_key]:
+            raise RuntimeError("Sales conversation AgentSkill output is not registered")
+
+        stage = self.detect_stage(inbound)
+        canonical_stage = current_stage or stage
+        history = (
+            conversation_history
+            if conversation_history is not None
+            else self.context.repository.conversation_history(lead.id)
+        )
+        products = self.context.repository.list_products(lead.tenant_id)
+        source = self._conversation_expertise_input(
+            lead=lead,
+            inbound=inbound,
+            communication_channel=communication_channel,
+            stage=canonical_stage,
+            products=products,
+            history=history,
+        )
+        deterministic_objection = (
+            skill_context.skill_key == OBJECTION_HANDLING_KEY
+            and objection_type_for(inbound) in {ObjectionType.GUARANTEE, ObjectionType.INTEGRATION}
+        )
+        if self.context.settings.llm_mode == "demo" or deterministic_objection:
+            return stage, safe_conversation_expertise_result(skill_context.skill_key, source)
+
+        code_switching_instruction = (
+            " Preserve the customer's natural French/Tunisian code-switching where practical."
+            if source.preserve_code_switching
+            else ""
+        )
+        rendered_prompt = self._compose_prompt(
+            lead=lead,
+            inbound=inbound,
+            stage=canonical_stage,
+            products=products,
+            conversation_history=history,
+            skill_instruction=SalesSkillInstruction(
+                identifier=skill_context.instruction_component,
+                content=skill_instructions(skill_context.skill_key) + code_switching_instruction,
+            ),
+        ).render()
+        if self.context.ai_invocation_gateway is None:
+            raise RuntimeError("No AI invocation gateway is configured for AgentSkill")
+        invocation = await self.context.ai_invocation_gateway.invoke(
+            AIInvocationGatewayRequest(
+                workspace=self.context.workspace,
+                task=AIModelRoutingTask.CONTEXTUAL_CUSTOMER_RESPONSE,
+                task_identifier=skill_context.attribution_identifier,
+                agent_identifier="sales_conversation",
+                system_prompt=rendered_prompt.system_prompt,
+                user_prompt=rendered_prompt.user_prompt,
+                conversation_id=lead.id,
+                sales_stage=canonical_stage,
+                attribution=skill_context.ai_execution_attribution,
+            )
+        )
+        if invocation.content is None:
+            raise RuntimeError("Sales conversation AgentSkill requires an LLM completion")
+        try:
+            output = parse_conversation_expertise_output(
+                skill_context.skill_key,
+                invocation.content,
+            )
+            components.validator.validate(output, source)
+        except (ConversationExpertiseContractError, ConversationExpertiseValidationError) as exc:
+            fallback = safe_conversation_expertise_result(
+                skill_context.skill_key,
+                source,
+                validation_rejected=True,
+            )
+            return stage, ConversationExpertiseExecutionResult(
+                response_text=fallback.response_text,
+                outcome=fallback.outcome,
+                validation_outcome=fallback.validation_outcome,
+                validation_reason=type(exc).__name__,
+                ai_invoked=True,
+                structured_result=fallback.structured_result,
+                escalation_kind=fallback.escalation_kind,
+            )
+        return stage, accepted_conversation_expertise_result(output)
+
+    def _conversation_expertise_input(
+        self,
+        *,
+        lead: Lead,
+        inbound: str,
+        communication_channel: str | None,
+        stage: SalesStage,
+        products: list[Product],
+        history: list[ConversationMessage],
+    ) -> ConversationExpertiseInput:
+        assert self.context.workspace is not None
+        workspace = self.context.workspace
+        style = select_sales_communication_style(
+            customer_message=inbound,
+            workspace_preferred_language=workspace.sales_preferred_language,
+            workspace_preferred_script=workspace.sales_preferred_script,
+            prior_customer_messages=self._prior_customer_messages(history),
+        )
+        lead_facts = [
+            SalesEvidenceFact(
+                f"Lead name: {lead.full_name}",
+                SalesEvidenceClassification.CONFIRMED,
+            ),
+            SalesEvidenceFact(
+                f"Company: {lead.company_name}",
+                SalesEvidenceClassification.CONFIRMED,
+            ),
+        ]
+        if lead.job_title:
+            lead_facts.append(
+                SalesEvidenceFact(
+                    f"Job title: {lead.job_title}",
+                    SalesEvidenceClassification.CONFIRMED,
+                )
+            )
+        return ConversationExpertiseInput(
+            workspace_id=workspace.id,
+            customer_message=inbound,
+            communication_channel=communication_channel,
+            conversation_context=tuple(
+                ConversationExpertiseMessage(message.direction, message.content)
+                for message in history
+            ),
+            sales_stage=stage,
+            lead_facts=tuple(lead_facts),
+            products=self._product_context(products),
+            language=style.language,
+            script=style.script,
+            preserve_code_switching=preserve_code_switching(inbound),
+            workspace_instructions=workspace.sales_instructions,
         )
 
     def _pricing_input(

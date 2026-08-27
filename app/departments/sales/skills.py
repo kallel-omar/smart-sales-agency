@@ -43,6 +43,21 @@ SALES_AGENT_SKILL_DEFINITIONS = (
         capability=BusinessCapabilityKey.ANSWER_CUSTOMER,
     ),
     _sales_skill(
+        key="needs_discovery",
+        role=AIEmployeeRoleKey.SALES_CONVERSATION,
+        capability=BusinessCapabilityKey.ANSWER_CUSTOMER,
+    ),
+    _sales_skill(
+        key="objection_handling",
+        role=AIEmployeeRoleKey.SALES_CONVERSATION,
+        capability=BusinessCapabilityKey.ANSWER_CUSTOMER,
+    ),
+    _sales_skill(
+        key="buyer_indecision",
+        role=AIEmployeeRoleKey.SALES_CONVERSATION,
+        capability=BusinessCapabilityKey.ANSWER_CUSTOMER,
+    ),
+    _sales_skill(
         key="followup_planner",
         role=AIEmployeeRoleKey.FOLLOW_UP,
         capability=BusinessCapabilityKey.FOLLOW_UP_LEAD,

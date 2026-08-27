@@ -10,6 +10,9 @@ from app.core.agent_skill_execution import AgentSkillExecutionContext
 from app.core.ai_execution_attribution import AIExecutionAttribution
 from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.sales_agent import SalesConversationAgent
+from app.departments.sales.conversation_expertise import (
+    ConversationExpertiseExecutionResult,
+)
 from app.departments.sales.handoff_policy import (
     SalesCommercialEscalationType,
     SalesHandoffDecision,
@@ -69,6 +72,7 @@ class SalesAgentSkillTurnAttribution:
     version: str
     outcome: str
     validation_outcome: str
+    structured_result: dict[str, object] | None = None
 
 
 class SalesConversationTurnService:
@@ -135,13 +139,25 @@ class SalesConversationTurnService:
             ai_invoked = False
             agent_skill = None
         elif self.agent_skill_execution_context is not None:
-            stage, skill_result = await agent.execute_pricing_explanation(
-                lead,
-                source.customer_message,
-                self.agent_skill_execution_context,
-                conversation_history=history,
-                current_stage=canonical_stage,
-            )
+            if self.agent_skill_execution_context.skill_key == "pricing_explanation":
+                stage, skill_result = await agent.execute_pricing_explanation(
+                    lead,
+                    source.customer_message,
+                    self.agent_skill_execution_context,
+                    conversation_history=history,
+                    current_stage=canonical_stage,
+                )
+                structured_result = None
+            else:
+                stage, skill_result = await agent.execute_conversation_expertise(
+                    lead,
+                    source.customer_message,
+                    self.agent_skill_execution_context,
+                    communication_channel=source.channel,
+                    conversation_history=history,
+                    current_stage=canonical_stage,
+                )
+                structured_result = skill_result.structured_result
             reply = skill_result.response_text
             ai_invoked = skill_result.ai_invoked
             agent_skill = SalesAgentSkillTurnAttribution(
@@ -149,8 +165,9 @@ class SalesConversationTurnService:
                 version=self.agent_skill_execution_context.skill_version,
                 outcome=skill_result.outcome.value,
                 validation_outcome=skill_result.validation_outcome.value,
+                structured_result=structured_result,
             )
-            skill_handoff = self._pricing_handoff_decision(skill_result)
+            skill_handoff = self._skill_handoff_decision(skill_result)
             if skill_handoff.human_attention_required:
                 assert (
                     skill_handoff.reason_code is not None and skill_handoff.explanation is not None
@@ -229,8 +246,8 @@ class SalesConversationTurnService:
         )
 
     @staticmethod
-    def _pricing_handoff_decision(
-        result: PricingExplanationExecutionResult,
+    def _skill_handoff_decision(
+        result: PricingExplanationExecutionResult | ConversationExpertiseExecutionResult,
     ) -> SalesHandoffDecision:
         if result.escalation_kind == "unsupported_discount":
             signals = SalesHandoffSignals(
@@ -239,6 +256,10 @@ class SalesConversationTurnService:
         elif result.escalation_kind == "custom_pricing":
             signals = SalesHandoffSignals(
                 commercial_escalation=SalesCommercialEscalationType.CUSTOM_PRICING
+            )
+        elif result.escalation_kind == "unsupported_commitment":
+            signals = SalesHandoffSignals(
+                commercial_escalation=SalesCommercialEscalationType.UNSUPPORTED_COMMITMENT
             )
         elif result.escalation_kind is not None:
             signals = SalesHandoffSignals(authoritative_information_unavailable=True)

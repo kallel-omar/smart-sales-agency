@@ -18,10 +18,13 @@ from app.departments.sales.agents.base import AgentContext
 from app.departments.sales.agents.follow_up import FollowUpAgent
 from app.departments.sales.agents.lead_researcher import LeadResearchAgent
 from app.departments.sales.agents.qualifier import QualificationAgent
+from app.departments.sales.conversation_expertise import (
+    CONVERSATION_EXPERTISE_VERSION,
+    select_sales_conversation_skill,
+)
 from app.departments.sales.pricing_explanation import (
     PRICING_EXPLANATION_KEY,
     PRICING_EXPLANATION_VERSION,
-    is_pricing_explanation_turn,
 )
 from app.departments.sales.services.conversation_turn_service import (
     SalesConversationTurnInput,
@@ -449,6 +452,8 @@ class SalesWorkItemExecutionService:
                 "outcome": result.agent_skill.outcome,
                 "validation_outcome": result.agent_skill.validation_outcome,
             }
+            if result.agent_skill.structured_result is not None:
+                response["agent_skill"]["result"] = result.agent_skill.structured_result
         return response
 
     def _agent_skill_context(
@@ -463,16 +468,22 @@ class SalesWorkItemExecutionService:
             "customer_message",
             max_length=10_000,
         )
-        if not is_pricing_explanation_turn(customer_message):
+        skill_key = select_sales_conversation_skill(customer_message)
+        if skill_key is None:
             return None
+        skill_version = (
+            PRICING_EXPLANATION_VERSION
+            if skill_key == PRICING_EXPLANATION_KEY
+            else CONVERSATION_EXPERTISE_VERSION
+        )
         return AgentSkillExecutionContextResolver(
             self.session,
             sales_agent_skill_registry(),
         ).resolve(
             workspace,
             target.work_item.id,
-            skill_key=PRICING_EXPLANATION_KEY,
-            skill_version=PRICING_EXPLANATION_VERSION,
+            skill_key=skill_key,
+            skill_version=skill_version,
         )
 
     async def _execute_follow_up(

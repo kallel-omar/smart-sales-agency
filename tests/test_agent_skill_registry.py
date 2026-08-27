@@ -251,6 +251,18 @@ def test_representative_sales_definitions_use_canonical_contracts_and_no_tools()
             AIEmployeeRoleKey.SALES_CONVERSATION,
             BusinessCapabilityKey.ANSWER_CUSTOMER,
         ),
+        "needs_discovery": (
+            AIEmployeeRoleKey.SALES_CONVERSATION,
+            BusinessCapabilityKey.ANSWER_CUSTOMER,
+        ),
+        "objection_handling": (
+            AIEmployeeRoleKey.SALES_CONVERSATION,
+            BusinessCapabilityKey.ANSWER_CUSTOMER,
+        ),
+        "buyer_indecision": (
+            AIEmployeeRoleKey.SALES_CONVERSATION,
+            BusinessCapabilityKey.ANSWER_CUSTOMER,
+        ),
         "followup_planner": (
             AIEmployeeRoleKey.FOLLOW_UP,
             BusinessCapabilityKey.FOLLOW_UP_LEAD,
