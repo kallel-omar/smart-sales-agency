@@ -17,10 +17,17 @@ from app.departments.sales.playbook import (
     SalesPlaybookCriterionType,
     SalesPlaybookV1,
 )
+from app.departments.sales.research_qualification_expertise import (
+    AccountResearchInput,
+    AccountResearchOutput,
+    BuyingSignalDetectionOutput,
+    BuyingSignalType,
+)
 
 QUALIFICATION_FACT_EVIDENCE_TYPE = "qualification_fact"
 QUALIFICATION_FACT_EVIDENCE_SCHEMA_VERSION = 1
 MAX_RESEARCH_EVIDENCE_ITEMS = 100
+MAX_PRODUCED_QUALIFICATION_FACTS = 20
 
 _QUALIFICATION_FACT_FIELDS = {
     "type",
@@ -42,6 +49,74 @@ class PersistedQualificationEvidence:
     def __post_init__(self) -> None:
         if not isinstance(self.research_id, UUID) or not isinstance(self.items, tuple):
             raise ICPScoringContractError("Persisted qualification evidence is invalid")
+
+
+def produce_lead_research_qualification_evidence(
+    playbook: SalesPlaybookV1,
+    account: AccountResearchOutput,
+    buying: BuyingSignalDetectionOutput,
+    source: AccountResearchInput,
+) -> list[dict[str, object]]:
+    """Produce bounded facts from validated research without trusting model labels."""
+
+    if not isinstance(playbook, SalesPlaybookV1):
+        raise ICPScoringContractError("Qualification evidence requires SalesPlaybookV1")
+    if SalesPlaybookCriterionType.BUSINESS_PROBLEM not in _requested_criterion_types(
+        playbook
+    ):
+        return []
+
+    source_map = {item.source_reference: item for item in source.sources}
+    produced: list[dict[str, object]] = []
+    explicit_problem_references = {
+        reference
+        for signal in buying.signals
+        if signal.signal_type is BuyingSignalType.EXPLICIT_BUSINESS_PAIN
+        for reference in signal.supporting_evidence
+    }
+    for reference in sorted(explicit_problem_references):
+        supporting = source_map.get(reference)
+        if supporting is None:
+            continue
+        envelope = _qualification_fact_envelope(
+            classification=SalesEvidenceClassification.CONFIRMED,
+            value=supporting.claim,
+            source_type=supporting.source_type,
+            source_reference=supporting.source_reference,
+        )
+        if envelope is not None:
+            produced.append(envelope)
+
+    for candidate in account.potential_needs:
+        if candidate.classification is not SalesEvidenceClassification.INFERENCE:
+            continue
+        supporting = source_map.get(candidate.source_reference or "")
+        if supporting is None or supporting.source_type is not candidate.source_type:
+            continue
+        envelope = _qualification_fact_envelope(
+            classification=SalesEvidenceClassification.INFERENCE,
+            value=candidate.claim,
+            source_type=candidate.source_type,
+            source_reference=supporting.source_reference,
+        )
+        if envelope is not None:
+            produced.append(envelope)
+
+    deduplicated: list[dict[str, object]] = []
+    identities: set[tuple[object, ...]] = set()
+    for envelope in produced:
+        identity = (
+            envelope["criterion_type"],
+            envelope["classification"],
+            envelope["value"],
+        )
+        if identity in identities:
+            continue
+        identities.add(identity)
+        deduplicated.append(envelope)
+        if len(deduplicated) >= MAX_PRODUCED_QUALIFICATION_FACTS:
+            break
+    return deduplicated
 
 
 def adapt_qualification_facts(
@@ -120,6 +195,34 @@ def _fact_from_research_evidence(
         )
     except (ICPScoringContractError, TypeError):
         return None
+
+
+def _qualification_fact_envelope(
+    *,
+    classification: SalesEvidenceClassification,
+    value: object,
+    source_type: SalesEvidenceSourceType,
+    source_reference: str,
+) -> dict[str, object] | None:
+    try:
+        fact = ICPFact(
+            key=SalesPlaybookCriterionType.BUSINESS_PROBLEM.value,
+            criterion_type=SalesPlaybookCriterionType.BUSINESS_PROBLEM,
+            classification=classification,
+            value=value,
+            source_type=source_type,
+            source_reference=source_reference,
+        )
+    except (ICPScoringContractError, TypeError):
+        return None
+    return {
+        "type": QUALIFICATION_FACT_EVIDENCE_TYPE,
+        "schema_version": QUALIFICATION_FACT_EVIDENCE_SCHEMA_VERSION,
+        "key": fact.key,
+        "criterion_type": fact.criterion_type.value,
+        "classification": fact.classification.value,
+        "value": fact.value,
+    }
 
 
 def _requested_criterion_types(

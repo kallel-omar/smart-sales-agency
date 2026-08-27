@@ -12,6 +12,9 @@ from app.departments.sales.prompt_composition import (
     UntrustedPromptContext,
     WorkspaceSalesInstructions,
 )
+from app.departments.sales.qualification_facts import (
+    produce_lead_research_qualification_evidence,
+)
 from app.departments.sales.research_qualification_expertise import (
     ACCOUNT_RESEARCH_INSTRUCTIONS,
     ACCOUNT_RESEARCH_KEY,
@@ -19,6 +22,7 @@ from app.departments.sales.research_qualification_expertise import (
     RESEARCH_QUALIFICATION_VERSION,
     AccountResearchInput,
     AccountResearchOutput,
+    BuyingSignalDetectionOutput,
     ExpertiseExecutionResult,
     ResearchQualificationContractError,
     ResearchQualificationValidationError,
@@ -35,6 +39,10 @@ from app.departments.sales.skills import sales_agent_skill_registry
 from app.models import Lead
 from app.services.ai_invocation_gateway import AIInvocationGatewayRequest
 from app.services.ai_model_routing import AIModelRoutingTask
+from app.services.sales_playbooks import (
+    WorkspaceSalesPlaybookPersistenceError,
+    WorkspaceSalesPlaybookService,
+)
 
 
 class LeadResearchAgent:
@@ -211,6 +219,15 @@ class LeadResearchAgent:
             raise TypeError("Buying signal output contract is invalid")
         buying = buying_signal_execution_result(buying_output)
 
+        evidence = persisted_research_evidence(account_output, buying_output, source)
+        evidence.extend(
+            self._qualification_fact_evidence(
+                lead,
+                account_output,
+                buying_output,
+                source,
+            )
+        )
         research = self.context.repository.save_research(
             lead=lead,
             summary=str(account.structured_result["company_summary"]),
@@ -223,7 +240,7 @@ class LeadResearchAgent:
                 "Validate the lead's needs through discovery",
                 "Prepare a personalized discovery message",
             ],
-            evidence=persisted_research_evidence(account_output, buying_output, source),
+            evidence=evidence,
         )
         return {
             "lead_id": str(lead.id),
@@ -237,6 +254,38 @@ class LeadResearchAgent:
                 self._skill_metadata(buying_context, buying),
             ],
         }
+
+    def _qualification_fact_evidence(
+        self,
+        lead: Lead,
+        account: AccountResearchOutput,
+        buying: BuyingSignalDetectionOutput,
+        source: AccountResearchInput,
+    ) -> list[dict[str, object]]:
+        workspace = self.context.workspace
+        if (
+            workspace is None
+            or source.workspace_id != workspace.id
+            or source.lead_id != lead.id
+            or lead.tenant_id != workspace.slug
+        ):
+            raise RuntimeError(
+                "Qualification evidence requires the resolved workspace Lead"
+            )
+        try:
+            playbook = WorkspaceSalesPlaybookService(
+                self.context.repository.session
+            ).read(workspace)
+        except WorkspaceSalesPlaybookPersistenceError:
+            return []
+        if playbook is None:
+            return []
+        return produce_lead_research_qualification_evidence(
+            playbook,
+            account,
+            buying,
+            source,
+        )
 
     async def _execute_account_research(
         self,

@@ -12,6 +12,8 @@ from app.core.capabilities import BusinessCapabilityKey
 from app.core.events import Department as DepartmentKind
 from app.core.work_items import WorkItemStatus
 from app.departments.sales.agents.lead_researcher import LeadResearchAgent
+from app.departments.sales.icp_scoring import ICPFitStatus, evaluate_icp
+from app.departments.sales.playbook import SalesPlaybookV1
 from app.departments.sales.services import (
     M09_SALES_EXECUTION_CAPABILITIES,
     SalesWorkItemExecutionAssignmentError,
@@ -27,6 +29,9 @@ from app.models import (
     Department,
     Lead,
     LeadResearch,
+    LeadStatus,
+    OutboundIntegrationAction,
+    WorkItem,
     Workspace,
 )
 from app.services.ai_employee_capability_assignments import (
@@ -35,6 +40,7 @@ from app.services.ai_employee_capability_assignments import (
 from app.services.ai_employees import AIEmployeeService
 from app.services.capabilities import CapabilityService
 from app.services.departments import DepartmentService
+from app.services.qualification_facts import QualificationFactAdapter
 from app.services.work_items import WorkItemNotFoundError, WorkItemService
 
 
@@ -201,6 +207,102 @@ async def test_research_work_item_executes_existing_agent_and_completes(
         "account_research",
         "buying_signal_detection",
     ]
+
+
+@pytest.mark.asyncio
+async def test_research_work_item_persists_playbook_relevant_qualification_evidence(
+    session: Session,
+) -> None:
+    workspace, _, lead, _, _, _, work_item = _assigned_work_item(
+        session,
+        BusinessCapabilityKey.RESEARCH_COMPANY,
+        slug="work-item-research-qualification-evidence",
+    )
+    playbook = SalesPlaybookV1.model_validate(
+        {
+            "schema_version": 1,
+            "icp": {
+                "criteria": [
+                    {
+                        "key": "explicit_business_problem",
+                        "criterion_type": "business_problem",
+                        "operator": "equals",
+                        "values": ["we struggle with slow customer response"],
+                        "importance": "required",
+                    }
+                ],
+                "disqualifiers": [],
+            },
+            "qualification": {"required_information": []},
+        }
+    )
+    workspace.sales_playbook = playbook.model_dump(mode="json")
+    inbound = ConversationMessage(
+        lead_id=lead.id,
+        direction="inbound",
+        channel="website",
+        content="We struggle with slow customer response",
+    )
+    session.add(workspace)
+    session.add(inbound)
+    session.commit()
+    original_lead_state = (lead.score, lead.sales_stage)
+
+    completed = await SalesWorkItemExecutionService(
+        session,
+        _settings(),
+    ).execute(workspace, work_item.id)
+
+    research = session.exec(
+        select(LeadResearch).where(LeadResearch.lead_id == lead.id)
+    ).one()
+    typed = [
+        item
+        for item in research.evidence
+        if item.get("type") == "qualification_fact"
+    ]
+    confirmed = [item for item in typed if item["classification"] == "confirmed"]
+    assert confirmed == [
+        {
+            "type": "qualification_fact",
+            "schema_version": 1,
+            "key": "business_problem",
+            "criterion_type": "business_problem",
+            "classification": "confirmed",
+            "value": "we struggle with slow customer response",
+        }
+    ]
+    assert all(
+        set(item)
+        == {
+            "type",
+            "schema_version",
+            "key",
+            "criterion_type",
+            "classification",
+            "value",
+        }
+        for item in typed
+    )
+    scoring_input = QualificationFactAdapter(session).build_icp_input(
+        workspace,
+        lead.id,
+        research_id=research.id,
+    )
+    assert scoring_input.facts[0].source_reference is not None
+    assert scoring_input.facts[0].source_reference.startswith(
+        f"lead_research:{research.id}:evidence:"
+    )
+    assert inbound.content not in scoring_input.facts[0].source_reference
+    assert evaluate_icp(playbook, scoring_input).fit_status is ICPFitStatus.FIT
+
+    session.refresh(lead)
+    assert (lead.score, lead.sales_stage) == original_lead_state
+    assert lead.status is LeadStatus.RESEARCHED
+    assert completed.status == WorkItemStatus.COMPLETED
+    assert session.exec(select(WorkItem)).all() == [completed]
+    assert session.exec(select(ApprovalRequest)).all() == []
+    assert session.exec(select(OutboundIntegrationAction)).all() == []
 
 
 @pytest.mark.asyncio
