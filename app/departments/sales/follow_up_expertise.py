@@ -109,6 +109,18 @@ class FollowUpStopReason(StrEnum):
     WORKSPACE_POLICY_FORBIDS = "workspace_policy_forbids"
 
 
+def terminal_follow_up_stop_reason(
+    lead_status: LeadStatus,
+) -> FollowUpStopReason | None:
+    """Return the canonical follow-up stop reason for a terminal Lead state."""
+
+    return {
+        LeadStatus.WON: FollowUpStopReason.LEAD_STATUS_WON,
+        LeadStatus.LOST: FollowUpStopReason.LEAD_STATUS_LOST,
+        LeadStatus.UNQUALIFIED: FollowUpStopReason.LEAD_STATUS_UNQUALIFIED,
+    }.get(lead_status)
+
+
 class FollowUpMessageOutcome(StrEnum):
     DRAFT_READY = "draft_ready"
     ESCALATION_REQUIRED = "escalation_required"
@@ -335,11 +347,7 @@ def plan_follow_up(source: FollowUpPlannerInput) -> FollowUpPlanOutput:
     inbound_corpus = "\n".join(message.content for message in inbound)
     if _OPT_OUT.search(inbound_corpus):
         return _stopped_plan(source, FollowUpStopReason.CUSTOMER_OPTED_OUT)
-    terminal = {
-        LeadStatus.WON: FollowUpStopReason.LEAD_STATUS_WON,
-        LeadStatus.LOST: FollowUpStopReason.LEAD_STATUS_LOST,
-        LeadStatus.UNQUALIFIED: FollowUpStopReason.LEAD_STATUS_UNQUALIFIED,
-    }.get(source.lead_status)
+    terminal = terminal_follow_up_stop_reason(source.lead_status)
     if terminal is not None:
         return _stopped_plan(source, terminal)
     if source.active_handoff:
