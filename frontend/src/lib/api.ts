@@ -7,10 +7,13 @@ import type {
   DirectSalesReply,
   IntegrationAccountRead,
   IntegrationOperationalSummaryRead,
+  HumanHandoffReplyRead,
   LeadRead,
   OperatorAIEmployeeRead,
   OperatorAnalyticsRead,
   OperatorApprovalRead,
+  OperatorHandoffRead,
+  OperatorHandoffResolutionRead,
   OperatorWorkItemRead,
   UserRead,
   WorkspaceRead
@@ -122,6 +125,40 @@ export const apiClient = {
       method: "POST",
       body: { channel, content },
       idempotencyKey
+    });
+  },
+  operatorHandoffs(token: string, workspaceSlug: string) {
+    return request<OperatorHandoffRead[]>("/api/operator/handoffs?active_only=true&limit=100", {
+      token,
+      workspaceSlug
+    });
+  },
+  humanHandoffReply({
+    token,
+    workspaceSlug,
+    handoffId,
+    content,
+    idempotencyKey
+  }: {
+    token: string;
+    workspaceSlug: string;
+    handoffId: string;
+    content: string;
+    idempotencyKey: string;
+  }) {
+    return request<HumanHandoffReplyRead>(`/api/operator/handoffs/${handoffId}/reply`, {
+      token,
+      workspaceSlug,
+      method: "POST",
+      body: { content },
+      idempotencyKey
+    });
+  },
+  resolveHandoff(token: string, workspaceSlug: string, handoffId: string) {
+    return request<OperatorHandoffResolutionRead>(`/api/operator/handoffs/${handoffId}/resolve`, {
+      token,
+      workspaceSlug,
+      method: "POST"
     });
   },
   approvals(token: string, workspaceSlug: string) {

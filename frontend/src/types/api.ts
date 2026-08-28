@@ -60,6 +60,65 @@ export interface DirectSalesReply {
   duplicate?: boolean | null;
 }
 
+export interface OperatorAssignmentRead {
+  assigned_to_membership_id: string;
+  assigned_to_user_id: string | null;
+  assigned_to_display_name: string | null;
+  assigned_at: string | null;
+  assigned_by_user_id: string | null;
+  assigned_by_membership_id: string | null;
+  assignee_membership_active: boolean | null;
+  assignee_user_active: boolean | null;
+}
+
+export interface OperatorHandoffLeadRead {
+  id: string;
+  full_name: string;
+  company_name: string;
+  job_title: string | null;
+  email: string | null;
+  phone: string | null;
+  source: string;
+  status: string;
+  sales_stage: string;
+  assignment: OperatorAssignmentRead | null;
+}
+
+export interface OperatorHandoffRead {
+  id: string;
+  lead: OperatorHandoffLeadRead;
+  reason_code: string;
+  explanation: string;
+  status: "active" | "resolved";
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
+export interface OperatorHandoffDetailRead extends OperatorHandoffRead {
+  messages: ConversationMessageRead[];
+}
+
+export interface HumanHandoffReplyRead {
+  handoff_id: string;
+  lead_id: string;
+  outbound_action_id: string;
+  outbound_status: string;
+  delivered: boolean;
+  provider_delivery_id: string | null;
+  conversation_message: ConversationMessageRead | null;
+  duplicate: boolean;
+}
+
+export interface OperatorHandoffResolutionRead {
+  handoff_id: string;
+  lead_id: string;
+  status: "resolved";
+  resolved_at: string;
+  operator_user_id: string;
+  duplicate: boolean;
+}
+
 export interface ApprovalRead {
   id: string;
   lead_id: string | null;

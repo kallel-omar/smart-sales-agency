@@ -705,7 +705,7 @@ def _safe_discovery(source: ConversationExpertiseInput) -> NeedsDiscoveryOutput:
     prior_agent_text = " ".join(
         message.content.casefold()
         for message in source.conversation_context
-        if message.direction == "outbound"
+        if message.direction in {"outbound", "human_outbound"}
     )
     has_volume = bool(re.search(r"\b\d+\b.{0,30}\b(?:messages?|leads?|conversations?)\b", corpus))
     has_channel = bool(source.communication_channel)
@@ -972,7 +972,9 @@ def _repeats_prior_question(text: str, source: ConversationExpertiseInput) -> bo
     if not current:
         return False
     for message in source.conversation_context:
-        if message.direction == "outbound" and ("?" in message.content or "؟" in message.content):
+        if message.direction in {"outbound", "human_outbound"} and (
+            "?" in message.content or "؟" in message.content
+        ):
             prior = _normalized_question(message.content)
             prior_tokens = set(prior.split())
             current_tokens = set(current.split())

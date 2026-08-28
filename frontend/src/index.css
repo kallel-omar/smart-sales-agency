@@ -537,6 +537,9 @@ select {
 .hiri-app table { text-align: start; }
 .hiri-app input, .hiri-app textarea, .hiri-app select { color: var(--app-text); border-color: var(--app-border); background-color: var(--app-surface); }
 .hiri-app option { color: var(--app-text); background: var(--app-surface); }
+.hiri-app[data-theme="dark"] .app-handoff-banner { background: #241d0a; }
+.hiri-app[data-theme="dark"] .app-handoff-banner .text-amber-900 { color: #fde68a; }
+.hiri-app[data-theme="dark"] .app-success-banner { color: #d1fae5; background: #08251d; }
 .hiri-app [dir="ltr"], .hiri-app [dir="auto"], .hiri-app .bidi-data { unicode-bidi: plaintext; }
 .hiri-app img[src$="hiri-logo.svg"] { transform: none !important; }
 .hiri-app[dir="rtl"] { font-family: Tahoma, "Segoe UI", Arial, sans-serif; line-height: 1.65; }

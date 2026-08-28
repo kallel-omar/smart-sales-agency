@@ -1184,6 +1184,7 @@ class SalesHandoffResolutionRead(BaseModel):
     created_at: datetime
     resolved_at: datetime
 
+
 class ConversationMessageRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -1194,6 +1195,65 @@ class ConversationMessageRead(BaseModel):
     stage: SalesStage
     content: str
     created_at: datetime
+
+
+class OperatorHandoffLeadRead(BaseModel):
+    """Safe customer context for the workspace handoff queue."""
+
+    id: UUID
+    full_name: str
+    company_name: str
+    job_title: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    source: str
+    status: LeadStatus
+    sales_stage: SalesStage
+    assignment: OperatorAssignmentRead | None = None
+
+
+class OperatorHandoffRead(BaseModel):
+    """Bounded operator projection of one workspace-scoped Sales handoff."""
+
+    id: UUID
+    lead: OperatorHandoffLeadRead
+    reason_code: SalesHandoffReasonCode
+    explanation: str
+    status: SalesConversationHandoffStatus
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None = None
+
+
+class OperatorHandoffDetailRead(OperatorHandoffRead):
+    messages: list[ConversationMessageRead]
+
+
+class HumanHandoffReplyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=10_000)
+
+
+class HumanHandoffReplyRead(BaseModel):
+    handoff_id: UUID
+    lead_id: UUID
+    outbound_action_id: UUID
+    outbound_status: OutboundIntegrationActionStatus
+    delivered: bool
+    provider_delivery_id: str | None = None
+    conversation_message: ConversationMessageRead | None = None
+    duplicate: bool = False
+
+
+class OperatorHandoffResolutionRead(BaseModel):
+    handoff_id: UUID
+    lead_id: UUID
+    status: SalesConversationHandoffStatus
+    resolved_at: datetime
+    operator_user_id: UUID
+    duplicate: bool = False
+
 
 class WorkspaceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")

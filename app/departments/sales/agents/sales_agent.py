@@ -602,7 +602,10 @@ class SalesConversationAgent:
             customer_message=inbound,
             communication_channel=communication_channel,
             conversation_context=tuple(
-                ConversationExpertiseMessage(message.direction, message.content)
+                ConversationExpertiseMessage(
+                    "outbound" if message.direction == "human_outbound" else message.direction,
+                    message.content,
+                )
                 for message in history
             ),
             sales_stage=stage,
@@ -640,7 +643,11 @@ class SalesConversationAgent:
             customer_message=inbound,
             conversation_context=tuple(
                 PricingConversationMessage(
-                    direction=message.direction,
+                    direction=(
+                        "outbound"
+                        if message.direction == "human_outbound"
+                        else message.direction
+                    ),
                     content=message.content,
                 )
                 for message in history

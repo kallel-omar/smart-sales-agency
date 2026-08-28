@@ -3,7 +3,13 @@ import userEvent from "@testing-library/user-event";
 
 import { renderApp } from "./test/renderApp";
 import { analyticsFixture, fixtures, installFetchMock, mockJson } from "./test/mockApi";
-import type { ConversationMessageRead, DirectSalesReply, LeadRead } from "./types/api";
+import type {
+  ConversationMessageRead,
+  DirectSalesReply,
+  HumanHandoffReplyRead,
+  LeadRead,
+  OperatorHandoffRead
+} from "./types/api";
 
 const leadFixtures: Record<string, LeadRead[]> = {
   "workspace-a": [
@@ -98,6 +104,28 @@ const messageFixtures: Record<string, ConversationMessageRead[]> = {
   ]
 };
 
+const activeHandoff: OperatorHandoffRead = {
+  id: "handoff-1",
+  lead: {
+    id: "lead-1",
+    full_name: "Casey Contact",
+    company_name: "Northwind QA",
+    job_title: "Operations lead",
+    email: "casey@example.test",
+    phone: null,
+    source: "whatsapp_cloud",
+    status: "new",
+    sales_stage: "discovery",
+    assignment: null
+  },
+  reason_code: "human_requested",
+  explanation: "A human operator needs to continue this conversation.",
+  status: "active",
+  created_at: "2026-08-12T08:03:00Z",
+  updated_at: "2026-08-12T08:03:00Z",
+  resolved_at: null
+};
+
 function installDefaultApi() {
   return installFetchMock((url, init) => {
     if (url.endsWith("/api/auth/login")) {
@@ -172,6 +200,9 @@ function installInboxApi(
   overrides: {
     reply?: (url: string, init?: RequestInit) => Response | Promise<Response>;
     conversation?: (leadId: string, init?: RequestInit) => Response | Promise<Response>;
+    handoffs?: (init?: RequestInit) => Response | Promise<Response>;
+    humanReply?: (url: string, init?: RequestInit) => Response | Promise<Response>;
+    resolveHandoff?: (url: string, init?: RequestInit) => Response | Promise<Response>;
   } = {}
 ) {
   return installFetchMock((url, init) => {
@@ -183,6 +214,44 @@ function installInboxApi(
     }
     if (url.endsWith("/api/leads")) {
       return mockJson(leadFixtures[selectedWorkspace(init)] ?? []);
+    }
+    if (url.includes("/api/operator/handoffs?")) {
+      return overrides.handoffs?.(init) ?? mockJson([]);
+    }
+    const humanReplyMatch = url.match(/\/api\/operator\/handoffs\/([^/?]+)\/reply$/);
+    if (humanReplyMatch) {
+      return (
+        overrides.humanReply?.(url, init) ??
+        mockJson({
+          handoff_id: humanReplyMatch[1],
+          lead_id: "lead-1",
+          outbound_action_id: "action-1",
+          outbound_status: "delivered",
+          delivered: true,
+          provider_delivery_id: "provider-1",
+          conversation_message: {
+            id: "human-message-1",
+            lead_id: "lead-1",
+            direction: "human_outbound",
+            channel: "whatsapp_cloud",
+            stage: "discovery",
+            content: "Human reply",
+            created_at: "2026-08-12T08:04:00Z"
+          },
+          duplicate: false
+        } satisfies HumanHandoffReplyRead)
+      );
+    }
+    const resolveMatch = url.match(/\/api\/operator\/handoffs\/([^/?]+)\/resolve$/);
+    if (resolveMatch) {
+      return overrides.resolveHandoff?.(url, init) ?? mockJson({
+        handoff_id: resolveMatch[1],
+        lead_id: "lead-1",
+        status: "resolved",
+        resolved_at: "2026-08-12T08:05:00Z",
+        operator_user_id: "user-1",
+        duplicate: false
+      });
     }
     const conversationMatch = url.match(/\/api\/conversations\/([^/?]+)(?:\?limit=\d+)?$/);
     if (conversationMatch) {
@@ -421,6 +490,127 @@ describe("HIRI frontend foundation", () => {
       channel: "whatsapp_cloud",
       content: "Please prepare a proposal."
     });
+  });
+
+  it("shows active human takeovers and sends an explicit human-authored reply", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("hiri.auth.accessToken", "test-access-token");
+    const fetchMock = installInboxApi({ handoffs: () => mockJson([activeHandoff]) });
+    renderApp("/app/inbox");
+
+    expect(await screen.findByText("Human takeover active")).toBeInTheDocument();
+    expect(screen.getByText("A human operator needs to continue this conversation.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /human takeover \(1\)/i })).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText(/human reply to customer/i),
+      "I will handle this request personally."
+    );
+    await user.click(screen.getByRole("button", { name: /send human reply/i }));
+
+    expect(await screen.findByText("Human reply delivered")).toBeInTheDocument();
+    expect(screen.getByText(/remains active until you explicitly resolve/i)).toBeInTheDocument();
+    const humanRequest = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/operator/handoffs/handoff-1/reply")
+    );
+    expect(humanRequest).toBeDefined();
+    expect((humanRequest?.[1]?.headers as Headers).get("Idempotency-Key")).toMatch(/\S+/);
+    expect(JSON.parse(humanRequest?.[1]?.body as string)).toEqual({
+      content: "I will handle this request personally."
+    });
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/conversations/lead-1/reply"))
+    ).toBe(false);
+  });
+
+  it("filters the Inbox handoff queue and explicitly resolves a takeover", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("hiri.auth.accessToken", "test-access-token");
+    let resolved = false;
+    const fetchMock = installInboxApi({
+      handoffs: () => mockJson(resolved ? [] : [activeHandoff]),
+      resolveHandoff: () => {
+        resolved = true;
+        return mockJson({
+          handoff_id: "handoff-1",
+          lead_id: "lead-1",
+          status: "resolved",
+          resolved_at: "2026-08-12T08:05:00Z",
+          operator_user_id: "user-1",
+          duplicate: false
+        });
+      }
+    });
+    renderApp("/app/inbox");
+
+    await screen.findByText("Human takeover active");
+    await user.click(screen.getByRole("button", { name: /human takeover \(1\)/i }));
+    expect(screen.queryByRole("button", { name: /Riley Retail/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /resolve handoff/i }));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).endsWith("/api/operator/handoffs/handoff-1/resolve")
+        )
+      ).toBe(true);
+    });
+    expect(await screen.findByText("No active handoffs")).toBeInTheDocument();
+  });
+
+  it("keeps human takeover active and shows safe provider delivery failure", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("hiri.auth.accessToken", "test-access-token");
+    let releaseReply: (response: Response) => void = () => undefined;
+    installInboxApi({
+      handoffs: () => mockJson([activeHandoff]),
+      humanReply: () => new Promise<Response>((resolve) => { releaseReply = resolve; })
+    });
+    renderApp("/app/inbox");
+
+    await screen.findByText("Human takeover active");
+    await user.type(screen.getByLabelText(/human reply to customer/i), "Try this human reply.");
+    await user.click(screen.getByRole("button", { name: /send human reply/i }));
+    expect(screen.getByRole("button", { name: /sending/i })).toBeDisabled();
+    releaseReply(mockJson({
+      handoff_id: "handoff-1",
+      lead_id: "lead-1",
+      outbound_action_id: "action-failed",
+      outbound_status: "failed",
+      delivered: false,
+      provider_delivery_id: null,
+      conversation_message: null,
+      duplicate: false
+    } satisfies HumanHandoffReplyRead));
+
+    expect(await screen.findByText(/provider did not accept this reply/i)).toBeInTheDocument();
+    expect(screen.getByText("Human takeover active")).toBeInTheDocument();
+    expect(screen.getByLabelText(/human reply to customer/i)).toHaveValue("Try this human reply.");
+  });
+
+  it("distinguishes a persisted human reply from customer and AI messages", async () => {
+    localStorage.setItem("hiri.auth.accessToken", "test-access-token");
+    installInboxApi({
+      handoffs: () => mockJson([activeHandoff]),
+      conversation: (leadId) => mockJson([
+        ...(messageFixtures[leadId] ?? []),
+        {
+          id: "human-message",
+          lead_id: leadId,
+          direction: "human_outbound",
+          channel: "whatsapp_cloud",
+          stage: "discovery",
+          content: "A persisted human-authored reply.",
+          created_at: "2026-08-12T08:04:00Z"
+        }
+      ])
+    });
+    renderApp("/app/inbox");
+
+    expect(await screen.findByText("A persisted human-authored reply.")).toBeInTheDocument();
+    expect(screen.getByText("Human operator")).toBeInTheDocument();
+    expect(screen.getByText("Customer")).toBeInTheDocument();
+    expect(screen.getByText("Sales")).toBeInTheDocument();
   });
 
   it("shows safe reply failures without exposing backend detail", async () => {

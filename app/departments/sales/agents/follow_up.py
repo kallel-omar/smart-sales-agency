@@ -261,7 +261,9 @@ class FollowUpAgent:
             lead_display_name=lead.full_name,
             evidence=tuple(evidence),
             previous_outbound_messages=tuple(
-                message.content for message in history if message.direction == "outbound"
+                message.content
+                for message in history
+                if message.direction in {"outbound", "human_outbound"}
             ),
             configured_message=(
                 configured_message.strip()

@@ -995,7 +995,8 @@ class LeadResearch(SQLModel, table=True):
 class ConversationMessage(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     lead_id: UUID = Field(foreign_key="lead.id", index=True)
-    direction: str = Field(max_length=20)  # inbound or outbound
+    # inbound = customer; outbound = AI/system Sales; human_outbound = operator.
+    direction: str = Field(max_length=20)
     channel: str = Field(default="console", max_length=50)
     stage: SalesStage = Field(default=SalesStage.INTRODUCTION)
     content: str = Field(sa_column=Column(Text))

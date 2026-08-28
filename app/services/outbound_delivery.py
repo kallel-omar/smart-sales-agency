@@ -8,8 +8,10 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.models import (
+    ConversationMessage,
     IntegrationAccount,
     IntegrationAccountConnectionStatus,
+    Lead,
     OutboundDeliveryFailureClassification,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
@@ -408,6 +410,7 @@ class OutboundIntegrationDeliveryService:
             attempt.failure_code = None
             attempt.failure_message = None
             attempt.failure_classification = None
+            self._persist_human_conversation_projection(action)
             self._record_transition_audit(action, previous_status)
         else:
             self.transition_guard.require_transition(
@@ -437,6 +440,41 @@ class OutboundIntegrationDeliveryService:
                 )
         self.session.add(action)
         self.session.add(attempt)
+
+    def _persist_human_conversation_projection(
+        self,
+        action: OutboundIntegrationAction,
+    ) -> None:
+        """Project a trusted human reply into canonical history on any successful try."""
+
+        if action.payload.get("message_origin") != "human_operator":
+            return
+        message_id_value = action.payload.get("conversation_message_id")
+        lead_id_value = action.payload.get("lead_id")
+        channel = action.payload.get("channel")
+        if not isinstance(channel, str) or not channel.strip():
+            return
+        try:
+            message_id = UUID(str(message_id_value))
+            lead_id = UUID(str(lead_id_value))
+        except (TypeError, ValueError):
+            return
+        if self.session.get(ConversationMessage, message_id) is not None:
+            return
+        workspace = self.session.get(Workspace, action.workspace_id)
+        lead = self.session.get(Lead, lead_id)
+        if workspace is None or lead is None or lead.tenant_id != workspace.slug:
+            return
+        self.session.add(
+            ConversationMessage(
+                id=message_id,
+                lead_id=lead.id,
+                direction="human_outbound",
+                channel=channel.strip(),
+                stage=lead.sales_stage,
+                content=action.content,
+            )
+        )
 
     @staticmethod
     def _require_connection_execution_allowed(account: IntegrationAccount) -> None:
