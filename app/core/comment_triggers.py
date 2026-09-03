@@ -16,3 +16,4 @@ class CommentTriggerResult(StrEnum):
     OUTBOUND_DELIVERED = "outbound_delivered"
     OUTBOUND_FAILED = "outbound_failed"
     PROVIDER_INELIGIBLE = "provider_ineligible"
+    HANDOFF_ACTIVE = "handoff_active"

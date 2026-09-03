@@ -131,13 +131,16 @@ async def receive_meta_event(
                 correlation_id=reservation.receipt.correlation_id
             )
         if event.kind == "comment":
-            automation = SocialCommentAutomationService(session, settings).process(
-                workspace,
-                account,
-                event,
-                reservation,
-                integration_service,
-            )
+            with integration_service.release_event_reservation_on_failure(
+                workspace, account, reservation
+            ):
+                automation = SocialCommentAutomationService(session, settings).process(
+                    workspace,
+                    account,
+                    event,
+                    reservation,
+                    integration_service,
+                )
             return MetaCommentIntakeRead(
                 channel=event.channel,
                 external_author_id=event.sender_external_id,

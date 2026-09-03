@@ -51,6 +51,8 @@ from app.services.lead_capture import LeadCaptureService
 from app.services.meta_inbound import (
     InboundExternalIdentityBindingError,
     InboundExternalIdentityService,
+    MetaInboundNormalizationError,
+    MetaInboundNormalizer,
 )
 
 ENDPOINT = "/api/integrations/inbound-events/meta"
@@ -293,6 +295,40 @@ def _signed(account: dict, payload: dict, *, valid: bool = True) -> tuple[dict, 
 def _post(client, account: dict, payload: dict, *, valid: bool = True):
     headers, body = _signed(account, payload, valid=valid)
     return client.post(f"{ENDPOINT}/{account['id']}", headers=headers, content=body)
+
+
+def test_meta_comment_normalization_bounds_content_and_handles_optional_author_id():
+    payload = _instagram_comment("ig-account", "ig-comment-without-author-id")
+    payload["entry"][0]["changes"][0]["value"]["from"] = {"username": "amina"}
+
+    event = MetaInboundNormalizer().normalize(
+        payload,
+        provider="instagram_dm",
+        expected_account_id="ig-account",
+    )
+
+    assert event.sender_external_id == "comment:ig-comment-without-author-id"
+    assert event.display_name == "amina"
+
+    payload["entry"][0]["changes"][0]["value"]["text"] = "x" * 10_001
+    with pytest.raises(MetaInboundNormalizationError, match="field is too long"):
+        MetaInboundNormalizer().normalize(
+            payload,
+            provider="instagram_dm",
+            expected_account_id="ig-account",
+        )
+
+
+def test_meta_comment_normalizer_accepts_only_new_facebook_comments():
+    payload = _facebook_comment("page-account", "edited-comment")
+    payload["entry"][0]["changes"][0]["value"]["verb"] = "edited"
+
+    with pytest.raises(MetaInboundNormalizationError, match="Unsupported Facebook event"):
+        MetaInboundNormalizer().normalize(
+            payload,
+            provider="facebook_messenger",
+            expected_account_id="page-account",
+        )
 
 
 @pytest.mark.parametrize(

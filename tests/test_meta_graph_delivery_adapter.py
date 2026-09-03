@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlmodel import Session, create_engine
 
@@ -66,6 +67,12 @@ class RecordingMetaTransport:
             }
         )
         return self.response
+
+
+class FailingMetaTransport:
+    def post(self, url, *, payload, headers, timeout):
+        del url, payload, headers, timeout
+        raise httpx.ReadTimeout("synthetic Meta timeout")
 
 
 def make_account(provider, *, provider_auth_mode=None):
@@ -156,18 +163,49 @@ def test_meta_adapter_maps_direct_messages(
 
 
 @pytest.mark.parametrize(
-    ("provider", "provider_auth_mode", "channel", "expected_host"),
+    (
+        "provider",
+        "provider_auth_mode",
+        "channel",
+        "expected_url",
+        "expected_payload",
+    ),
     [
-        ("facebook_messenger", None, "facebook_comment", "graph.facebook.com"),
-        ("instagram_dm", "facebook_login", "instagram_comment", "graph.facebook.com"),
-        ("instagram_dm", "instagram_login", "instagram_comment", "graph.instagram.com"),
+        (
+            "facebook_messenger",
+            None,
+            "facebook_comment",
+            "https://graph.facebook.com/v23.0/comment-123/private_replies",
+            {"message": "Hello from HIRI"},
+        ),
+        (
+            "instagram_dm",
+            "facebook_login",
+            "instagram_comment",
+            "https://graph.facebook.com/v23.0/instagram_dm-account/messages",
+            {
+                "recipient": {"comment_id": "comment-123"},
+                "message": {"text": "Hello from HIRI"},
+            },
+        ),
+        (
+            "instagram_dm",
+            "instagram_login",
+            "instagram_comment",
+            "https://graph.instagram.com/v23.0/instagram_dm-account/messages",
+            {
+                "recipient": {"comment_id": "comment-123"},
+                "message": {"text": "Hello from HIRI"},
+            },
+        ),
     ],
 )
 def test_meta_adapter_maps_comment_private_reply_into_same_provider(
     provider,
     provider_auth_mode,
     channel,
-    expected_host,
+    expected_url,
+    expected_payload,
 ):
     account = make_account(provider, provider_auth_mode=provider_auth_mode)
     action = make_action(account, channel=channel, target="comment-123")
@@ -182,13 +220,20 @@ def test_meta_adapter_maps_comment_private_reply_into_same_provider(
     result = adapter.deliver(action, account)
 
     assert result.provider_delivery_id == "private-reply-1"
-    assert transport.calls[0]["url"] == (
-        f"https://{expected_host}/v23.0/{provider}-account/messages"
-    )
-    assert transport.calls[0]["payload"] == {
-        "recipient": {"comment_id": "comment-123"},
-        "message": {"text": "Hello from HIRI"},
-    }
+    assert transport.calls[0]["url"] == expected_url
+    assert transport.calls[0]["payload"] == expected_payload
+
+
+def test_meta_adapter_rejects_cross_provider_comment_channel_without_http_call():
+    account = make_account("facebook_messenger")
+    action = make_action(account, channel="instagram_comment", target="comment-123")
+    adapter, transport = make_adapter()
+
+    result = adapter.deliver(action, account)
+
+    assert result.failure_code == "meta_channel_provider_mismatch"
+    assert result.failure_classification == OutboundDeliveryFailureClassification.VALIDATION
+    assert transport.calls == []
 
 
 def test_meta_adapter_rejects_invalid_instagram_auth_mode_without_http_call():
@@ -225,27 +270,57 @@ def test_meta_adapter_requires_access_token_reference_without_http_call():
 
 
 @pytest.mark.parametrize(
-    ("status", "failure_code", "classification"),
+    ("status", "body", "failure_code", "classification"),
     [
-        (401, "meta_authentication_failed", "authentication"),
-        (429, "meta_rate_limited", "rate_limit"),
-        (400, "meta_request_rejected", "validation"),
-        (500, "meta_server_error", "temporary"),
+        (401, {}, "meta_authentication_failed", "authentication"),
+        (400, {"error": {"code": 190}}, "meta_authentication_failed", "authentication"),
+        (403, {}, "meta_permission_denied", "permanent"),
+        (400, {"error": {"code": 200}}, "meta_permission_denied", "permanent"),
+        (
+            400,
+            {"error": {"code": 3, "message": "Bearer secret-provider-token"}},
+            "meta_capability_unavailable",
+            "permanent",
+        ),
+        (
+            400,
+            {"error": {"code": 200, "error_subcode": 2534014}},
+            "meta_private_reply_unavailable",
+            "permanent",
+        ),
+        (429, {}, "meta_rate_limited", "rate_limit"),
+        (400, {}, "meta_request_rejected", "validation"),
+        (500, {}, "meta_server_error", "temporary"),
+        (200, {}, "meta_delivery_id_missing", "unknown"),
     ],
 )
 def test_meta_adapter_maps_safe_provider_failures(
-    status, failure_code, classification
+    status, body, failure_code, classification
 ):
     account = make_account("instagram_dm")
     action = make_action(account)
     adapter, _ = make_adapter(
-        response=MetaGraphHttpResponse(status_code=status, headers={}, body={})
+        response=MetaGraphHttpResponse(status_code=status, headers={}, body=body)
     )
 
     result = adapter.deliver(action, account)
 
     assert result.failure_code == failure_code
     assert result.failure_classification.value == classification
+    assert "secret-provider-token" not in str(result)
+
+
+def test_meta_adapter_classifies_transport_timeout_without_exposing_credentials():
+    account = make_account("facebook_messenger")
+    action = make_action(account)
+    adapter, _ = make_adapter()
+    adapter.transport = FailingMetaTransport()
+
+    result = adapter.deliver(action, account)
+
+    assert result.failure_code == "meta_network_error"
+    assert result.failure_classification == OutboundDeliveryFailureClassification.TEMPORARY
+    assert "synthetic-meta-access-token" not in str(result)
 
 
 def test_default_registry_and_settings_select_native_meta_adapter():

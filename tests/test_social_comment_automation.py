@@ -2,7 +2,7 @@ import hmac
 import json
 from hashlib import sha256
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlmodel import select
@@ -16,15 +16,19 @@ from app.main import app
 from app.models import (
     AIEmployeeCapabilityAssignment,
     AIEmployeeCapabilityToolAccess,
+    AIInvocationUsage,
     ApprovalRequest,
     Contact,
     InboundCommentTriggerRule,
     InboundExternalIdentity,
     IntegrationAccount,
     Lead,
+    OutboundDeliveryFailureClassification,
     OutboundIntegrationAction,
     OutboundIntegrationActionStatus,
     OutboundIntegrationActionType,
+    SalesConversationHandoff,
+    SalesHandoffReasonCode,
     WorkItem,
     Workspace,
 )
@@ -81,6 +85,7 @@ def _setup(
     *,
     slug: str,
     provider: str = "facebook_messenger",
+    provider_auth_mode: str | None = None,
     enabled: bool = True,
     keyword: str = "interested",
     scope: str | None = None,
@@ -98,12 +103,18 @@ def _setup(
         capability = CapabilityService(session).ensure_for_department(
             workspace, department, BusinessCapabilityKey.SEND_MESSAGE
         )
-        assignment = AIEmployeeCapabilityAssignmentService(session).assign(
+        answer_capability = CapabilityService(session).ensure_for_department(
+            workspace, department, BusinessCapabilityKey.ANSWER_CUSTOMER
+        )
+        assignments = AIEmployeeCapabilityAssignmentService(session)
+        assignments.assign(workspace, employee, answer_capability)
+        assignment = assignments.assign(
             workspace, employee, capability
         )
         account = IntegrationAccount(
             workspace_id=workspace.id,
             provider=provider,
+            provider_auth_mode=provider_auth_mode,
             external_account_id=f"meta-{uuid4().hex}",
             secret_reference=META_SECRET_REFERENCE,
             credential_hash=uuid4().hex,
@@ -149,6 +160,7 @@ def _setup(
             SimpleNamespace(
                 id=account.id,
                 provider=account.provider,
+                provider_auth_mode=account.provider_auth_mode,
                 external_account_id=account.external_account_id,
             ),
             SimpleNamespace(id=assignment.id),
@@ -197,6 +209,26 @@ def _comment(account, *, event_id="comment-1", sender="social-user", text="Inter
                             "from": {"id": sender, "username": "amina"},
                             "media": {"id": "post-1"},
                         },
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _message(account, *, event_id="message-1", sender="social-user", text="Hello"):
+    return {
+        "object": "page" if account.provider == "facebook_messenger" else "instagram",
+        "entry": [
+            {
+                "id": account.external_account_id,
+                "time": 1_720_000_030,
+                "messaging": [
+                    {
+                        "sender": {"id": sender},
+                        "recipient": {"id": account.external_account_id},
+                        "timestamp": 1_720_000_029,
+                        "message": {"mid": event_id, "text": text},
                     }
                 ],
             }
@@ -343,16 +375,128 @@ def test_autonomy_governs_comment_dm_delivery(
             assert actions[0].status == OutboundIntegrationActionStatus.DELIVERED
             assert actions[0].payload["work_item_id"] == str(send_item.id)
             assert "secret" not in json.dumps(actions[0].payload).casefold()
+        assert session.exec(select(AIInvocationUsage)).all() == []
     assert len(fake_meta_graph_transport) == action_count
     if fake_meta_graph_transport:
         call = fake_meta_graph_transport[0]
-        assert call["url"].endswith(
-            f"/{account.external_account_id}/messages"
-        )
-        assert call["payload"] == {
-            "recipient": {"comment_id": "comment-1"},
-            "message": {"text": rule.dm_message},
-        }
+        if provider == "facebook_messenger":
+            assert call["url"].endswith("/comment-1/private_replies")
+            assert call["payload"] == {"message": rule.dm_message}
+        else:
+            assert call["url"].endswith(
+                f"/{account.external_account_id}/messages"
+            )
+            assert call["payload"] == {
+                "recipient": {"comment_id": "comment-1"},
+                "message": {"text": rule.dm_message},
+            }
+
+
+def test_native_instagram_comment_private_reply_uses_native_graph_host(
+    client, monkeypatch, fake_meta_graph_transport
+):
+    monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
+    workspace, account, assignment, _ = _setup(
+        client,
+        slug="comment-native-instagram",
+        provider="instagram_dm",
+        provider_auth_mode="instagram_login",
+    )
+    _grant(
+        workspace,
+        account,
+        assignment,
+        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+    )
+
+    response = _post(client, account, _comment(account))
+
+    assert response.status_code == 200
+    assert response.json()["trigger_result"] == "outbound_delivered"
+    assert fake_meta_graph_transport[0]["url"].startswith("https://graph.instagram.com/")
+
+
+@pytest.mark.parametrize(
+    ("provider", "provider_auth_mode"),
+    [
+        ("facebook_messenger", None),
+        ("instagram_dm", "facebook_login"),
+        ("instagram_dm", "instagram_login"),
+    ],
+)
+def test_signed_comment_e2e_is_durable_and_duplicate_safe(
+    client,
+    monkeypatch,
+    provider,
+    provider_auth_mode,
+    fake_meta_graph_transport,
+):
+    monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
+    workspace, account, assignment, _ = _setup(
+        client,
+        slug=f"comment-e2e-{provider}-{provider_auth_mode or 'default'}",
+        provider=provider,
+        provider_auth_mode=provider_auth_mode,
+        keyword="price",
+    )
+    _grant(
+        workspace,
+        account,
+        assignment,
+        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+    )
+    payload = _comment(account, text="How much is it? Please share the PRICE.")
+
+    first = _post(client, account, payload)
+    duplicate = _post(client, account, payload)
+
+    assert first.status_code == 200
+    assert first.json()["trigger_result"] == "outbound_delivered"
+    assert duplicate.status_code == 200
+    assert duplicate.json()["duplicate"] is True
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        assert len(session.exec(select(Lead)).all()) == 1
+        assert len(
+            session.exec(select(WorkItem).where(WorkItem.work_type == "lead_capture")).all()
+        ) == 1
+        assert len(
+            session.exec(
+                select(WorkItem).where(WorkItem.work_type == "social_comment_dm")
+            ).all()
+        ) == 1
+        assert len(session.exec(select(OutboundIntegrationAction)).all()) == 1
+        assert session.exec(select(AIInvocationUsage)).all() == []
+    assert len(fake_meta_graph_transport) == 1
+
+
+def test_comment_identity_converges_into_existing_meta_dm_sales_lead(
+    client, monkeypatch
+):
+    monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
+    workspace, account, assignment, _ = _setup(client, slug="comment-dm-convergence")
+    _grant(
+        workspace,
+        account,
+        assignment,
+        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+    )
+
+    comment = _post(client, account, _comment(account, sender="shared-user"))
+    message = _post(
+        client,
+        account,
+        _message(account, sender="shared-user", text="I would like the details"),
+    )
+
+    assert comment.status_code == 200
+    assert message.status_code == 200
+    assert message.json()["lead_id"] == comment.json()["lead_id"]
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        assert len(session.exec(select(InboundExternalIdentity)).all()) == 1
+        assert len(session.exec(select(Contact)).all()) == 1
+        assert len(session.exec(select(Lead)).all()) == 1
 
 
 def test_wrong_account_grant_is_denied_and_duplicate_comment_is_suppressed(client, monkeypatch):
@@ -386,6 +530,115 @@ def test_wrong_account_grant_is_denied_and_duplicate_comment_is_suppressed(clien
     with next(session_dependency()) as session:
         assert len(session.exec(select(WorkItem)).all()) == 3
         assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+def test_disabled_meta_account_and_account_authored_comment_cannot_trigger_dm(
+    client, monkeypatch
+):
+    monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
+    _workspace, account, _, _ = _setup(client, slug="comment-account-gates")
+    own_comment = _post(
+        client,
+        account,
+        _comment(account, event_id="own-comment", sender=account.external_account_id),
+    )
+    assert own_comment.status_code == 200
+    assert own_comment.json()["trigger_result"] == "no_match"
+
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        stored = session.get(IntegrationAccount, account.id)
+        assert stored is not None
+        stored.active = False
+        session.add(stored)
+        session.commit()
+
+    disabled = _post(
+        client,
+        account,
+        _comment(account, event_id="disabled-comment"),
+    )
+    assert disabled.status_code == 401
+    with next(session_dependency()) as session:
+        assert session.exec(select(Lead)).all() == []
+        assert session.exec(select(OutboundIntegrationAction)).all() == []
+
+
+def test_active_handoff_suppresses_new_comment_automation(client, monkeypatch):
+    monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
+    workspace, account, assignment, _ = _setup(client, slug="comment-active-handoff")
+    _grant(
+        workspace,
+        account,
+        assignment,
+        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+    )
+    first = _post(client, account, _comment(account, event_id="handoff-first"))
+    assert first.json()["trigger_result"] == "outbound_delivered"
+
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        lead = session.get(Lead, UUID(first.json()["lead_id"]))
+        assert lead is not None
+        session.add(
+            SalesConversationHandoff(
+                workspace_id=workspace.id,
+                lead_id=lead.id,
+                reason_code=SalesHandoffReasonCode.HUMAN_REQUESTED,
+                explanation="Operator is handling this conversation.",
+            )
+        )
+        session.commit()
+
+    second = _post(client, account, _comment(account, event_id="handoff-second"))
+
+    assert second.status_code == 200
+    assert second.json()["trigger_result"] == "handoff_active"
+    assert second.json()["lead_id"] == first.json()["lead_id"]
+    assert second.json()["work_item_id"] is None
+    with next(session_dependency()) as session:
+        assert len(session.exec(select(OutboundIntegrationAction)).all()) == 1
+        assert len(
+            session.exec(
+                select(WorkItem).where(WorkItem.work_type == "social_comment_dm")
+            ).all()
+        ) == 1
+
+
+def test_post_capture_failure_releases_comment_receipt_for_provider_retry(
+    client, monkeypatch
+):
+    monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
+    workspace, account, assignment, _ = _setup(client, slug="comment-retry-release")
+    _grant(
+        workspace,
+        account,
+        assignment,
+        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+    )
+    original = CommentTriggerRuleService.resolve_send_context
+    calls = 0
+
+    def fail_once(service, selected_workspace, rule):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("synthetic post-capture failure")
+        return original(service, selected_workspace, rule)
+
+    monkeypatch.setattr(CommentTriggerRuleService, "resolve_send_context", fail_once)
+    payload = _comment(account, event_id="retryable-comment")
+
+    with pytest.raises(RuntimeError, match="synthetic post-capture failure"):
+        _post(client, account, payload)
+    retry = _post(client, account, payload)
+
+    assert retry.status_code == 200
+    assert retry.json()["trigger_result"] == "outbound_delivered"
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        assert len(session.exec(select(Lead)).all()) == 1
+        assert len(session.exec(select(OutboundIntegrationAction)).all()) == 1
 
 
 def test_ambiguous_rules_and_invalid_signature_fail_closed(client, monkeypatch):
@@ -455,3 +708,62 @@ def test_identity_and_lead_reused_across_distinct_comments_and_failure_is_durabl
         assert len(actions) == 2
         assert all(action.status == OutboundIntegrationActionStatus.FAILED for action in actions)
         assert len(session.exec(select(AIEmployeeCapabilityToolAccess)).all()) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "failure_code", "classification"),
+    [
+        (
+            400,
+            {"error": {"code": 3, "message": "sensitive provider detail"}},
+            "meta_capability_unavailable",
+            OutboundDeliveryFailureClassification.PERMANENT,
+        ),
+        (
+            400,
+            {"error": {"code": 190, "message": "sensitive provider detail"}},
+            "meta_authentication_failed",
+            OutboundDeliveryFailureClassification.AUTHENTICATION,
+        ),
+        (
+            503,
+            {"error": {"message": "sensitive provider detail"}},
+            "meta_server_error",
+            OutboundDeliveryFailureClassification.TEMPORARY,
+        ),
+    ],
+)
+def test_comment_delivery_persists_only_safe_provider_failure_state(
+    client,
+    monkeypatch,
+    status,
+    body,
+    failure_code,
+    classification,
+):
+    def failing_post(self, url, *, payload, headers, timeout):
+        del self, url, payload, headers, timeout
+        return MetaGraphHttpResponse(status_code=status, headers={}, body=body)
+
+    monkeypatch.setattr(HttpxMetaGraphHttpTransport, "post", failing_post)
+    monkeypatch.setenv(META_SECRET_REFERENCE, META_SECRET)
+    workspace, account, assignment, _ = _setup(
+        client, slug=f"comment-safe-failure-{failure_code}"
+    )
+    _grant(
+        workspace,
+        account,
+        assignment,
+        AIEmployeeAutonomyLevel.CONTROLLED_AUTOMATION,
+    )
+
+    response = _post(client, account, _comment(account))
+
+    assert response.status_code == 200
+    assert response.json()["trigger_result"] == "outbound_failed"
+    session_dependency = app.dependency_overrides[get_session]
+    with next(session_dependency()) as session:
+        action = session.exec(select(OutboundIntegrationAction)).one()
+        assert action.failure_code == failure_code
+        assert action.failure_classification == classification
+        assert "sensitive provider detail" not in json.dumps(action.model_dump(), default=str)

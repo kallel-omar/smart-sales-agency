@@ -18,6 +18,7 @@ from app.services.meta_inbound import (
     InboundExternalIdentityBindingError,
     InboundExternalIdentityService,
 )
+from app.services.repository import SalesRepository
 from app.services.send_message_work_items import (
     SendMessageWorkItemResult,
     SendMessageWorkItemService,
@@ -48,6 +49,8 @@ class SocialCommentAutomationService:
         reservation: InboundEventReservation,
         inbound: InboundIntegrationService,
     ) -> SocialCommentAutomationResult:
+        if event.sender_external_id == account.external_account_id:
+            return SocialCommentAutomationResult(outcome=CommentTriggerResult.NO_MATCH)
         if (
             event.channel == InboundCommentChannel.TIKTOK_COMMENT
             and (
@@ -101,6 +104,13 @@ class SocialCommentAutomationService:
             identities.bind_lead(workspace, account, identity, capture.lead_id)
         except InboundExternalIdentityBindingError:
             pass
+
+        if SalesRepository(self.session).get_sales_handoff(workspace, capture.lead_id):
+            return SocialCommentAutomationResult(
+                outcome=CommentTriggerResult.HANDOFF_ACTIVE,
+                rule=match.rule,
+                capture=capture,
+            )
 
         rules = CommentTriggerRuleService(self.session)
         assignment, _, capability, department = rules.resolve_send_context(workspace, match.rule)

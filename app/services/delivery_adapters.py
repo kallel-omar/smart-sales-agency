@@ -659,6 +659,23 @@ class MetaGraphDeliveryAdapter:
                 "Instagram provider authentication mode is unsupported",
                 OutboundDeliveryFailureClassification.VALIDATION,
             )
+        channel = str(action.payload.get("channel") or account.provider)
+        supported_channels = {
+            FACEBOOK_MESSENGER_PROVIDER: {
+                FACEBOOK_MESSENGER_PROVIDER,
+                "facebook_comment",
+            },
+            INSTAGRAM_DM_PROVIDER: {
+                INSTAGRAM_DM_PROVIDER,
+                "instagram_comment",
+            },
+        }
+        if channel not in supported_channels[account.provider]:
+            return DeliveryAdapterResult.failure(
+                "meta_channel_provider_mismatch",
+                "Meta message channel does not match the integration provider",
+                OutboundDeliveryFailureClassification.VALIDATION,
+            )
         if not account.external_account_id or not account.external_account_id.strip():
             return DeliveryAdapterResult.failure(
                 "meta_account_id_missing",
@@ -696,7 +713,15 @@ class MetaGraphDeliveryAdapter:
     ) -> tuple[str, dict[str, Any]]:
         graph_api_base_url = self._graph_api_base_url(account)
         channel = str(action.payload.get("channel") or account.provider)
-        if channel in {"facebook_comment", "instagram_comment"}:
+        if channel == "facebook_comment":
+            return (
+                (
+                    f"{self.graph_api_base_url}/{self.graph_api_version}/"
+                    f"{action.external_target_id}/private_replies"
+                ),
+                {"message": action.content},
+            )
+        if channel == "instagram_comment":
             return (
                 (
                     f"{graph_api_base_url}/{self.graph_api_version}/"
@@ -747,11 +772,33 @@ def normalize_meta_graph_response(
             "Meta delivery response did not include a message identifier",
             OutboundDeliveryFailureClassification.UNKNOWN,
         )
-    if response.status_code in {401, 403}:
+    error = (response.body or {}).get("error")
+    error = error if isinstance(error, dict) else {}
+    provider_code = error.get("code")
+    provider_subcode = error.get("error_subcode")
+    if response.status_code == 401 or provider_code == 190:
         return DeliveryAdapterResult.failure(
             "meta_authentication_failed",
             "Meta rejected the configured credentials",
             OutboundDeliveryFailureClassification.AUTHENTICATION,
+        )
+    if provider_code == 10903 or provider_subcode == 2534014:
+        return DeliveryAdapterResult.failure(
+            "meta_private_reply_unavailable",
+            "Meta private reply is unavailable for this comment",
+            OutboundDeliveryFailureClassification.PERMANENT,
+        )
+    if provider_code == 3:
+        return DeliveryAdapterResult.failure(
+            "meta_capability_unavailable",
+            "Meta account capability is unavailable",
+            OutboundDeliveryFailureClassification.PERMANENT,
+        )
+    if response.status_code == 403 or provider_code in {10, 200, 230}:
+        return DeliveryAdapterResult.failure(
+            "meta_permission_denied",
+            "Meta denied the required provider permission",
+            OutboundDeliveryFailureClassification.PERMANENT,
         )
     if response.status_code == 429:
         return DeliveryAdapterResult.failure(

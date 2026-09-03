@@ -69,6 +69,11 @@ class InboundExternalIdentityBindingError(RuntimeError):
 
 MetaInboundEvent = SocialInboundEvent
 
+_MAX_PROVIDER_EVENT_ID_LENGTH = 200
+_MAX_EXTERNAL_ID_LENGTH = 255
+_MAX_CONTENT_LENGTH = 10_000
+_MAX_DISPLAY_NAME_LENGTH = 200
+
 
 class MetaInboundNormalizer:
     def normalize(
@@ -88,7 +93,9 @@ class MetaInboundNormalizer:
         if not isinstance(entries, list) or not entries or not isinstance(entries[0], dict):
             raise MetaInboundNormalizationError("Meta webhook has no valid entry")
         entry = entries[0]
-        account_id = self._text(entry.get("id"), "Meta account identifier is missing")
+        account_id = self._text(
+            entry.get("id"), "Meta account identifier is missing", _MAX_EXTERNAL_ID_LENGTH
+        )
         if expected_account_id is None or account_id != expected_account_id:
             raise MetaInboundAccountMismatchError("Meta account reference does not match")
         messaging = entry.get("messaging")
@@ -118,11 +125,21 @@ class MetaInboundNormalizer:
         return SocialInboundEvent(
             kind="direct_message",
             channel=channel,
-            provider_event_id=self._text(message.get("mid"), "Meta message id is missing"),
-            sender_external_id=self._text(sender.get("id"), "Meta sender is missing"),
+            provider_event_id=self._text(
+                message.get("mid"),
+                "Meta message id is missing",
+                _MAX_PROVIDER_EVENT_ID_LENGTH,
+            ),
+            sender_external_id=self._text(
+                sender.get("id"), "Meta sender is missing", _MAX_EXTERNAL_ID_LENGTH
+            ),
             recipient_account_id=account_id,
-            content=self._text(message.get("text"), "Meta message text is missing"),
-            display_name=self._optional_text(sender.get("name")),
+            content=self._text(
+                message.get("text"), "Meta message text is missing", _MAX_CONTENT_LENGTH
+            ),
+            display_name=self._optional_text(
+                sender.get("name"), _MAX_DISPLAY_NAME_LENGTH
+            ),
             timestamp=self._timestamp(value.get("timestamp")),
             message_type="text",
         )
@@ -134,53 +151,106 @@ class MetaInboundNormalizer:
             raise MetaInboundNormalizationError("Meta comment event is invalid")
         value = change["value"]
         if provider == FACEBOOK_MESSENGER_PROVIDER:
-            if change.get("field") != "feed" or value.get("item") != "comment":
+            if (
+                change.get("field") != "feed"
+                or value.get("item") != "comment"
+                or value.get("verb") != "add"
+            ):
                 raise MetaInboundNormalizationError("Unsupported Facebook event")
             author = value.get("from")
-            if not isinstance(author, dict):
-                raise MetaInboundNormalizationError("Facebook comment author is missing")
+            author = author if isinstance(author, dict) else {}
+            comment_id = self._text(
+                value.get("comment_id"),
+                "Facebook comment id is missing",
+                _MAX_PROVIDER_EVENT_ID_LENGTH,
+            )
             return SocialInboundEvent(
                 kind="comment",
                 channel="facebook_comment",
-                provider_event_id=self._text(value.get("comment_id"), "Facebook comment id is missing"),
-                sender_external_id=self._text(author.get("id"), "Facebook comment author is missing"),
+                provider_event_id=comment_id,
+                sender_external_id=self._comment_author_id(author, value, comment_id),
                 recipient_account_id=account_id,
-                content=self._text(value.get("message"), "Facebook comment text is missing"),
-                display_name=self._optional_text(author.get("name")),
+                content=self._text(
+                    value.get("message"),
+                    "Facebook comment text is missing",
+                    _MAX_CONTENT_LENGTH,
+                ),
+                display_name=self._optional_text(
+                    author.get("name"), _MAX_DISPLAY_NAME_LENGTH
+                ),
                 timestamp=self._timestamp(value.get("created_time") or entry_time),
-                post_or_media_id=self._optional_text(value.get("post_id")),
-                parent_comment_id=self._optional_text(value.get("parent_id")),
+                post_or_media_id=self._optional_text(
+                    value.get("post_id"), _MAX_EXTERNAL_ID_LENGTH
+                ),
+                parent_comment_id=self._optional_text(
+                    value.get("parent_id"), _MAX_EXTERNAL_ID_LENGTH
+                ),
             )
         if change.get("field") != "comments":
             raise MetaInboundNormalizationError("Unsupported Instagram event")
         author = value.get("from")
-        if not isinstance(author, dict):
-            raise MetaInboundNormalizationError("Instagram comment author is missing")
+        author = author if isinstance(author, dict) else {}
         media = value.get("media")
+        comment_id = self._text(
+            value.get("id"),
+            "Instagram comment id is missing",
+            _MAX_PROVIDER_EVENT_ID_LENGTH,
+        )
         return SocialInboundEvent(
             kind="comment",
             channel="instagram_comment",
-            provider_event_id=self._text(value.get("id"), "Instagram comment id is missing"),
-            sender_external_id=self._text(author.get("id"), "Instagram comment author is missing"),
+            provider_event_id=comment_id,
+            sender_external_id=self._comment_author_id(author, value, comment_id),
             recipient_account_id=account_id,
-            content=self._text(value.get("text"), "Instagram comment text is missing"),
-            display_name=self._optional_text(author.get("username")),
+            content=self._text(
+                value.get("text"),
+                "Instagram comment text is missing",
+                _MAX_CONTENT_LENGTH,
+            ),
+            display_name=self._optional_text(
+                author.get("username"), _MAX_DISPLAY_NAME_LENGTH
+            ),
             timestamp=self._timestamp(value.get("timestamp") or entry_time),
             post_or_media_id=(
-                self._optional_text(media.get("id")) if isinstance(media, dict) else None
+                self._optional_text(media.get("id"), _MAX_EXTERNAL_ID_LENGTH)
+                if isinstance(media, dict)
+                else None
             ),
-            parent_comment_id=self._optional_text(value.get("parent_id")),
+            parent_comment_id=self._optional_text(
+                value.get("parent_id"), _MAX_EXTERNAL_ID_LENGTH
+            ),
         )
 
     @staticmethod
-    def _text(value: Any, message: str) -> str:
+    def _text(value: Any, message: str, maximum: int | None = None) -> str:
         if not isinstance(value, str) or not value.strip():
             raise MetaInboundNormalizationError(message)
-        return value.strip()
+        normalized = value.strip()
+        if maximum is not None and len(normalized) > maximum:
+            raise MetaInboundNormalizationError("Meta event field is too long")
+        return normalized
 
     @staticmethod
-    def _optional_text(value: Any) -> str | None:
-        return value.strip() if isinstance(value, str) and value.strip() else None
+    def _optional_text(value: Any, maximum: int | None = None) -> str | None:
+        normalized = value.strip() if isinstance(value, str) and value.strip() else None
+        if normalized is not None and maximum is not None and len(normalized) > maximum:
+            raise MetaInboundNormalizationError("Meta event field is too long")
+        return normalized
+
+    @classmethod
+    def _comment_author_id(
+        cls,
+        author: dict[str, Any],
+        value: dict[str, Any],
+        comment_id: str,
+    ) -> str:
+        for candidate in (author.get("id"), value.get("sender_id")):
+            normalized = cls._optional_text(candidate)
+            if normalized is not None:
+                if len(normalized) > _MAX_EXTERNAL_ID_LENGTH:
+                    raise MetaInboundNormalizationError("Meta event field is too long")
+                return normalized
+        return f"comment:{comment_id}"
 
     @staticmethod
     def _timestamp(value: Any) -> int | None:
@@ -213,9 +283,31 @@ class InboundExternalIdentityService:
                 InboundExternalIdentity.external_subject_id == external_subject_id,
             )
         ).first()
+        if identity is None:
+            alias = self._identity_channel_alias(account.provider, channel)
+            if alias is not None:
+                identity = self.session.exec(
+                    select(InboundExternalIdentity).where(
+                        InboundExternalIdentity.workspace_id == workspace.id,
+                        InboundExternalIdentity.integration_account_id == account.id,
+                        InboundExternalIdentity.channel == alias,
+                        InboundExternalIdentity.external_subject_id
+                        == external_subject_id,
+                    )
+                ).first()
         if identity is not None:
             self._validate_targets(workspace, identity.contact_id, identity.lead_id)
         return identity
+
+    @staticmethod
+    def _identity_channel_alias(provider: str, channel: str) -> str | None:
+        aliases = {
+            (FACEBOOK_MESSENGER_PROVIDER, FACEBOOK_MESSENGER_PROVIDER): "facebook_comment",
+            (FACEBOOK_MESSENGER_PROVIDER, "facebook_comment"): FACEBOOK_MESSENGER_PROVIDER,
+            (INSTAGRAM_DM_PROVIDER, INSTAGRAM_DM_PROVIDER): "instagram_comment",
+            (INSTAGRAM_DM_PROVIDER, "instagram_comment"): INSTAGRAM_DM_PROVIDER,
+        }
+        return aliases.get((provider, channel))
 
     def get_or_create_anchor(
         self,
